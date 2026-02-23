@@ -155,10 +155,6 @@
 .dark select:focus { border-color: #3b82f6; }
 
 /* Scrollbars */
-.dark ::-webkit-scrollbar       { background: #0f172a; }
-.dark ::-webkit-scrollbar-track { background: #0f172a; }
-.dark ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-.dark ::-webkit-scrollbar-thumb:hover { background: #475569; }
 
 /* Gradient stop overrides (gradients need --tw-gradient-* vars overriding) */
 .dark .from-slate-50  { --tw-gradient-from: #0f172a var(--tw-gradient-from-position); --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }

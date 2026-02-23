@@ -365,11 +365,14 @@ export const TaskBoard = memo(function TaskBoard({
       ref={boardRef}
       data-testid="task-board"
       className={cn(
-        // Mobile-first: stack columns vertically to avoid horizontal scrolling.
+        // Mobile-first: stack columns vertically.
         "grid grid-cols-1 gap-4 overflow-x-hidden pb-6",
-        // Desktop: flex-1 min-h-0 (not h-full) so the height resolves via flex, not % inheritance.
-        // overflow-y-hidden: overflow-x:auto implicitly makes overflow-y:auto — block that.
-        "sm:flex-1 sm:min-h-0 sm:grid-flow-col sm:auto-cols-[minmax(260px,320px)] sm:grid-cols-none sm:overflow-x-auto sm:overflow-y-hidden sm:pb-0",
+        // Desktop: flex row — align-items:stretch (the CSS default) gives every column
+        // the exact height of the flex container WITHOUT any h-full percentage chain.
+        // This avoids the CSS Grid circular-reference issue where grid-row:auto means
+        // h-full on children resolves to content height instead of container height.
+        // overflow-y-hidden: overflow-x:auto implicitly promotes overflow-y:visible→auto; block it.
+        "sm:flex sm:flex-row sm:gap-4 sm:flex-1 sm:min-h-0 sm:overflow-x-auto sm:overflow-y-hidden sm:pb-0",
       )}
     >
       {columns.map((column) => {
@@ -422,8 +425,8 @@ export const TaskBoard = memo(function TaskBoard({
             className={cn(
               // Mobile: stacked, auto height.
               "kanban-column flex flex-col",
-              // Desktop: fill parent height so task list can scroll independently.
-              "sm:h-full",
+              // Desktop: fixed width, no h-full needed — parent flex row stretches to container height.
+              "sm:w-[280px] sm:flex-none",
               activeColumn === column.status &&
                 !readOnly &&
                 "ring-2 ring-slate-200",

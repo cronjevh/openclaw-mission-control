@@ -3272,7 +3272,7 @@ export default function BoardDetailPage() {
                 // defined height — h-full % on children of a stretched flex item is
                 // unreliable; flex-1 on a flex child is not.
                 viewMode === "board"
-                  ? "flex flex-col overflow-hidden"
+                  ? "h-full flex flex-col overflow-hidden"
                   : "space-y-6 overflow-y-auto",
               )}>
               {error && (

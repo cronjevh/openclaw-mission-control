@@ -3267,10 +3267,13 @@ export default function BoardDetailPage() {
             ) : null}
 
             <div className={cn(
-                "min-w-0 flex-1 min-h-0 space-y-6",
-                // Board view: columns scroll independently — wrapper must NOT scroll vertically.
-                // List view: wrapper scrolls normally.
-                viewMode === "board" || isSidePanelOpen ? "overflow-hidden" : "overflow-y-auto",
+                "min-w-0 flex-1 min-h-0",
+                // Board view: flex column so TaskBoard can be a flex-1 item with a real
+                // defined height — h-full % on children of a stretched flex item is
+                // unreliable; flex-1 on a flex child is not.
+                viewMode === "board"
+                  ? "flex flex-col overflow-hidden"
+                  : "space-y-6 overflow-y-auto",
               )}>
               {error && (
                 <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-600 shadow-sm">

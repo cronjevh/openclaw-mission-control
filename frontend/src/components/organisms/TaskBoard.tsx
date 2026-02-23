@@ -367,10 +367,9 @@ export const TaskBoard = memo(function TaskBoard({
       className={cn(
         // Mobile-first: stack columns vertically to avoid horizontal scrolling.
         "grid grid-cols-1 gap-4 overflow-x-hidden pb-6",
-        // Desktop/tablet: fixed-height horizontally scrollable kanban with per-column scroll.
-        // overflow-y-hidden is critical: overflow-x:auto implicitly sets overflow-y:auto
-        // which would make the board root scroll all columns together. Explicit hidden blocks that.
-        "sm:h-full sm:grid-flow-col sm:auto-cols-[minmax(260px,320px)] sm:grid-cols-none sm:overflow-x-auto sm:overflow-y-hidden sm:pb-0",
+        // Desktop: flex-1 min-h-0 (not h-full) so the height resolves via flex, not % inheritance.
+        // overflow-y-hidden: overflow-x:auto implicitly makes overflow-y:auto — block that.
+        "sm:flex-1 sm:min-h-0 sm:grid-flow-col sm:auto-cols-[minmax(260px,320px)] sm:grid-cols-none sm:overflow-x-auto sm:overflow-y-hidden sm:pb-0",
       )}
     >
       {columns.map((column) => {

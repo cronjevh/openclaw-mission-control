@@ -3051,7 +3051,7 @@ export default function BoardDetailPage() {
       <SignedIn>
         <DashboardSidebar />
         <main
-          className="flex-1 flex flex-col overflow-hidden bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-900"
+          className="h-full flex flex-col overflow-hidden bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-900"
         >
           <div className="shrink-0 border-b border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className="px-8 py-6">

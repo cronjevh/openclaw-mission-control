@@ -29,6 +29,7 @@ type Task = {
   depends_on_task_ids?: string[];
   blocked_by_task_ids?: string[];
   is_blocked?: boolean;
+  creator_name?: string | null;
 };
 
 type TaskBoardProps = {
@@ -498,6 +499,7 @@ export const TaskBoard = memo(function TaskBoard({
                         status={task.status}
                         priority={task.priority}
                         assignee={task.assignee ?? undefined}
+                        createdBy={task.creator_name ?? undefined}
                         due={dueState.due}
                         isOverdue={dueState.isOverdue}
                         approvalsPendingCount={task.approvals_pending_count}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from sqlalchemy import func
 from sqlmodel import col, select
@@ -57,6 +58,7 @@ def _task_to_card(
     task: Task,
     *,
     agent_name_by_id: dict[UUID, str],
+    creator_name_by_user_id: dict[UUID, str],
     counts_by_task_id: dict[UUID, tuple[int, int]],
     deps_by_task_id: dict[UUID, list[UUID]],
     dependency_status_by_id_map: dict[UUID, str],
@@ -65,6 +67,7 @@ def _task_to_card(
     card = TaskCardRead.model_validate(task, from_attributes=True)
     approvals_count, approvals_pending_count = counts_by_task_id.get(task.id, (0, 0))
     assignee = agent_name_by_id.get(task.assigned_agent_id) if task.assigned_agent_id else None
+    creator_name = creator_name_by_user_id.get(task.created_by_user_id) if task.created_by_user_id else None
     depends_on_task_ids = deps_by_task_id.get(task.id, [])
     tag_state = tag_state_by_task_id.get(task.id, TagState())
     blocked_by_task_ids = blocked_by_dependency_ids(
@@ -76,6 +79,7 @@ def _task_to_card(
     return card.model_copy(
         update={
             "assignee": assignee,
+            "creator_name": creator_name,
             "approvals_count": approvals_count,
             "approvals_pending_count": approvals_pending_count,
             "depends_on_task_ids": depends_on_task_ids,
@@ -171,10 +175,26 @@ async def build_board_snapshot(session: AsyncSession, board: Board) -> BoardSnap
 
     counts_by_task_id = await task_counts_for_board(session, board_id=board.id)
 
+    # Batch-fetch creator names for task attribution
+    from app.models.users import User as UserModel
+    creator_user_ids = list({t.created_by_user_id for t in tasks if t.created_by_user_id})
+    creator_name_by_user_id: dict[UUID, str] = {}
+    if creator_user_ids:
+        user_rows = list(
+            await session.exec(
+                select(UserModel.id, UserModel.preferred_name, UserModel.name).where(
+                    col(UserModel.id).in_(creator_user_ids)
+                )
+            )
+        )
+        for user_id, preferred_name, name in user_rows:
+            creator_name_by_user_id[user_id] = (preferred_name or name or "").strip() or "User"
+
     task_cards = [
         _task_to_card(
             task,
             agent_name_by_id=agent_name_by_id,
+            creator_name_by_user_id=creator_name_by_user_id,
             counts_by_task_id=counts_by_task_id,
             deps_by_task_id=deps_by_task_id,
             dependency_status_by_id_map=dependency_status_by_id_map,

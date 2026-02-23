@@ -78,6 +78,7 @@ class TaskRead(TaskBase):
     id: UUID
     board_id: UUID | None
     created_by_user_id: UUID | None
+    creator_name: str | None = None  # denormalized for display
     in_progress_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -101,3 +102,5 @@ class TaskCommentRead(SQLModel):
     agent_id: UUID | None
     task_id: UUID | None
     created_at: datetime
+    created_by_user_id: UUID | None = None
+    author_name: str | None = None  # populated for human comments; None for agent comments

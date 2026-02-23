@@ -9,6 +9,7 @@ interface TaskCardProps {
   status?: TaskStatus;
   priority?: string;
   assignee?: string;
+  createdBy?: string;
   due?: string;
   isOverdue?: boolean;
   approvalsPendingCount?: number;
@@ -27,6 +28,7 @@ export function TaskCard({
   status,
   priority,
   assignee,
+  createdBy,
   due,
   isOverdue = false,
   approvalsPendingCount = 0,
@@ -175,6 +177,9 @@ export function TaskCard({
           </div>
         ) : null}
       </div>
+      {createdBy ? (
+        <p className="mt-1.5 text-[10px] text-slate-400">by {createdBy}</p>
+      ) : null}
     </div>
   );
 }

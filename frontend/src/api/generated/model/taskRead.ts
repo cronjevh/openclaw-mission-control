@@ -23,6 +23,7 @@ export interface TaskRead {
   id: string;
   board_id: string | null;
   created_by_user_id: string | null;
+  creator_name?: string | null;
   in_progress_at: string | null;
   created_at: string;
   updated_at: string;

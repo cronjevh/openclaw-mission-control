@@ -37,6 +37,7 @@ import { DashboardShell } from "@/components/templates/DashboardShell";
 import { BoardChatComposer } from "@/components/BoardChatComposer";
 import { TaskCustomFieldsEditor } from "./TaskCustomFieldsEditor";
 import { buildUrlWithTaskId } from "./task-detail-query";
+import { BoardSearch } from "@/components/ui/BoardSearch";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -3073,6 +3074,16 @@ export default function BoardDetailPage() {
                   ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
+                  <BoardSearch
+                    boardId={boardId}
+                    onTaskSelect={(taskId) => {
+                      const found = tasks.find((t) => t.id === taskId);
+                      if (found) {
+                        setSelectedTask(found);
+                        setIsDetailOpen(true);
+                      }
+                    }}
+                  />
                   <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1">
                     <button
                       className={cn(

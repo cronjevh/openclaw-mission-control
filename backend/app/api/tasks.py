@@ -23,6 +23,7 @@ from app.api.deps import (
     require_admin_auth,
     require_admin_or_agent,
 )
+from app.core.notify import create_user_notification, extract_user_mention_names
 from app.core.time import utcnow
 from app.db import crud
 from app.db.pagination import paginate
@@ -38,9 +39,11 @@ from app.models.task_custom_fields import (
     TaskCustomFieldDefinition,
     TaskCustomFieldValue,
 )
+from app.models.organization_members import OrganizationMember
 from app.models.task_dependencies import TaskDependency
 from app.models.task_fingerprints import TaskFingerprint
 from app.models.tasks import Task
+from app.models.users import User
 from app.schemas.activity_events import ActivityEventRead
 from app.schemas.common import OkResponse
 from app.schemas.errors import BlockedTaskError
@@ -2359,6 +2362,92 @@ async def _notify_task_update_assignment_changes(
         )
 
 
+async def _user_notify_status_change(
+    session: AsyncSession,
+    *,
+    update: _TaskUpdateInput,
+) -> None:
+    """Notify the task creator when its status changes."""
+    if update.task.created_by_user_id is None:
+        return
+    if update.previous_status == update.task.status:
+        return
+    org_id = await _board_organization_id(session, board_id=update.board_id)
+    status_label = update.task.status.replace("_", " ").title()
+    await create_user_notification(
+        session,
+        user_id=update.task.created_by_user_id,
+        org_id=org_id,
+        board_id=update.board_id,
+        task_id=update.task.id,
+        type="status_changed",
+        title=f"Task moved to {status_label}",
+        body=update.task.title,
+    )
+
+
+async def _user_notify_comment(
+    session: AsyncSession,
+    *,
+    task: Task,
+    board_id: UUID,
+    commenter_user_id: UUID | None,
+    comment_text: str,
+    author_name: str | None,
+) -> None:
+    """Notify the task creator on a new comment (if commenter != creator)."""
+    if task.created_by_user_id is None:
+        return
+    if commenter_user_id is not None and commenter_user_id == task.created_by_user_id:
+        return
+    org_id = await _board_organization_id(session, board_id=board_id)
+    snippet = comment_text[:120] + ("…" if len(comment_text) > 120 else "")
+    from_label = author_name or "Someone"
+    await create_user_notification(
+        session,
+        user_id=task.created_by_user_id,
+        org_id=org_id,
+        board_id=board_id,
+        task_id=task.id,
+        type="comment_added",
+        title=f"{from_label} commented on '{task.title}'",
+        body=snippet,
+    )
+    # @mention: look up users by name within the same org and notify them
+    mention_tokens = extract_user_mention_names(comment_text)
+    if not mention_tokens:
+        return
+    member_user_ids_stmt = (
+        select(OrganizationMember.user_id)
+        .where(col(OrganizationMember.organization_id) == org_id)
+    )
+    member_user_ids = set((await session.exec(member_user_ids_stmt)).all())
+    if not member_user_ids:
+        return
+    user_rows = await session.exec(
+        select(User).where(col(User.id).in_(list(member_user_ids)))
+    )
+    notified: set[UUID] = {task.created_by_user_id}  # already notified above
+    if commenter_user_id:
+        notified.add(commenter_user_id)
+    for user in user_rows.all():
+        user_handle = (user.name or "").lower().replace(" ", "-")
+        if any(token == user_handle or token == (user.name or "").lower() for token in mention_tokens):
+            if user.id in notified:
+                continue
+            notified.add(user.id)
+            await create_user_notification(
+                session,
+                user_id=user.id,
+                org_id=org_id,
+                board_id=board_id,
+                task_id=task.id,
+                type="mention",
+                title=f"You were mentioned in '{task.title}'",
+                body=snippet,
+            )
+
+
 async def _finalize_updated_task(
     session: AsyncSession,
     *,
@@ -2437,6 +2526,22 @@ async def _finalize_updated_task(
     await _record_task_comment_from_update(session, update=update)
     await _record_task_update_activity(session, update=update)
     await _notify_task_update_assignment_changes(session, update=update)
+    # User notifications (status change + comment)
+    await _user_notify_status_change(session, update=update)
+    if update.comment and update.comment.strip():
+        await _user_notify_comment(
+            session,
+            task=update.task,
+            board_id=update.board_id,
+            commenter_user_id=(
+                update.actor.user.id
+                if update.actor.actor_type == "user" and update.actor.user
+                else None
+            ),
+            comment_text=update.comment.strip(),
+            author_name=_comment_actor_name(update.actor),
+        )
+    await session.commit()
 
     return await _task_read_response(
         session,
@@ -2489,4 +2594,18 @@ async def create_task_comment(
             mention_names=mention_names,
         ),
     )
+    if task.board_id:
+        await _user_notify_comment(
+            session,
+            task=task,
+            board_id=task.board_id,
+            commenter_user_id=(
+                actor.user.id
+                if actor.actor_type == "user" and actor.user
+                else None
+            ),
+            comment_text=payload.message,
+            author_name=_comment_actor_name(actor),
+        )
+        await session.commit()
     return event

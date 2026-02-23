@@ -14,4 +14,6 @@ export interface TaskCommentRead {
   agent_id: string | null;
   task_id: string | null;
   created_at: string;
+  created_by_user_id?: string | null;
+  author_name?: string | null;
 }

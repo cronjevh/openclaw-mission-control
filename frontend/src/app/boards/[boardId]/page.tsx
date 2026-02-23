@@ -58,7 +58,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError } from "@/api/mutator";
+import { ApiError, customFetch } from "@/api/mutator";
+import { Download } from "lucide-react";
 import { streamAgentsApiV1AgentsStreamGet } from "@/api/generated/agents/agents";
 import {
   streamApprovalsApiV1BoardsBoardIdApprovalsStreamGet,
@@ -847,6 +848,11 @@ export default function BoardDetailPage() {
   const [commentsError, setCommentsError] = useState<string | null>(null);
   const [isPostingComment, setIsPostingComment] = useState(false);
   const [postCommentError, setPostCommentError] = useState<string | null>(null);
+  const [workspaceFiles, setWorkspaceFiles] = useState<{ name: string; path: string; is_dir: boolean; size: number | null }[]>([]);
+  const [isWorkspaceFilesOpen, setIsWorkspaceFilesOpen] = useState(true);
+  const [workspaceFileContent, setWorkspaceFileContent] = useState<string | null>(null);
+  const [workspaceFileViewPath, setWorkspaceFileViewPath] = useState<string | null>(null);
+  const [isWorkspaceFileLoading, setIsWorkspaceFileLoading] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const tasksRef = useRef<Task[]>([]);
   const approvalsRef = useRef<Approval[]>([]);
@@ -2355,6 +2361,59 @@ export default function BoardDetailPage() {
     [boardId, isSignedIn],
   );
 
+  const loadWorkspaceFiles = useCallback(async (taskId?: string) => {
+    if (!isSignedIn || !boardId) return;
+    try {
+      const qs = taskId ? `?task_id=${encodeURIComponent(taskId)}` : "";
+      const res = await customFetch<{ data: { name: string; path: string; is_dir: boolean; size: number | null }[] }>(
+        `/api/v1/boards/${boardId}/workspace/files${qs}`,
+        { method: "GET" },
+      );
+      setWorkspaceFiles(res.data ?? []);
+    } catch {
+      setWorkspaceFiles([]);
+    }
+  }, [boardId, isSignedIn]);
+
+  const downloadWorkspaceFile = useCallback(async (filePath: string) => {
+    if (!boardId) return;
+    try {
+      const res = await customFetch<{ data: string }>(
+        `/api/v1/boards/${boardId}/workspace/download?path=${encodeURIComponent(filePath)}`,
+        { method: "GET" },
+      );
+      const content = typeof res === "string" ? res : (res as { data?: string }).data ?? "";
+      const blob = new Blob([content], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filePath.split("/").pop() ?? "file.md";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      // silent fail
+    }
+  }, [boardId]);
+
+  const loadWorkspaceFileContent = useCallback(async (filePath: string) => {
+    if (!isSignedIn || !boardId) return;
+    setIsWorkspaceFileLoading(true);
+    setWorkspaceFileViewPath(filePath);
+    try {
+      const res = await customFetch<{ data: { path: string; content: string; size: number } }>(
+        `/api/v1/boards/${boardId}/workspace/file?path=${encodeURIComponent(filePath)}`,
+        { method: "GET" },
+      );
+      setWorkspaceFileContent(res.data?.content ?? "");
+    } catch {
+      setWorkspaceFileContent("Failed to load file content.");
+    } finally {
+      setIsWorkspaceFileLoading(false);
+    }
+  }, [boardId, isSignedIn]);
+
   const openComments = useCallback(
     (task: { id: string }) => {
       setIsChatOpen(false);
@@ -2374,8 +2433,9 @@ export default function BoardDetailPage() {
       setSelectedTask(fullTask);
       setIsDetailOpen(true);
       void loadComments(task.id);
+      void loadWorkspaceFiles(task.id);
     },
-    [loadComments, pathname, router, searchParams],
+    [loadComments, loadWorkspaceFiles, pathname, router, searchParams],
   );
 
   const selectedTaskDependencies = useMemo<DependencyBannerDependency[]>(() => {
@@ -3633,6 +3693,14 @@ export default function BoardDetailPage() {
                 </p>
               )}
             </div>
+            {selectedTask?.creator_name && (
+              <div className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Created by
+                </p>
+                <p className="text-sm text-slate-700">{selectedTask.creator_name}</p>
+              </div>
+            )}
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Custom fields
@@ -3839,6 +3907,49 @@ export default function BoardDetailPage() {
                 </div>
               )}
             </div>
+            {/* Workspace Files — between Approvals and Comments */}
+            {workspaceFiles.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Deliverables
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setIsWorkspaceFilesOpen((v) => !v)}
+                    className="text-xs text-slate-400 hover:text-slate-600"
+                  >
+                    {isWorkspaceFilesOpen ? "Hide" : "Show"}
+                  </button>
+                </div>
+                {isWorkspaceFilesOpen && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-2 space-y-1">
+                    {workspaceFiles.filter((f) => !f.is_dir).map((file) => (
+                      <div key={file.path} className="flex w-full items-center gap-1 rounded px-2 py-1.5 hover:bg-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => void loadWorkspaceFileContent(file.path)}
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs text-slate-600"
+                        >
+                          <span className="font-mono truncate" title={file.path}>{file.path}</span>
+                          {file.size != null && (
+                            <span className="ml-auto shrink-0 text-slate-400">{Math.ceil(file.size / 1024)}KB</span>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          title="Download"
+                          onClick={() => void downloadWorkspaceFile(file.path)}
+                          className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                        >
+                          <Download size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="space-y-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Comments
@@ -3881,13 +3992,46 @@ export default function BoardDetailPage() {
                       authorLabel={
                         comment.agent_id
                           ? (assigneeById.get(comment.agent_id) ?? "Agent")
-                          : currentUserDisplayName
+                          : (comment.author_name ?? "User")
                       }
                     />
                   ))}
                 </div>
               )}
             </div>
+            {/* File Content Viewer */}
+            {workspaceFileViewPath && (
+              <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
+                <div className="relative flex h-[80vh] w-[90vw] max-w-4xl flex-col rounded-xl bg-white shadow-2xl">
+                  <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+                    <p className="font-mono text-sm font-semibold text-slate-700 truncate">{workspaceFileViewPath}</p>
+                    <div className="flex shrink-0 items-center gap-2 ml-3">
+                      <button
+                        type="button"
+                        title="Download"
+                        onClick={() => workspaceFileViewPath && void downloadWorkspaceFile(workspaceFileViewPath)}
+                        className="flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-100"
+                      >
+                        <Download size={13} />
+                        <span>Download</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setWorkspaceFileViewPath(null); setWorkspaceFileContent(null); }}
+                        className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100"
+                      >✕</button>
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-auto p-5">
+                    {isWorkspaceFileLoading ? (
+                      <p className="text-sm text-slate-500">Loading…</p>
+                    ) : (
+                      <pre className="whitespace-pre-wrap font-mono text-xs text-slate-800">{workspaceFileContent}</pre>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </aside>

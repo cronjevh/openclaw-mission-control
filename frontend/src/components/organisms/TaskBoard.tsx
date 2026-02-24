@@ -492,7 +492,7 @@ export const TaskBoard = memo(function TaskBoard({
                 </div>
               ) : null}
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain [overflow-anchor:none] rounded-b-xl border border-t-0 border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-none [overflow-anchor:none] rounded-b-xl border border-t-0 border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800">
               <div className="space-y-3">
                 {filteredTasks.map((task) => {
                   const dueState = resolveDueState(task);

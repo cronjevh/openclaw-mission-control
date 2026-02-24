@@ -4045,42 +4045,44 @@ export default function BoardDetailPage() {
                 </div>
               )}
             </div>
-            {/* File Content Viewer */}
-            {workspaceFileViewPath && (
-              <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
-                <div className="relative flex h-[80vh] w-[90vw] max-w-4xl flex-col rounded-xl bg-white shadow-2xl">
-                  <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-                    <p className="font-mono text-sm font-semibold text-slate-700 truncate">{workspaceFileViewPath}</p>
-                    <div className="flex shrink-0 items-center gap-2 ml-3">
-                      <button
-                        type="button"
-                        title="Download"
-                        onClick={() => workspaceFileViewPath && void downloadWorkspaceFile(workspaceFileViewPath)}
-                        className="flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-100"
-                      >
-                        <Download size={13} />
-                        <span>Download</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setWorkspaceFileViewPath(null); setWorkspaceFileContent(null); }}
-                        className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100"
-                      >✕</button>
-                    </div>
-                  </div>
-                  <div className="flex-1 overflow-auto p-5">
-                    {isWorkspaceFileLoading ? (
-                      <p className="text-sm text-slate-500">Loading…</p>
-                    ) : (
-                      <pre className="whitespace-pre-wrap font-mono text-xs text-slate-800">{workspaceFileContent}</pre>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </aside>
+
+      {/* File content viewer — must live OUTSIDE the aside so fixed inset-0 covers the full viewport
+          (aside has CSS transform which creates a new containing block for fixed children) */}
+      {workspaceFileViewPath && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
+          <div className="relative flex h-[80vh] w-[90vw] max-w-4xl flex-col rounded-xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+              <p className="font-mono text-sm font-semibold text-slate-700 truncate">{workspaceFileViewPath}</p>
+              <div className="flex shrink-0 items-center gap-2 ml-3">
+                <button
+                  type="button"
+                  title="Download"
+                  onClick={() => workspaceFileViewPath && void downloadWorkspaceFile(workspaceFileViewPath)}
+                  className="flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-100"
+                >
+                  <Download size={13} />
+                  <span>Download</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setWorkspaceFileViewPath(null); setWorkspaceFileContent(null); }}
+                  className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100"
+                >✕</button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto p-5">
+              {isWorkspaceFileLoading ? (
+                <p className="text-sm text-slate-500">Loading…</p>
+              ) : (
+                <pre className="whitespace-pre-wrap font-mono text-xs text-slate-800">{workspaceFileContent}</pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <aside
         className={cn(

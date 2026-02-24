@@ -3687,6 +3687,19 @@ export default function BoardDetailPage() {
             </div>
           </div>
           <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
+            {selectedTask && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Task ID
+                </span>
+                <span
+                  className="cursor-pointer select-all rounded bg-slate-100 px-2 py-0.5 font-mono text-xs text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
+                  title="Click to select"
+                >
+                  {selectedTask.id}
+                </span>
+              </div>
+            )}
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Description
@@ -3949,13 +3962,8 @@ export default function BoardDetailPage() {
                             onClick={() => void loadWorkspaceFileContent(file.path)}
                             className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
                           >
-                            {/* Row 1: task ID badge + filename */}
+                            {/* Row 1: latest badge + filename */}
                             <div className="flex min-w-0 items-center gap-1.5">
-                              {selectedTask && (
-                                <span className="shrink-0 rounded bg-slate-200 px-1 py-px font-mono text-[10px] text-slate-500 dark:bg-slate-700 dark:text-slate-400">
-                                  #{selectedTask.id.slice(0, 8)}
-                                </span>
-                              )}
                               {idx === 0 && (
                                 <span className="shrink-0 rounded bg-emerald-100 px-1 py-px text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400">
                                   latest

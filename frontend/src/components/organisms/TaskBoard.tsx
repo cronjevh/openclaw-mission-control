@@ -162,11 +162,20 @@ export const TaskBoard = memo(function TaskBoard({
     const positions = new Map<string, CardPosition>();
     const container = boardRef.current;
     const containerRect = container?.getBoundingClientRect();
-    const scrollLeft = container?.scrollLeft ?? 0;
-    const scrollTop = container?.scrollTop ?? 0;
 
     for (const [taskId, element] of cardRefs.current.entries()) {
       const rect = element.getBoundingClientRect();
+      // Walk up the DOM accumulating scroll offsets so positions are
+      // scroll-independent. Without this, column body scrollTop shifts cause
+      // FLIP to see "moved" cards and animate them back — the scroll glitch.
+      let scrollLeft = 0;
+      let scrollTop = 0;
+      let ancestor: HTMLElement | null = element.parentElement;
+      while (ancestor && ancestor !== container) {
+        scrollLeft += ancestor.scrollLeft;
+        scrollTop += ancestor.scrollTop;
+        ancestor = ancestor.parentElement;
+      }
       positions.set(taskId, {
         left:
           containerRect && container
@@ -181,6 +190,15 @@ export const TaskBoard = memo(function TaskBoard({
 
     return positions;
   }, []);
+
+  // Stable key that changes only when tasks actually reorder or change status.
+  // Using `tasks` directly as a dep would refire FLIP on every React Query
+  // refetch (new array reference = same data), which mistakenly treats the
+  // column's scrollTop change as card movement and animates cards back up.
+  const taskListKey = useMemo(
+    () => tasks.map((t) => `${t.id}:${t.status}`).join(","),
+    [tasks],
+  );
 
   // Animate card reordering smoothly by applying FLIP whenever layout positions change.
   useLayoutEffect(() => {
@@ -284,7 +302,7 @@ export const TaskBoard = memo(function TaskBoard({
       }
       animatedTaskIdsRef.current.clear();
     };
-  }, [draggingId, measurePositions, tasks]);
+  }, [draggingId, measurePositions, taskListKey]);
 
   const grouped = useMemo(() => {
     const buckets: Record<TaskStatus, Task[]> = {

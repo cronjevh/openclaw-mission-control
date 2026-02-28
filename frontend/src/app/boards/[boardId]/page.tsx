@@ -3088,13 +3088,13 @@ export default function BoardDetailPage() {
                       }}
                     />
                   )}
-                  <div className="flex items-center gap-1 rounded-lg bg-[color:var(--surface-strong)] p-1">
+                  <div className="flex items-center gap-1 rounded-lg border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-1">
                     <button
                       className={cn(
-                        "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                        "rounded-md px-3 py-1.5 text-sm font-medium transition-all",
                         viewMode === "board"
-                          ? "bg-[color:var(--text)] text-white"
-                          : "text-muted hover:bg-[color:var(--surface-strong)] hover:text-strong",
+                          ? "bg-[color:var(--surface)] text-strong shadow-sm"
+                          : "text-muted hover:text-strong",
                       )}
                       onClick={() => setViewMode("board")}
                     >
@@ -3102,10 +3102,10 @@ export default function BoardDetailPage() {
                     </button>
                     <button
                       className={cn(
-                        "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                        "rounded-md px-3 py-1.5 text-sm font-medium transition-all",
                         viewMode === "list"
-                          ? "bg-[color:var(--text)] text-white"
-                          : "text-muted hover:bg-[color:var(--surface-strong)] hover:text-strong",
+                          ? "bg-[color:var(--surface)] text-strong shadow-sm"
+                          : "text-muted hover:text-strong",
                       )}
                       onClick={() => setViewMode("list")}
                     >

@@ -3244,7 +3244,7 @@ export default function BoardDetailPage() {
                           )}
                           onClick={() => router.push(`/agents/${agent.id}`)}
                         >
-                          <div className="relative flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--surface-strong)] text-xs font-semibold text-muted">
+                          <div className="relative flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--surface)] text-xs font-semibold text-strong border border-[color:var(--border-strong)]">
                             {agentAvatarLabel(agent)}
                             <StatusDot
                               status={agent.status}

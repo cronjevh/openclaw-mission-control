@@ -262,6 +262,19 @@ async def _require_review_before_done_when_enabled(
         raise _review_required_for_done_error()
 
 
+async def _require_comment_for_review_when_enabled(
+    session: AsyncSession,
+    *,
+    board_id: UUID,
+) -> bool:
+    requires_comment = (
+        await session.exec(
+            select(col(Board.comment_required_for_review)).where(col(Board.id) == board_id),
+        )
+    ).first()
+    return bool(requires_comment)
+
+
 async def _require_no_pending_approval_for_status_change_when_enabled(
     session: AsyncSession,
     *,
@@ -536,6 +549,70 @@ async def _send_agent_task_message(
     )
 
 
+def _assignment_notification_message(*, board: Board, task: Task, agent: Agent) -> str:
+    description = _truncate_snippet(task.description or "")
+    details = [
+        f"Board: {board.name}",
+        f"Task: {task.title}",
+        f"Task ID: {task.id}",
+        f"Status: {task.status}",
+    ]
+    if description:
+        details.append(f"Description: {description}")
+    if task.status == "review" and agent.is_board_lead:
+        action = (
+            "Take action: review the deliverables now. "
+            "Approve by moving to done or return to inbox with clear feedback."
+        )
+        return "TASK READY FOR LEAD REVIEW\n" + "\n".join(details) + f"\n\n{action}"
+    return (
+        "TASK ASSIGNED\n"
+        + "\n".join(details)
+        + ("\n\nTake action: open the task and begin work. " "Post updates as task comments.")
+    )
+
+
+def _rework_notification_message(*, board: Board, task: Task, feedback: str | None) -> str:
+    description = _truncate_snippet(task.description or "")
+    details = [
+        f"Board: {board.name}",
+        f"Task: {task.title}",
+        f"Task ID: {task.id}",
+        f"Status: {task.status}",
+    ]
+    if description:
+        details.append(f"Description: {description}")
+    requested_changes = (
+        _truncate_snippet(feedback)
+        if feedback and feedback.strip()
+        else "Lead requested changes. Review latest task comments for exact required updates."
+    )
+    return (
+        "CHANGES REQUESTED\n"
+        + "\n".join(details)
+        + "\n\nRequested changes:\n"
+        + requested_changes
+        + "\n\nTake action: address the requested changes, then move the task back to review."
+    )
+
+
+async def _latest_task_comment_by_agent(
+    session: AsyncSession,
+    *,
+    task_id: UUID,
+    agent_id: UUID,
+) -> str | None:
+    statement = (
+        select(col(ActivityEvent.message))
+        .where(col(ActivityEvent.task_id) == task_id)
+        .where(col(ActivityEvent.event_type) == "task.comment")
+        .where(col(ActivityEvent.agent_id) == agent_id)
+        .order_by(desc(col(ActivityEvent.created_at)))
+        .limit(1)
+    )
+    return (await session.exec(statement)).first()
+
+
 async def _notify_agent_on_task_assign(
     *,
     session: AsyncSession,
@@ -549,20 +626,7 @@ async def _notify_agent_on_task_assign(
     config = await dispatch.optional_gateway_config_for_board(board)
     if config is None:
         return
-    description = _truncate_snippet(task.description or "")
-    details = [
-        f"Board: {board.name}",
-        f"Task: {task.title}",
-        f"Task ID: {task.id}",
-        f"Status: {task.status}",
-    ]
-    if description:
-        details.append(f"Description: {description}")
-    message = (
-        "TASK ASSIGNED\n"
-        + "\n".join(details)
-        + ("\n\nTake action: open the task and begin work. " "Post updates as task comments.")
-    )
+    message = _assignment_notification_message(board=board, task=task, agent=agent)
     error = await _send_agent_task_message(
         dispatch=dispatch,
         session_key=agent.openclaw_session_id,
@@ -604,6 +668,53 @@ async def notify_agent_on_task_assign(
         task=task,
         agent=agent,
     )
+
+
+async def _notify_agent_on_task_rework(
+    *,
+    session: AsyncSession,
+    board: Board,
+    task: Task,
+    agent: Agent,
+    lead: Agent,
+) -> None:
+    if not agent.openclaw_session_id:
+        return
+    dispatch = GatewayDispatchService(session)
+    config = await dispatch.optional_gateway_config_for_board(board)
+    if config is None:
+        return
+    feedback = await _latest_task_comment_by_agent(
+        session,
+        task_id=task.id,
+        agent_id=lead.id,
+    )
+    message = _rework_notification_message(board=board, task=task, feedback=feedback)
+    error = await _send_agent_task_message(
+        dispatch=dispatch,
+        session_key=agent.openclaw_session_id,
+        config=config,
+        agent_name=agent.name,
+        message=message,
+    )
+    if error is None:
+        record_activity(
+            session,
+            event_type="task.rework_notified",
+            message=f"Assignee notified about requested changes: {agent.name}.",
+            agent_id=agent.id,
+            task_id=task.id,
+        )
+        await session.commit()
+    else:
+        record_activity(
+            session,
+            event_type="task.rework_notify_failed",
+            message=f"Rework notify failed: {error}",
+            agent_id=agent.id,
+            task_id=task.id,
+        )
+        await session.commit()
 
 
 async def _notify_lead_on_task_create(
@@ -2479,9 +2590,12 @@ async def _finalize_updated_task(
     update.task.updated_at = utcnow()
 
     status_raw = update.updates.get("status")
-    # Entering review requires either a new comment or a valid recent one to
-    # ensure reviewers get context on readiness.
-    if status_raw == "review":
+    # Entering review can require a new comment or valid recent context when
+    # the board-level rule is enabled.
+    if status_raw == "review" and await _require_comment_for_review_when_enabled(
+        session,
+        board_id=update.board_id,
+    ):
         comment_text = (update.comment or "").strip()
         review_comment_author = update.task.assigned_agent_id or update.previous_assigned
         review_comment_since = (

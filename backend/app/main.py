@@ -31,6 +31,7 @@ from app.api.tags import router as tags_router
 from app.api.task_custom_fields import router as task_custom_fields_router
 from app.api.tasks import router as tasks_router
 from app.api.users import router as users_router
+from app.core.security_headers import SecurityHeadersMiddleware
 from app.api.notifications import router as notifications_router
 from app.api.search import router as search_router
 from app.api.workspace_files import router as workspace_files_router

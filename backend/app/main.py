@@ -38,6 +38,7 @@ from app.api.workspace_files import router as workspace_files_router
 from app.core.config import settings
 from app.core.error_handling import install_error_handling
 from app.core.logging import configure_logging, get_logger
+from app.core.security_headers import SecurityHeadersMiddleware
 from app.db.session import init_db
 from app.schemas.health import HealthStatusResponse
 
@@ -468,6 +469,13 @@ if origins:
 else:
     logger.info("app.cors.disabled")
 
+app.add_middleware(
+    SecurityHeadersMiddleware,
+    x_content_type_options=settings.security_header_x_content_type_options,
+    x_frame_options=settings.security_header_x_frame_options,
+    referrer_policy=settings.security_header_referrer_policy,
+    permissions_policy=settings.security_header_permissions_policy,
+)
 install_error_handling(app)
 
 

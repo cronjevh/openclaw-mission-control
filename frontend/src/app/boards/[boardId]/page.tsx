@@ -3056,9 +3056,9 @@ export default function BoardDetailPage() {
       <SignedIn>
         <DashboardSidebar />
         <main
-          className="h-full flex flex-col overflow-hidden bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-900"
+          className="h-full flex flex-col overflow-hidden bg-[color:var(--bg)]"
         >
-          <div className="shrink-0 border-b border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <div className="shrink-0 border-b border-[color:var(--border)] bg-[color:var(--surface)] shadow-sm">
             <div className="px-8 py-6">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>

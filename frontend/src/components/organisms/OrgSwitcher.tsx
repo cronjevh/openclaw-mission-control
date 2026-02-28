@@ -159,7 +159,7 @@ export function OrgSwitcher() {
               <SelectItem
                 key={org.id}
                 value={org.id}
-                className="rounded-md py-2 pl-7 pr-3 text-sm text-muted data-[state=checked]:bg-[color:var(--surface-muted)] data-[state=checked]:text-strong focus:bg-[color:var(--surface-strong)] dark:data-[state=checked]:bg-[color:var(--text)] dark:data-[state=checked]:text-[color:var(--text-inverse)] dark:focus:bg-[color:var(--text)]"
+                className="rounded-md py-2 pl-7 pr-3 text-sm text-muted data-[state=checked]:bg-[color:var(--surface-strong)] data-[state=checked]:text-strong focus:bg-[color:var(--surface-strong)]"
               >
                 {org.name}
               </SelectItem>
@@ -175,7 +175,7 @@ export function OrgSwitcher() {
           <SelectSeparator className="my-2" />
           <SelectItem
             value="__create__"
-            className="rounded-md py-2 pl-3 pr-3 text-sm font-medium text-muted hover:text-strong focus:bg-[color:var(--surface-strong)] dark:hover:text-[color:var(--text-inverse)] dark:focus:bg-[color:var(--text)] [&>span:first-child]:hidden"
+            className="rounded-md py-2 pl-3 pr-3 text-sm font-medium text-muted hover:text-strong focus:bg-[color:var(--surface-strong)] [&>span:first-child]:hidden"
           >
             <span className="flex items-center gap-2">
               <Plus className="h-4 w-4 text-quiet" />

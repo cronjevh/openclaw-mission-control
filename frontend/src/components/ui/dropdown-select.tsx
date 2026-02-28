@@ -40,38 +40,20 @@ type DropdownSelectProps = {
   emptyMessage?: string;
 };
 
-/**
- * Derive a human-friendly trigger placeholder from an accessible `ariaLabel`.
- *
- * Keeps placeholder strings consistent even when callers only provide aria text.
- */
 const resolvePlaceholder = (ariaLabel: string, placeholder?: string) => {
-  if (placeholder) {
-    return placeholder;
-  }
+  if (placeholder) return placeholder;
   const trimmed = ariaLabel.trim();
-  if (!trimmed) {
-    return "Select an option";
-  }
+  if (!trimmed) return "Select an option";
   return trimmed.endsWith("...") ? trimmed : `${trimmed}...`;
 };
 
-/**
- * Search input placeholder derived from `ariaLabel`.
- *
- * Example: ariaLabel="Select agent" -> "Search agent...".
- */
 const resolveSearchPlaceholder = (
   ariaLabel: string,
   searchPlaceholder?: string,
 ) => {
-  if (searchPlaceholder) {
-    return searchPlaceholder;
-  }
-  const cleaned = ariaLabel.replace(/^select\\s+/i, "").trim();
-  if (!cleaned) {
-    return "Search...";
-  }
+  if (searchPlaceholder) return searchPlaceholder;
+  const cleaned = ariaLabel.replace(/^select\s+/i, "").trim();
+  if (!cleaned) return "Search...";
   const value = `Search ${cleaned}`;
   return value.endsWith("...") ? value : `${value}...`;
 };
@@ -105,26 +87,17 @@ export default function DropdownSelect({
 
   const handleOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen);
-    if (!nextOpen) {
-      setSearchValue("");
-    }
+    if (!nextOpen) setSearchValue("");
   };
 
   const handleSelect = (nextValue: string) => {
-    if (nextValue !== value) {
-      onValueChange(nextValue);
-    }
+    if (nextValue !== value) onValueChange(nextValue);
     handleOpenChange(false);
   };
 
-  // Reset list scroll when opening or refining search so results start at the top.
   React.useEffect(() => {
-    if (!open) {
-      return;
-    }
-    if (listRef.current) {
-      listRef.current.scrollTop = 0;
-    }
+    if (!open) return;
+    if (listRef.current) listRef.current.scrollTop = 0;
   }, [open, searchValue]);
 
   return (
@@ -137,20 +110,20 @@ export default function DropdownSelect({
           aria-haspopup="listbox"
           disabled={disabled}
           className={cn(
-            "inline-flex h-10 w-auto cursor-pointer items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent disabled:cursor-not-allowed disabled:opacity-50",
-            open && "bg-slate-50",
+            "inline-flex h-10 w-auto cursor-pointer items-center justify-between gap-2 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-sm font-medium text-[color:var(--text)] shadow-sm transition-colors hover:bg-[color:var(--surface-strong)] focus:outline-none focus:ring-2 focus:ring-[color:var(--accent)] disabled:cursor-not-allowed disabled:opacity-50",
+            open && "bg-[color:var(--surface-strong)]",
             triggerClassName,
           )}
         >
           <span
             className={cn(
               "flex min-w-0 items-center gap-2 truncate",
-              showPlaceholder && "text-slate-500",
+              showPlaceholder && "text-[color:var(--text-quiet)]",
             )}
           >
             {SelectedIcon ? (
               <SelectedIcon
-                className={cn("h-4 w-4 text-slate-600", selectedIconClassName)}
+                className={cn("h-4 w-4 text-[color:var(--text-muted)]", selectedIconClassName)}
               />
             ) : null}
             <span className="truncate">
@@ -159,7 +132,7 @@ export default function DropdownSelect({
           </span>
           <ChevronDown
             className={cn(
-              "h-4 w-4 shrink-0 text-slate-400 transition-transform",
+              "h-4 w-4 shrink-0 text-[color:var(--text-quiet)] transition-transform",
               open && "rotate-180",
             )}
           />
@@ -169,11 +142,11 @@ export default function DropdownSelect({
         align="start"
         sideOffset={6}
         className={cn(
-          "w-[var(--radix-popover-trigger-width)] min-w-[12rem] overflow-hidden rounded-md border border-slate-200 bg-white p-0 text-slate-900 shadow-lg",
+          "w-[var(--radix-popover-trigger-width)] min-w-[12rem] overflow-hidden rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] p-0 shadow-[var(--shadow-float)]",
           contentClassName,
         )}
       >
-        <Command label={ariaLabel} className="w-full">
+        <Command label={ariaLabel} className="w-full bg-transparent">
           {searchEnabled ? (
             <CommandInput
               value={searchValue}
@@ -184,7 +157,7 @@ export default function DropdownSelect({
             />
           ) : null}
           <CommandList ref={listRef} className="max-h-64 p-1">
-            <CommandEmpty className="px-3 py-6 text-center text-sm text-slate-500">
+            <CommandEmpty className="px-3 py-6 text-center text-sm text-[color:var(--text-muted)]">
               {emptyMessage ?? "No results found."}
             </CommandEmpty>
             {options.map((option) => {
@@ -198,9 +171,8 @@ export default function DropdownSelect({
                   disabled={option.disabled}
                   onSelect={handleSelect}
                   className={cn(
-                    "flex items-center justify-between gap-2 rounded-lg px-4 py-3 text-sm text-gray-700 transition-colors data-[selected=true]:bg-gray-50 data-[selected=true]:text-gray-900",
-                    isSelected && "font-semibold",
-                    !isSelected && "hover:bg-gray-50",
+                    "flex cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm text-[color:var(--text)] transition-colors data-[selected=true]:bg-[color:var(--surface-strong)]",
+                    isSelected ? "font-semibold" : "font-medium",
                     itemClassName,
                   )}
                 >
@@ -208,16 +180,15 @@ export default function DropdownSelect({
                     {OptionIcon ? (
                       <OptionIcon
                         className={cn(
-                          "h-4 w-4",
-                          isSelected ? "text-gray-700" : "text-gray-500",
+                          "h-4 w-4 text-[color:var(--text-muted)]",
                           option.iconClassName,
                         )}
                       />
                     ) : null}
-                    <span className="truncate font-medium">{option.label}</span>
+                    <span className="truncate">{option.label}</span>
                   </span>
                   {isSelected ? (
-                    <Check className="h-4 w-4 text-gray-400" />
+                    <Check className="h-4 w-4 text-[color:var(--accent)]" />
                   ) : null}
                 </CommandItem>
               );

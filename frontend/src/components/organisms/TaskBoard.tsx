@@ -453,7 +453,7 @@ export const TaskBoard = memo(function TaskBoard({
             onDragOver={readOnly ? undefined : handleDragOver(column.status)}
             onDragLeave={readOnly ? undefined : handleDragLeave(column.status)}
           >
-            <div className="column-header shrink-0 z-10 rounded-t-xl border border-b-0 border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-3/90">
+            <div className="column-header shrink-0 z-10 rounded-t-xl border border-b-0 border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className={cn("h-2 w-2 rounded-full", column.dot)} />

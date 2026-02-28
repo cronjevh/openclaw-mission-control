@@ -166,7 +166,7 @@ type TooltipProps = {
 function TooltipCard({ active, payload, label, formatter }: TooltipProps) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg bg-[color:var(--text)]/95 px-3 py-2 text-xs text-[color:var(--text-inverse)] shadow-lg">
+    <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-xs text-[color:var(--text)] shadow-[var(--shadow-float)]">
       {label ? <div className="text-quiet">Period: {label}</div> : null}
       <div className="mt-1 space-y-1">
         {payload.map((entry, index) => (
@@ -181,7 +181,7 @@ function TooltipCard({ active, payload, label, formatter }: TooltipProps) {
               />
               {entry.name ?? "Value"}
             </span>
-            <span className="font-semibold text-[color:var(--text-inverse)]">
+            <span className="font-semibold text-[color:var(--text)]">
               <span className="text-quiet">Value: </span>
               {formatter
                 ? formatter(Number(entry.value ?? 0), entry.name)

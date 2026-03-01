@@ -195,6 +195,12 @@ const MARKDOWN_TABLE_COMPONENTS: Components = {
 const MARKDOWN_COMPONENTS_BASIC: Components = {
   ...MARKDOWN_TABLE_COMPONENTS,
   ...MARKDOWN_CODE_COMPONENTS,
+  img: ({ node: _node, className, ...props }) => (
+    <img
+      className={cn("my-2 max-h-48 max-w-full rounded object-contain", className)}
+      {...props}
+    />
+  ),
   a: ({ node: _node, className, children, ...props }) => (
     <a
       className={cn(

@@ -52,11 +52,18 @@ If no confident match exists for current intent, ask one clarifying question.
 {% if board_secrets %}
 
 ## Board Secrets (credentials & tool access)
-The following secrets have been provisioned for this board. Use them when accessing external tools and services:
+The following secrets have been provisioned for this board. Use them when accessing external tools and services.
 
 {% for secret in board_secrets %}
 - `{{ secret.key }}={{ secret.value }}`{% if secret.description %} — {{ secret.description }}{% endif %}
 
 {% endfor %}
+**Usage:** Read values directly from the lines above. Example in shell: `export GITHUB_ACCESS_TOKEN=<value>`.
 **Security:** Never log, print, or expose these values in task output, comments, or reports.
+**Missing a credential?** Check the Credentials Protocol in `AGENTS.md` — mention the task creator and block the task.
+{% else %}
+
+## Board Secrets
+No secrets provisioned yet for this board.
+If a task requires external credentials (GitHub token, API key, etc.) that are not listed here, follow the Credentials Protocol in `AGENTS.md`: @mention the task creator in a task comment and set the task to blocked.
 {% endif %}

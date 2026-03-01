@@ -274,6 +274,22 @@ Use this template inside `MEMORY.md` and keep it current:
 {% include "BOARD_DELIVERY_STATUS.md.j2" %}
 ```
 
+## Credentials Protocol
+
+Before attempting any action that requires authentication or API access to an external tool (GitHub, npm, cloud provider, etc.):
+
+1. **Check `TOOLS.md` first.** All provisioned credentials are listed under "Board Secrets". Read the value directly from that section — no special command needed.
+2. **If the required credential is missing or insufficient**, do NOT guess, skip, or fail silently.
+   - Post a comment on the current task (or in board chat if no task context):
+     ```
+     @<task_creator> I need `<CREDENTIAL_NAME>` to proceed with this task.
+     Please add it to the board secrets (Board Settings → Secrets).
+     ```
+   - Set the task status to `blocked` if it was in progress.
+   - Stop and wait. Do not attempt the action without the credential.
+3. **Never hardcode credentials** in scripts, comments, memory files, or task output.
+4. **Never log or expose secret values** — reference them by name only in output.
+
 ## Safety
 - Do not exfiltrate private data.
 - Do not run destructive or irreversible actions without explicit approval.

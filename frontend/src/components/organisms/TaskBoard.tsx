@@ -75,20 +75,20 @@ const columns: Array<{
     badge: "status-review border",
   },
   {
-    title: "Blocked",
-    status: "blocked",
-    dot: "bg-[color:var(--status-blocked-dot)]",
-    accent: "hover:border-[color:var(--status-blocked-hover-border)] hover:bg-[color:var(--status-blocked-hover-bg)]",
-    text: "group-hover:text-[color:var(--status-blocked-text)] text-muted",
-    badge: "status-blocked border",
-  },
-  {
     title: "Done",
     status: "done",
     dot: "bg-[color:var(--status-done-dot)]",
     accent: "hover:border-[color:var(--status-done-hover-border)] hover:bg-[color:var(--status-done-hover-bg)]",
     text: "group-hover:text-[color:var(--status-done-text)] text-muted",
     badge: "status-done border",
+  },
+  {
+    title: "Blocked",
+    status: "blocked",
+    dot: "bg-[color:var(--status-blocked-dot)]",
+    accent: "hover:border-[color:var(--status-blocked-hover-border)] hover:bg-[color:var(--status-blocked-hover-bg)]",
+    text: "group-hover:text-[color:var(--status-blocked-text)] text-muted",
+    badge: "status-blocked border",
   },
 ];
 

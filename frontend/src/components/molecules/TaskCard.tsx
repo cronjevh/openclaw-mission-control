@@ -1,8 +1,7 @@
 import { CalendarClock, UserCircle } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-
-type TaskStatus = "inbox" | "in_progress" | "review" | "done" | "blocked";
+import type { TaskStatus } from "@/components/organisms/TaskBoard";
 
 interface TaskCardProps {
   title: string;

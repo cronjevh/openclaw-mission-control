@@ -14,6 +14,7 @@ import { parseApiDatetime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 
 type TaskStatus = "inbox" | "in_progress" | "review" | "done" | "blocked";
+export type { TaskStatus };
 
 type Task = {
   id: string;

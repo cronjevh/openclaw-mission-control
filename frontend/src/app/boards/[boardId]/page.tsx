@@ -139,7 +139,7 @@ import {
 
 type Board = BoardRead;
 
-type TaskStatus = Exclude<TaskCardRead["status"], undefined>;
+type TaskStatus = "inbox" | "in_progress" | "review" | "done" | "blocked";
 
 type TaskCustomFieldPayload = {
   custom_field_values?: TaskCustomFieldValues;

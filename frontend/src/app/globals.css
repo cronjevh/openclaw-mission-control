@@ -92,6 +92,13 @@
   --status-done-hover-bg:   rgba(34, 197, 94, 0.15);
   --status-done-hover-border: rgba(34, 197, 94, 0.5);
 
+  --status-blocked-dot:           #ef4444;
+  --status-blocked-bg:            rgba(239, 68, 68, 0.08);
+  --status-blocked-text:          #b91c1c;
+  --status-blocked-border:        rgba(239, 68, 68, 0.25);
+  --status-blocked-hover-bg:      rgba(239, 68, 68, 0.14);
+  --status-blocked-hover-border:  rgba(239, 68, 68, 0.5);
+
   /* ── Priority colors ── */
   --priority-urgent-bg:   rgba(220, 38, 38, 0.10);
   --priority-urgent-text: #991b1b;
@@ -218,6 +225,13 @@
   --status-done-border:     rgba(34, 197, 94, 0.3);
   --status-done-hover-bg:   rgba(34, 197, 94, 0.22);
   --status-done-hover-border: rgba(34, 197, 94, 0.5);
+
+  --status-blocked-dot:           #f87171;
+  --status-blocked-bg:            rgba(239, 68, 68, 0.15);
+  --status-blocked-text:          #fca5a5;
+  --status-blocked-border:        rgba(239, 68, 68, 0.3);
+  --status-blocked-hover-bg:      rgba(239, 68, 68, 0.22);
+  --status-blocked-hover-border:  rgba(239, 68, 68, 0.5);
 
   /* ── Priority colors ── */
   --priority-urgent-bg:   rgba(248, 113, 113, 0.15);
@@ -508,6 +522,7 @@ select:-webkit-autofill {
   .status-inprogress { background: var(--status-inprogress-bg); color: var(--status-inprogress-text); border-color: var(--status-inprogress-border); }
   .status-review     { background: var(--status-review-bg); color: var(--status-review-text); border-color: var(--status-review-border); }
   .status-done       { background: var(--status-done-bg); color: var(--status-done-text); border-color: var(--status-done-border); }
+  .status-blocked    { background: var(--status-blocked-bg); color: var(--status-blocked-text); border-color: var(--status-blocked-border); }
 
   /* ── Priority badges ── */
   .priority-urgent  { background: var(--priority-urgent-bg); color: var(--priority-urgent-text); }

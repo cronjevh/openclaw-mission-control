@@ -521,6 +521,7 @@ const statusOptions = [
   { value: "inbox", label: "Inbox" },
   { value: "in_progress", label: "In progress" },
   { value: "review", label: "Review" },
+  { value: "blocked", label: "Blocked" },
   { value: "done", label: "Done" },
 ];
 
@@ -2910,6 +2911,8 @@ export default function BoardDetailPage() {
         return "bg-[color:var(--info-soft)] text-info";
       case "done":
         return "bg-[color:var(--success-soft)] text-success";
+      case "blocked":
+        return "bg-[color:var(--status-blocked-bg)] text-[color:var(--status-blocked-text)]";
       default:
         return "bg-[color:var(--surface-strong)] text-muted";
     }

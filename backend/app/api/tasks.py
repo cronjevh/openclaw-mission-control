@@ -91,7 +91,7 @@ if TYPE_CHECKING:
 
 router = APIRouter(prefix="/boards/{board_id}/tasks", tags=["tasks"])
 
-ALLOWED_STATUSES = {"inbox", "in_progress", "review", "done"}
+ALLOWED_STATUSES = {"inbox", "in_progress", "review", "done", "blocked"}
 TASK_EVENT_TYPES = {
     "task.created",
     "task.updated",

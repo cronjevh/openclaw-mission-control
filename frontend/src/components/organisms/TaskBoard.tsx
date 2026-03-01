@@ -13,7 +13,7 @@ import { TaskCard } from "@/components/molecules/TaskCard";
 import { parseApiDatetime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 
-type TaskStatus = "inbox" | "in_progress" | "review" | "done";
+type TaskStatus = "inbox" | "in_progress" | "review" | "done" | "blocked";
 
 type Task = {
   id: string;
@@ -72,6 +72,14 @@ const columns: Array<{
     accent: "hover:border-[color:var(--status-review-hover-border)] hover:bg-[color:var(--status-review-hover-bg)]",
     text: "group-hover:text-[color:var(--status-review-text)] text-muted",
     badge: "status-review border",
+  },
+  {
+    title: "Blocked",
+    status: "blocked",
+    dot: "bg-[color:var(--status-blocked-dot)]",
+    accent: "hover:border-[color:var(--status-blocked-hover-border)] hover:bg-[color:var(--status-blocked-hover-bg)]",
+    text: "group-hover:text-[color:var(--status-blocked-text)] text-muted",
+    badge: "status-blocked border",
   },
   {
     title: "Done",

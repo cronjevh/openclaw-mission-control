@@ -836,7 +836,7 @@ export default function BoardGroupDetailPage() {
                         className={cn(
                           "rounded-md px-2.5 py-1 text-xs font-semibold transition-colors",
                           perBoardLimit === value
-                            ? "bg-[color:var(--text)] text-white"
+                            ? "bg-[color:var(--text)] text-[color:var(--surface)]"
                             : "text-muted hover:bg-[color:var(--surface-strong)] hover:text-strong",
                         )}
                         onClick={() => setPerBoardLimit(value)}
@@ -859,7 +859,7 @@ export default function BoardGroupDetailPage() {
                           className={cn(
                             "rounded-md px-2.5 py-1 text-xs font-semibold transition-colors",
                             heartbeatEvery === value
-                              ? "bg-[color:var(--text)] text-white"
+                              ? "bg-[color:var(--text)] text-[color:var(--surface)]"
                               : "text-muted hover:bg-[color:var(--surface-strong)] hover:text-strong",
                             !canManageHeartbeat &&
                               "opacity-50 cursor-not-allowed",

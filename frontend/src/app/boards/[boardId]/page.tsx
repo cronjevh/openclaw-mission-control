@@ -3148,7 +3148,7 @@ export default function BoardDetailPage() {
                   >
                     <ShieldCheck className="h-4 w-4" />
                     {pendingApprovals.length > 0 ? (
-                      <span className="absolute -right-1 -top-1 inline-flex min-w-[18px] items-center justify-center rounded-full bg-[color:var(--text)] px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                      <span className="absolute -right-1 -top-1 inline-flex min-w-[18px] items-center justify-center rounded-full bg-[color:var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold text-white">
                         {pendingApprovals.length}
                       </span>
                     ) : null}

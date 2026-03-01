@@ -80,7 +80,7 @@ const confidenceBadgeClass = (confidence: number) => {
   if (confidence >= 80) {
     return "bg-[color:var(--warning-soft)] text-warning";
   }
-  return "bg-orange-100 text-orange-700";
+  return "bg-orange-900/30 text-orange-400 dark:bg-orange-900/30 dark:text-orange-400";
 };
 
 const humanizeAction = (value: string) =>
@@ -781,7 +781,7 @@ export function BoardApprovalsPanel({
                                 handleDecision(selectedApproval.id, "approved")
                               }
                               disabled={updatingId === selectedApproval.id}
-                              className="bg-[color:var(--text)] text-white hover:bg-[color:var(--text)]"
+                              className="bg-[color:var(--accent)] text-white hover:opacity-90"
                             >
                               Approve
                             </Button>

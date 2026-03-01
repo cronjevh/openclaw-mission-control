@@ -318,6 +318,7 @@ export const TaskBoard = memo(function TaskBoard({
       inbox: [],
       in_progress: [],
       review: [],
+      blocked: [],
       done: [],
     };
     for (const column of columns) {

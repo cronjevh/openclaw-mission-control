@@ -1888,3 +1888,53 @@ async def broadcast_gateway_lead_message(
         actor_agent=agent_ctx.agent,
         payload=payload,
     )
+
+
+# ---------------------------------------------------------------------------
+# Board Secrets — agent-authenticated fetch
+# ---------------------------------------------------------------------------
+
+from app.core.encryption import decrypt_secret  # noqa: E402
+from app.models.board_secrets import BoardSecret  # noqa: E402
+
+
+@router.get(
+    "/secrets",
+    tags=["agent-worker", "agent-lead"],
+    summary="Fetch board secrets for this agent's board",
+    description=(
+        "Returns all secrets provisioned for the agent's board as key/value pairs.\n\n"
+        "Call this **once per session** before any task that requires external credentials. "
+        "Export the returned values as environment variables and use them in commands."
+    ),
+    operation_id="agent_get_secrets",
+    openapi_extra={
+        "x-llm-intent": "fetch_credentials",
+        "x-when-to-use": [
+            "Before any task requiring external tool access (GitHub, npm, cloud, etc.)",
+            "When TOOLS.md lists secret keys you need to use",
+            "At session start if credentials are likely needed",
+        ],
+        "x-when-not-to-use": [
+            "When no external credentials are needed for the current task",
+        ],
+    },
+)
+async def get_board_secrets(
+    session: AsyncSession = SESSION_DEP,
+    agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
+) -> dict[str, str]:
+    """Return decrypted board secrets as {KEY: value} for the agent's board."""
+    agent = agent_ctx.agent
+    if not agent.board_id:
+        return {}
+    result = await session.exec(
+        select(BoardSecret).where(BoardSecret.board_id == agent.board_id)
+    )
+    secrets: dict[str, str] = {}
+    for s in result.all():
+        try:
+            secrets[s.key] = decrypt_secret(s.encrypted_value)
+        except Exception:
+            pass  # skip corrupted entries
+    return secrets

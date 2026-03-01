@@ -12,7 +12,6 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlmodel import col, select
 
-from app.core.encryption import decrypt_secret
 from app.core.time import utcnow
 from app.models.agents import Agent
 from app.models.board_secrets import BoardSecret
@@ -107,21 +106,17 @@ class AgentLifecycleOrchestrator(OpenClawDBService):
             await self.session.refresh(locked)
             return locked
 
-        # Load board secrets for injection into agent workspace files.
+        # Load board secret metadata (keys + descriptions only — no values written to disk).
         board_secrets: list[dict[str, str]] = []
         if board is not None:
             secrets_result = await self.session.exec(
                 select(BoardSecret).where(BoardSecret.board_id == board.id)
             )
             for s in secrets_result.all():
-                try:
-                    board_secrets.append({
-                        "key": s.key,
-                        "value": decrypt_secret(s.encrypted_value),
-                        "description": s.description,
-                    })
-                except Exception:
-                    pass  # skip malformed secrets silently
+                board_secrets.append({
+                    "key": s.key,
+                    "description": s.description,
+                })
 
         try:
             await OpenClawGatewayProvisioner().apply_agent_lifecycle(

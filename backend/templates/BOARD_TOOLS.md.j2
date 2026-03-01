@@ -49,21 +49,31 @@ jq -r '
 
 ## API safety
 If no confident match exists for current intent, ask one clarifying question.
+## Board Secrets
+
 {% if board_secrets %}
-
-## Board Secrets (credentials & tool access)
-The following secrets have been provisioned for this board. Use them when accessing external tools and services.
-
+The following secret keys are provisioned for this board:
 {% for secret in board_secrets %}
-- `{{ secret.key }}={{ secret.value }}`{% if secret.description %} — {{ secret.description }}{% endif %}
+- `{{ secret.key }}`{% if secret.description %} — {{ secret.description }}{% endif %}
 
 {% endfor %}
-**Usage:** Read values directly from the lines above. Example in shell: `export GITHUB_ACCESS_TOKEN=<value>`.
-**Security:** Never log, print, or expose these values in task output, comments, or reports.
-**Missing a credential?** Check the Credentials Protocol in `AGENTS.md` — mention the task creator and block the task.
 {% else %}
-
-## Board Secrets
-No secrets provisioned yet for this board.
-If a task requires external credentials (GitHub token, API key, etc.) that are not listed here, follow the Credentials Protocol in `AGENTS.md`: @mention the task creator in a task comment and set the task to blocked.
+No secrets provisioned yet. If a task needs external credentials, follow the Credentials Protocol in `AGENTS.md`.
 {% endif %}
+
+**Always fetch secrets at runtime via API — never hardcode values:**
+
+```bash
+# Fetch all board secrets and export as env vars
+eval $(curl -s -X GET "{{ base_url }}/api/v1/agent/secrets" \
+  -H "X-Agent-Token: {{ auth_token }}" | \
+  jq -r 'to_entries[] | "export \(.key)=\(.value | @sh)"')
+
+# Then use normally, e.g.:
+# git clone https://x-access-token:${GITHUB_ACCESS_TOKEN}@github.com/org/repo.git
+```
+
+**Rules:**
+- Fetch once per session/task, not on every command.
+- Never log, print, or store the fetched values anywhere.
+- If a needed key is missing from the API response, follow the Credentials Protocol in `AGENTS.md`.

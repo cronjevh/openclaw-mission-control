@@ -67,7 +67,7 @@ export type listMarketplaceSkillsApiV1SkillsMarketplaceGetResponse =
   | listMarketplaceSkillsApiV1SkillsMarketplaceGetResponseError;
 
 export const getListMarketplaceSkillsApiV1SkillsMarketplaceGetUrl = (
-  params: ListMarketplaceSkillsApiV1SkillsMarketplaceGetParams,
+  params?: ListMarketplaceSkillsApiV1SkillsMarketplaceGetParams,
 ) => {
   const normalizedParams = new URLSearchParams();
 
@@ -85,7 +85,7 @@ export const getListMarketplaceSkillsApiV1SkillsMarketplaceGetUrl = (
 };
 
 export const listMarketplaceSkillsApiV1SkillsMarketplaceGet = async (
-  params: ListMarketplaceSkillsApiV1SkillsMarketplaceGetParams,
+  params?: ListMarketplaceSkillsApiV1SkillsMarketplaceGetParams,
   options?: RequestInit,
 ): Promise<listMarketplaceSkillsApiV1SkillsMarketplaceGetResponse> => {
   return customFetch<listMarketplaceSkillsApiV1SkillsMarketplaceGetResponse>(
@@ -109,7 +109,7 @@ export const getListMarketplaceSkillsApiV1SkillsMarketplaceGetQueryOptions = <
   >,
   TError = HTTPValidationError,
 >(
-  params: ListMarketplaceSkillsApiV1SkillsMarketplaceGetParams,
+  params?: ListMarketplaceSkillsApiV1SkillsMarketplaceGetParams,
   options?: {
     query?: Partial<
       UseQueryOptions<
@@ -157,7 +157,7 @@ export function useListMarketplaceSkillsApiV1SkillsMarketplaceGet<
   >,
   TError = HTTPValidationError,
 >(
-  params: ListMarketplaceSkillsApiV1SkillsMarketplaceGetParams,
+  params: undefined | ListMarketplaceSkillsApiV1SkillsMarketplaceGetParams,
   options: {
     query: Partial<
       UseQueryOptions<
@@ -192,7 +192,7 @@ export function useListMarketplaceSkillsApiV1SkillsMarketplaceGet<
   >,
   TError = HTTPValidationError,
 >(
-  params: ListMarketplaceSkillsApiV1SkillsMarketplaceGetParams,
+  params?: ListMarketplaceSkillsApiV1SkillsMarketplaceGetParams,
   options?: {
     query?: Partial<
       UseQueryOptions<
@@ -227,7 +227,7 @@ export function useListMarketplaceSkillsApiV1SkillsMarketplaceGet<
   >,
   TError = HTTPValidationError,
 >(
-  params: ListMarketplaceSkillsApiV1SkillsMarketplaceGetParams,
+  params?: ListMarketplaceSkillsApiV1SkillsMarketplaceGetParams,
   options?: {
     query?: Partial<
       UseQueryOptions<
@@ -254,7 +254,7 @@ export function useListMarketplaceSkillsApiV1SkillsMarketplaceGet<
   >,
   TError = HTTPValidationError,
 >(
-  params: ListMarketplaceSkillsApiV1SkillsMarketplaceGetParams,
+  params?: ListMarketplaceSkillsApiV1SkillsMarketplaceGetParams,
   options?: {
     query?: Partial<
       UseQueryOptions<
@@ -597,7 +597,7 @@ export type installMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostRespo
 export const getInstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostUrl =
   (
     skillId: string,
-    params: InstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostParams,
+    params?: InstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostParams,
   ) => {
     const normalizedParams = new URLSearchParams();
 
@@ -620,7 +620,7 @@ export const getInstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostU
 export const installMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPost =
   async (
     skillId: string,
-    params: InstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostParams,
+    params?: InstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostParams,
     options?: RequestInit,
   ): Promise<installMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostResponse> => {
     return customFetch<installMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostResponse>(
@@ -646,7 +646,7 @@ export const getInstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostM
       TError,
       {
         skillId: string;
-        params: InstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostParams;
+        params?: InstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostParams;
       },
       TContext
     >;
@@ -660,7 +660,7 @@ export const getInstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostM
     TError,
     {
       skillId: string;
-      params: InstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostParams;
+      params?: InstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostParams;
     },
     TContext
   > => {
@@ -683,7 +683,7 @@ export const getInstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostM
       >,
       {
         skillId: string;
-        params: InstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostParams;
+        params?: InstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostParams;
       }
     > = (props) => {
       const { skillId, params } = props ?? {};
@@ -725,7 +725,7 @@ export const useInstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPost 
         TError,
         {
           skillId: string;
-          params: InstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostParams;
+          params?: InstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostParams;
         },
         TContext
       >;
@@ -741,7 +741,7 @@ export const useInstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPost 
     TError,
     {
       skillId: string;
-      params: InstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostParams;
+      params?: InstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostParams;
     },
     TContext
   > => {
@@ -785,7 +785,7 @@ export type uninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostR
 export const getUninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostUrl =
   (
     skillId: string,
-    params: UninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostParams,
+    params?: UninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostParams,
   ) => {
     const normalizedParams = new URLSearchParams();
 
@@ -808,7 +808,7 @@ export const getUninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallP
 export const uninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPost =
   async (
     skillId: string,
-    params: UninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostParams,
+    params?: UninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostParams,
     options?: RequestInit,
   ): Promise<uninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostResponse> => {
     return customFetch<uninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostResponse>(
@@ -834,7 +834,7 @@ export const getUninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallP
       TError,
       {
         skillId: string;
-        params: UninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostParams;
+        params?: UninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostParams;
       },
       TContext
     >;
@@ -848,7 +848,7 @@ export const getUninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallP
     TError,
     {
       skillId: string;
-      params: UninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostParams;
+      params?: UninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostParams;
     },
     TContext
   > => {
@@ -871,7 +871,7 @@ export const getUninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallP
       >,
       {
         skillId: string;
-        params: UninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostParams;
+        params?: UninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostParams;
       }
     > = (props) => {
       const { skillId, params } = props ?? {};
@@ -913,7 +913,7 @@ export const useUninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallP
         TError,
         {
           skillId: string;
-          params: UninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostParams;
+          params?: UninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostParams;
         },
         TContext
       >;
@@ -929,7 +929,7 @@ export const useUninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallP
     TError,
     {
       skillId: string;
-      params: UninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostParams;
+      params?: UninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostParams;
     },
     TContext
   > => {

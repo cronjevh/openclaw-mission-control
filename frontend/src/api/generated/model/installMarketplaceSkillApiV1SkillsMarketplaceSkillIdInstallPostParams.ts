@@ -7,5 +7,5 @@
 
 export type InstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdInstallPostParams =
   {
-    gateway_id: string;
+    gateway_id?: string;
   };

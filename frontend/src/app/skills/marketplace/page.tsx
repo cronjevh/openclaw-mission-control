@@ -52,7 +52,7 @@ const MARKETPLACE_DEFAULT_PAGE_SIZE = 25;
 const MARKETPLACE_PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
 
 type MarketplaceSkillListParams = {
-  gateway_id: string;
+  gateway_id?: string | null;
   search?: string;
   category?: string;
   risk?: string;
@@ -233,7 +233,7 @@ export default function SkillsMarketplacePage() {
   const selectedPackId = searchParams.get("packId");
   const skillsParams = useMemo<MarketplaceSkillListParams>(() => {
     const params: MarketplaceSkillListParams = {
-      gateway_id: resolvedGatewayId,
+      ...(resolvedGatewayId ? { gateway_id: resolvedGatewayId } : {}),
       limit: pageSize,
       offset: (currentPage - 1) * pageSize,
     };
@@ -263,7 +263,7 @@ export default function SkillsMarketplacePage() {
   // Keeping this separate avoids "missing" categories/risks when the main list is paginated.
   const filterOptionsParams = useMemo<MarketplaceSkillListParams>(() => {
     const params: MarketplaceSkillListParams = {
-      gateway_id: resolvedGatewayId,
+      ...(resolvedGatewayId ? { gateway_id: resolvedGatewayId } : {}),
     };
     if (normalizedSearch) {
       params.search = normalizedSearch;
@@ -279,7 +279,7 @@ export default function SkillsMarketplacePage() {
     ApiError
   >(skillsParams, {
     query: {
-      enabled: Boolean(isSignedIn && isAdmin && resolvedGatewayId),
+      enabled: Boolean(isSignedIn && isAdmin),
       refetchOnMount: "always",
       refetchInterval: 15_000,
     },
@@ -295,7 +295,7 @@ export default function SkillsMarketplacePage() {
       ApiError
     >(filterOptionsParams, {
       query: {
-        enabled: Boolean(isSignedIn && isAdmin && resolvedGatewayId),
+        enabled: Boolean(isSignedIn && isAdmin),
         refetchOnMount: "always",
         refetchInterval: 15_000,
       },
@@ -636,15 +636,15 @@ export default function SkillsMarketplacePage() {
             });
             setGatewayInstalledById((previous) => ({
               ...previous,
-              [variables.params.gateway_id]: true,
+              [variables.params.gateway_id as string]: true,
             }));
             const gatewayName = gateways.find(
-              (gateway) => gateway.id === variables.params.gateway_id,
+              (gateway) => gateway.id === variables.params.gateway_id as string,
             )?.name;
             if (gatewayName) {
               updateInstalledGatewayNames({
                 skillId: variables.skillId,
-                gatewayId: variables.params.gateway_id,
+                gatewayId: variables.params.gateway_id as string,
                 gatewayName,
                 installed: true,
               });
@@ -665,15 +665,15 @@ export default function SkillsMarketplacePage() {
             });
             setGatewayInstalledById((previous) => ({
               ...previous,
-              [variables.params.gateway_id]: false,
+              [variables.params.gateway_id as string]: false,
             }));
             const gatewayName = gateways.find(
-              (gateway) => gateway.id === variables.params.gateway_id,
+              (gateway) => gateway.id === variables.params.gateway_id as string,
             )?.name;
             if (gatewayName) {
               updateInstalledGatewayNames({
                 skillId: variables.skillId,
-                gatewayId: variables.params.gateway_id,
+                gatewayId: variables.params.gateway_id as string,
                 gatewayName,
                 installed: false,
               });

@@ -6,7 +6,7 @@
  */
 
 export type ListMarketplaceSkillsApiV1SkillsMarketplaceGetParams = {
-  gateway_id: string;
+  gateway_id?: string | null;
   search?: string | null;
   category?: string | null;
   risk?: string | null;

@@ -7,5 +7,5 @@
 
 export type UninstallMarketplaceSkillApiV1SkillsMarketplaceSkillIdUninstallPostParams =
   {
-    gateway_id: string;
+    gateway_id?: string;
   };

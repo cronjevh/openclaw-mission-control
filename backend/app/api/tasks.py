@@ -2906,3 +2906,94 @@ async def create_task_comment(
         )
         await session.commit()
     return event
+
+
+# ---------------------------------------------------------------------------
+# Bulk operations
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel as _BaseModel  # noqa: E402
+
+
+class BulkTaskStatusUpdate(_BaseModel):
+    task_ids: list[UUID]
+    status: str
+
+
+class BulkTaskDelete(_BaseModel):
+    task_ids: list[UUID]
+
+
+class BulkResult(_BaseModel):
+    updated: int
+    failed: int
+
+
+@router.post(
+    "/bulk/status",
+    response_model=BulkResult,
+    tags=["tasks"],
+    summary="Bulk update task statuses",
+)
+async def bulk_update_task_status(
+    board_id: UUID,
+    payload: BulkTaskStatusUpdate,
+    board: Board = Depends(get_board_for_user_write),
+    session: AsyncSession = SESSION_DEP,
+    actor: ActorContext = Depends(require_admin_or_agent),
+) -> BulkResult:
+    """Move multiple tasks to a new status."""
+    if payload.status not in ALLOWED_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid status: {payload.status}",
+        )
+    updated = 0
+    failed = 0
+    now = utcnow()
+    for task_id in payload.task_ids:
+        result = await session.exec(
+            select(Task).where(Task.id == task_id, Task.board_id == board_id)
+        )
+        task = result.first()
+        if not task:
+            failed += 1
+            continue
+        task.status = payload.status
+        task.updated_at = now
+        if payload.status == "in_progress" and not task.in_progress_at:
+            task.in_progress_at = now
+        session.add(task)
+        updated += 1
+    await session.commit()
+    return BulkResult(updated=updated, failed=failed)
+
+
+@router.post(
+    "/bulk/delete",
+    response_model=BulkResult,
+    tags=["tasks"],
+    summary="Bulk delete tasks",
+)
+async def bulk_delete_tasks(
+    board_id: UUID,
+    payload: BulkTaskDelete,
+    board: Board = Depends(get_board_for_user_write),
+    session: AsyncSession = SESSION_DEP,
+    actor: ActorContext = Depends(require_admin_or_agent),
+) -> BulkResult:
+    """Delete multiple tasks."""
+    updated = 0
+    failed = 0
+    for task_id in payload.task_ids:
+        result = await session.exec(
+            select(Task).where(Task.id == task_id, Task.board_id == board_id)
+        )
+        task = result.first()
+        if not task:
+            failed += 1
+            continue
+        await delete_task_and_related_records(session, task=task)
+        updated += 1
+    await session.commit()
+    return BulkResult(updated=updated, failed=failed)

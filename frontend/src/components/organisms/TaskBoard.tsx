@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { Trash2, MoveRight, X, CheckSquare } from "lucide-react";
 
 import { TaskCard } from "@/components/molecules/TaskCard";
 import { parseApiDatetime } from "@/lib/datetime";
@@ -37,6 +38,8 @@ type TaskBoardProps = {
   tasks: Task[];
   onTaskSelect?: (task: Task) => void;
   onTaskMove?: (taskId: string, status: TaskStatus) => void | Promise<void>;
+  onBulkStatusChange?: (taskIds: string[], status: TaskStatus) => Promise<void>;
+  onBulkDelete?: (taskIds: string[]) => Promise<void>;
   readOnly?: boolean;
 };
 
@@ -138,6 +141,8 @@ export const TaskBoard = memo(function TaskBoard({
   onTaskSelect,
   onTaskMove,
   readOnly = false,
+  onBulkStatusChange,
+  onBulkDelete,
 }: TaskBoardProps) {
   const boardRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -149,6 +154,46 @@ export const TaskBoard = memo(function TaskBoard({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [activeColumn, setActiveColumn] = useState<TaskStatus | null>(null);
   const [reviewBucket, setReviewBucket] = useState<ReviewBucket>("all");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkMoveTo, setBulkMoveTo] = useState<TaskStatus | null>(null);
+  const [isBulkBusy, setIsBulkBusy] = useState(false);
+
+  const toggleSelect = useCallback((id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    setBulkMoveTo(null);
+  }, []);
+
+  const handleBulkMove = useCallback(async () => {
+    if (!bulkMoveTo || selectedIds.size === 0 || !onBulkStatusChange) return;
+    setIsBulkBusy(true);
+    try {
+      await onBulkStatusChange(Array.from(selectedIds), bulkMoveTo);
+      clearSelection();
+    } finally {
+      setIsBulkBusy(false);
+    }
+  }, [bulkMoveTo, selectedIds, onBulkStatusChange, clearSelection]);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedIds.size === 0 || !onBulkDelete) return;
+    if (!window.confirm(`Delete ${selectedIds.size} task(s)? This cannot be undone.`)) return;
+    setIsBulkBusy(true);
+    try {
+      await onBulkDelete(Array.from(selectedIds));
+      clearSelection();
+    } finally {
+      setIsBulkBusy(false);
+    }
+  }, [selectedIds, onBulkDelete, clearSelection]);
 
   const setCardRef = useCallback(
     (taskId: string) => (node: HTMLDivElement | null) => {
@@ -389,6 +434,59 @@ export const TaskBoard = memo(function TaskBoard({
   };
 
   return (
+    <div className="relative flex flex-1 min-h-0 flex-col">
+    {/* Bulk action bar */}
+    {selectedIds.size > 0 && (
+      <div className="absolute bottom-6 left-1/2 z-50 -translate-x-1/2 flex items-center gap-2 rounded-xl border border-[color:var(--border-strong)] bg-[color:var(--surface)] px-4 py-2.5 shadow-xl">
+        <CheckSquare className="h-4 w-4 text-[color:var(--accent)] shrink-0" />
+        <span className="text-sm font-semibold text-strong whitespace-nowrap">{selectedIds.size} selected</span>
+        <div className="mx-2 h-5 w-px bg-[color:var(--border)]" />
+        {/* Move to */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-quiet whitespace-nowrap">Move to:</span>
+          <select
+            value={bulkMoveTo ?? ""}
+            onChange={(e) => setBulkMoveTo(e.target.value as TaskStatus || null)}
+            className="rounded border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-2 py-1 text-xs text-strong focus:outline-none"
+            disabled={isBulkBusy}
+          >
+            <option value="">Pick status…</option>
+            {columns.map((col) => (
+              <option key={col.status} value={col.status}>{col.title}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={handleBulkMove}
+            disabled={!bulkMoveTo || isBulkBusy}
+            className="flex items-center gap-1 rounded bg-[color:var(--accent)] px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-40 hover:opacity-90"
+          >
+            <MoveRight className="h-3.5 w-3.5" />
+            Move
+          </button>
+        </div>
+        <div className="mx-1 h-5 w-px bg-[color:var(--border)]" />
+        {/* Delete */}
+        <button
+          type="button"
+          onClick={handleBulkDelete}
+          disabled={isBulkBusy}
+          className="flex items-center gap-1 rounded bg-[color:var(--danger-soft)] px-2.5 py-1 text-xs font-semibold text-danger hover:bg-[color:var(--danger-soft)] disabled:opacity-40"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Delete
+        </button>
+        <div className="mx-1 h-5 w-px bg-[color:var(--border)]" />
+        <button
+          type="button"
+          onClick={clearSelection}
+          className="rounded p-1 text-quiet hover:text-muted"
+          aria-label="Clear selection"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+    )}
     <div
       ref={boardRef}
       data-testid="task-board"
@@ -525,27 +623,62 @@ export const TaskBoard = memo(function TaskBoard({
                 {filteredTasks.map((task) => {
                   const dueState = resolveDueState(task);
                   return (
-                    <div key={task.id} ref={setCardRef(task.id)}>
-                      <TaskCard
-                        title={task.title}
-                        status={task.status}
-                        priority={task.priority}
-                        assignee={task.assignee ?? undefined}
-                        createdBy={task.creator_name ?? undefined}
-                        due={dueState.due}
-                        isOverdue={dueState.isOverdue}
-                        approvalsPendingCount={task.approvals_pending_count}
-                        tags={task.tags}
-                        isBlocked={task.is_blocked}
-                        blockedByCount={task.blocked_by_task_ids?.length ?? 0}
-                        onClick={() => onTaskSelect?.(task)}
-                        draggable={!readOnly && !task.is_blocked}
-                        isDragging={draggingId === task.id}
-                        onDragStart={
-                          readOnly ? undefined : handleDragStart(task)
-                        }
-                        onDragEnd={readOnly ? undefined : handleDragEnd}
-                      />
+                    <div key={task.id} ref={setCardRef(task.id)} className="group/selectable relative">
+                      {/* Checkbox overlay */}
+                      <div
+                        className={cn(
+                          "absolute left-2 top-2 z-10 transition-opacity",
+                          selectedIds.has(task.id) ? "opacity-100" : "opacity-0 group-hover/selectable:opacity-100",
+                        )}
+                      >
+                        <button
+                          type="button"
+                          onClick={(e) => toggleSelect(task.id, e)}
+                          aria-label={selectedIds.has(task.id) ? "Deselect task" : "Select task"}
+                          className={cn(
+                            "flex h-5 w-5 items-center justify-center rounded border-2 transition-colors",
+                            selectedIds.has(task.id)
+                              ? "border-[color:var(--accent)] bg-[color:var(--accent)]"
+                              : "border-[color:var(--border-strong)] bg-[color:var(--surface)]",
+                          )}
+                        >
+                          {selectedIds.has(task.id) && (
+                            <svg viewBox="0 0 12 12" className="h-3 w-3 text-white" fill="none" stroke="currentColor" strokeWidth="2">
+                              <polyline points="2,6 5,9 10,3" />
+                            </svg>
+                          )}
+                        </button>
+                      </div>
+                      <div className={cn(selectedIds.has(task.id) && "ring-2 ring-[color:var(--accent)] rounded-xl")}>
+                        <TaskCard
+                          title={task.title}
+                          status={task.status}
+                          priority={task.priority}
+                          assignee={task.assignee ?? undefined}
+                          createdBy={task.creator_name ?? undefined}
+                          due={dueState.due}
+                          isOverdue={dueState.isOverdue}
+                          approvalsPendingCount={task.approvals_pending_count}
+                          tags={task.tags}
+                          isBlocked={task.is_blocked}
+                          blockedByCount={task.blocked_by_task_ids?.length ?? 0}
+                          onClick={() => {
+                            if (selectedIds.size > 0) {
+                              setSelectedIds((prev) => {
+                                const next = new Set(prev);
+                                next.has(task.id) ? next.delete(task.id) : next.add(task.id);
+                                return next;
+                              });
+                            } else {
+                              onTaskSelect?.(task);
+                            }
+                          }}
+                          draggable={!readOnly && !task.is_blocked && selectedIds.size === 0}
+                          isDragging={draggingId === task.id}
+                          onDragStart={readOnly ? undefined : handleDragStart(task)}
+                          onDragEnd={readOnly ? undefined : handleDragEnd}
+                        />
+                      </div>
                     </div>
                   );
                 })}
@@ -554,6 +687,7 @@ export const TaskBoard = memo(function TaskBoard({
           </div>
         );
       })}
+    </div>
     </div>
   );
 });

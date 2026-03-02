@@ -2847,6 +2847,48 @@ export default function BoardDetailPage() {
     [boardId, isSignedIn, pushToast, taskTitleById],
   );
 
+  const handleBulkStatusChange = useCallback(
+    async (taskIds: string[], newStatus: TaskStatus) => {
+      if (!boardId) return;
+      const previousTasks = tasksRef.current;
+      setTasks((prev) =>
+        prev.map((t) => taskIds.includes(t.id) ? { ...t, status: newStatus } : t),
+      );
+      try {
+        await customFetch(`/api/v1/boards/${boardId}/tasks/bulk/status`, {
+          method: "POST",
+          body: JSON.stringify({ task_ids: taskIds, status: newStatus }),
+        });
+      } catch (err) {
+        setTasks(previousTasks);
+        const message = formatActionError(err, "Bulk move failed.");
+        setError(message);
+        pushToast(message);
+      }
+    },
+    [boardId, pushToast],
+  );
+
+  const handleBulkDelete = useCallback(
+    async (taskIds: string[]) => {
+      if (!boardId) return;
+      const previousTasks = tasksRef.current;
+      setTasks((prev) => prev.filter((t) => !taskIds.includes(t.id)));
+      try {
+        await customFetch(`/api/v1/boards/${boardId}/tasks/bulk/delete`, {
+          method: "POST",
+          body: JSON.stringify({ task_ids: taskIds }),
+        });
+      } catch (err) {
+        setTasks(previousTasks);
+        const message = formatActionError(err, "Bulk delete failed.");
+        setError(message);
+        pushToast(message);
+      }
+    },
+    [boardId, pushToast],
+  );
+
   const agentInitials = (agent: Agent) =>
     agent.name
       .split(" ")
@@ -3599,6 +3641,8 @@ export default function BoardDetailPage() {
                       tasks={filteredTasks}
                       onTaskSelect={openComments}
                       onTaskMove={canWrite ? handleTaskMove : undefined}
+                      onBulkStatusChange={canWrite ? handleBulkStatusChange : undefined}
+                      onBulkDelete={canWrite ? handleBulkDelete : undefined}
                       readOnly={!canWrite}
                     />
                   ) : (

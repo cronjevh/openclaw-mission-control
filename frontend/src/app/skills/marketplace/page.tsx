@@ -898,13 +898,22 @@ export default function SkillsMarketplacePage() {
                   stickyHeader
                   isMutating={isMutating}
                   onSkillClick={setSelectedSkill}
-                  emptyState={{
-                    title: "No marketplace skills yet",
-                    description:
-                      "Add packs first, then synced skills will appear here.",
-                    actionHref: "/skills/packs/new",
-                    actionLabel: "Add your first pack",
-                  }}
+                  emptyState={
+                    selectedPackId && !selectedPack
+                      ? {
+                          title: "Pack not found in this org",
+                          description: `This pack link belongs to a different organization. Switch to the correct org or go to Skill Packs to find it.`,
+                          actionHref: "/skills/packs",
+                          actionLabel: "View packs",
+                        }
+                      : {
+                          title: "No marketplace skills yet",
+                          description:
+                            "Add packs first, then synced skills will appear here.",
+                          actionHref: "/skills/packs/new",
+                          actionLabel: "Add your first pack",
+                        }
+                  }
                 />
               </div>
               <div className="flex items-center justify-between rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-3 text-sm text-muted shadow-sm">

@@ -983,7 +983,11 @@ async def list_marketplace_skills(
             )
 
     if pack_id is not None:
-        pack = await _require_skill_pack_for_org(pack_id=pack_id, session=session, ctx=ctx)
+        pack = await SkillPack.objects.by_id(pack_id).first(session)
+        if pack is None or pack.organization_id != ctx.organization.id:
+            # Pack belongs to a different org or doesn't exist — return empty gracefully
+            response.headers["X-Pack-Not-Found"] = "1"
+            return []
         normalized_pack_source = _normalize_pack_source_url(pack.source_url)
         skills_query = skills_query.filter(
             col(MarketplaceSkill.source_url).ilike(f"{normalized_pack_source}%"),

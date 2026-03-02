@@ -437,7 +437,7 @@ export const TaskBoard = memo(function TaskBoard({
     <div className="relative flex flex-1 min-h-0 flex-col">
     {/* Bulk action bar */}
     {selectedIds.size > 0 && (
-      <div className="absolute bottom-6 left-1/2 z-50 -translate-x-1/2 flex items-center gap-2 rounded-xl border border-[color:var(--border-strong)] bg-[color:var(--surface)] px-4 py-2.5 shadow-xl">
+      <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 flex items-center gap-2 rounded-xl border border-[color:var(--border-strong)] bg-[color:var(--surface)] px-4 py-2.5 shadow-xl">
         <CheckSquare className="h-4 w-4 text-[color:var(--accent)] shrink-0" />
         <span className="text-sm font-semibold text-strong whitespace-nowrap">{selectedIds.size} selected</span>
         <div className="mx-2 h-5 w-px bg-[color:var(--border)]" />
@@ -662,17 +662,7 @@ export const TaskBoard = memo(function TaskBoard({
                           tags={task.tags}
                           isBlocked={task.is_blocked}
                           blockedByCount={task.blocked_by_task_ids?.length ?? 0}
-                          onClick={() => {
-                            if (selectedIds.size > 0) {
-                              setSelectedIds((prev) => {
-                                const next = new Set(prev);
-                                next.has(task.id) ? next.delete(task.id) : next.add(task.id);
-                                return next;
-                              });
-                            } else {
-                              onTaskSelect?.(task);
-                            }
-                          }}
+                          onClick={() => onTaskSelect?.(task)}
                           draggable={!readOnly && !task.is_blocked && selectedIds.size === 0}
                           isDragging={draggingId === task.id}
                           onDragStart={readOnly ? undefined : handleDragStart(task)}

@@ -182,7 +182,7 @@ export default function SkillsMarketplacePage() {
   const initialCategory = (searchParams.get("category") ?? "all")
     .trim()
     .toLowerCase();
-  const initialRisk = (searchParams.get("risk") ?? "safe").trim().toLowerCase();
+  const initialRisk = (searchParams.get("risk") ?? "all").trim().toLowerCase();
   const initialPage = parsePositiveIntParam(searchParams.get("page"), 1);
   const initialPageSize = parsePageSizeParam(searchParams.get("limit"));
   const [searchTerm, setSearchTerm] = useState(initialSearch);
@@ -190,7 +190,7 @@ export default function SkillsMarketplacePage() {
     initialCategory || "all",
   );
   const [selectedRisk, setSelectedRisk] = useState<string>(
-    initialRisk || "safe",
+    initialRisk || "all",
   );
   const [currentPage, setCurrentPage] = useState(initialPage);
   const [pageSize, setPageSize] = useState(initialPageSize);
@@ -227,7 +227,7 @@ export default function SkillsMarketplacePage() {
   }, [selectedCategory]);
   const normalizedRisk = useMemo(() => {
     const value = selectedRisk.trim().toLowerCase();
-    return value.length > 0 ? value : "safe";
+    return value.length > 0 ? value : "all";
   }, [selectedRisk]);
   const normalizedSearch = useMemo(() => searchTerm.trim(), [searchTerm]);
   const selectedPackId = searchParams.get("packId");
@@ -430,7 +430,7 @@ export default function SkillsMarketplacePage() {
       selectedRisk !== "all" &&
       !riskFilterOptions.includes(selectedRisk.trim().toLowerCase())
     ) {
-      setSelectedRisk("safe");
+      setSelectedRisk("all");
     }
   }, [riskFilterOptions, selectedRisk]);
 
@@ -469,7 +469,7 @@ export default function SkillsMarketplacePage() {
       nextParams.delete("category");
     }
 
-    if (selectedRisk !== "safe") {
+    if (selectedRisk !== "all") {
       nextParams.set("risk", selectedRisk);
     } else {
       nextParams.delete("risk");
@@ -872,7 +872,7 @@ export default function SkillsMarketplacePage() {
                         id="marketplace-risk-filter"
                         className="h-11"
                       >
-                        <SelectValue placeholder="Safe" />
+                        <SelectValue placeholder="All risks" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All risks</SelectItem>

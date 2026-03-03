@@ -221,7 +221,9 @@ async def _agents_for_group_heartbeat(
     if not board_ids:
         return board_by_id, []
     agents = await Agent.objects.by_field_in("board_id", board_ids).all(session)
-    if not include_board_leads:
+    if include_board_leads:
+        agents = [agent for agent in agents if agent.is_board_lead]
+    else:
         agents = [agent for agent in agents if not agent.is_board_lead]
     return board_by_id, agents
 

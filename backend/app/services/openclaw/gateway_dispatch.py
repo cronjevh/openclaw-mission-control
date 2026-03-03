@@ -7,7 +7,8 @@ directly orchestrate gateway RPC calls.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from uuid import uuid4
+from typing import TYPE_CHECKING
+from uuid import UUID, uuid4
 
 from app.models.boards import Board
 from app.models.gateways import Gateway
@@ -22,11 +23,8 @@ from app.services.openclaw.gateway_resolver import (
 from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
 from app.services.openclaw.gateway_rpc import OpenClawGatewayError, ensure_session, send_message
 
-WAKE_MESSAGE = (
-    "Read HEARTBEAT.md if it exists (workspace context). "
-    "Follow it strictly. Do not infer or repeat old tasks from prior chats. "
-    "If nothing needs attention, reply HEARTBEAT_OK."
-)
+if TYPE_CHECKING:
+    from app.models.agents import Agent
 
 
 def _is_agent_offline(last_seen_at: datetime | None) -> bool:
@@ -57,31 +55,57 @@ class GatewayDispatchService(OpenClawDBService):
     async def wake_agent_if_offline(
         self,
         *,
-        session_key: str,
-        config: GatewayClientConfig,
-        agent_name: str,
-        last_seen_at: datetime | None,
+        agent: "Agent",
+        board: Board | None = None,
     ) -> None:
-        """Send a wake message if the agent appears offline. Silently ignores errors."""
-        if not _is_agent_offline(last_seen_at):
+        """Full re-provision + wake if agent appears offline. Silently ignores errors.
+
+        Uses run_lifecycle(action="update") which idempotently re-syncs files and
+        sends the wake message — reliable even when the agent session is fully dead.
+        Falls back to a bare send_message if the board/gateway context is missing.
+        """
+        if not _is_agent_offline(agent.last_seen_at):
             return
+
         logger = _get_logger()
         logger.info(
-            "dispatch.wake_agent",
-            extra={"agent_name": agent_name, "session_key": session_key},
+            "dispatch.wake_agent.reprovision",
+            extra={"agent_name": agent.name, "agent_id": str(agent.id)},
         )
+
         try:
-            await ensure_session(session_key, config=config, label=agent_name)
-            await send_message(
-                WAKE_MESSAGE,
-                session_key=session_key,
-                config=config,
-                deliver=True,
+            from app.models.gateways import Gateway as GatewayModel
+            from app.services.openclaw.lifecycle_orchestrator import AgentLifecycleOrchestrator
+
+            gateway = await GatewayModel.objects.by_id(agent.gateway_id).first(self.session)
+            if gateway is None:
+                logger.warning("dispatch.wake_agent.no_gateway", extra={"agent_id": str(agent.id)})
+                return
+
+            # Resolve the board if not supplied
+            resolved_board = board
+            if resolved_board is None and agent.board_id is not None:
+                resolved_board = await Board.objects.by_id(agent.board_id).first(self.session)
+
+            orchestrator = AgentLifecycleOrchestrator(self.session)
+            await orchestrator.run_lifecycle(
+                gateway=gateway,
+                agent_id=agent.id,
+                board=resolved_board,
+                user=None,
+                action="update",
+                wake=True,
+                deliver_wakeup=True,
+                raise_gateway_errors=False,
             )
-        except OpenClawGatewayError:
+            logger.info(
+                "dispatch.wake_agent.reprovision.ok",
+                extra={"agent_name": agent.name},
+            )
+        except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "dispatch.wake_agent.failed",
-                extra={"agent_name": agent_name, "session_key": session_key},
+                "dispatch.wake_agent.reprovision.failed",
+                extra={"agent_name": agent.name, "error": str(exc)},
             )
 
     async def send_agent_message(
@@ -92,16 +116,12 @@ class GatewayDispatchService(OpenClawDBService):
         agent_name: str,
         message: str,
         deliver: bool = False,
-        last_seen_at: datetime | None = None,
+        agent: "Agent | None" = None,
+        board: Board | None = None,
     ) -> None:
-        # Wake offline agents before delivering task notifications.
-        if last_seen_at is not None:
-            await self.wake_agent_if_offline(
-                session_key=session_key,
-                config=config,
-                agent_name=agent_name,
-                last_seen_at=last_seen_at,
-            )
+        # Full re-provision wake for offline agents before delivering the notification.
+        if agent is not None:
+            await self.wake_agent_if_offline(agent=agent, board=board)
         await ensure_session(session_key, config=config, label=agent_name)
         await send_message(message, session_key=session_key, config=config, deliver=deliver)
 
@@ -113,8 +133,31 @@ class GatewayDispatchService(OpenClawDBService):
         agent_name: str,
         message: str,
         deliver: bool = False,
-        last_seen_at: datetime | None = None,
+        agent: "Agent | None" = None,
+        board: Board | None = None,
+        last_seen_at: datetime | None = None,  # legacy compat, prefer agent=
     ) -> OpenClawGatewayError | None:
+        # Support legacy last_seen_at callers by synthesising a minimal wake check.
+        effective_agent = agent
+        if effective_agent is None and last_seen_at is not None and _is_agent_offline(last_seen_at):
+            # Can't re-provision without the full Agent object; best-effort send_message wake.
+            _wake_config = config
+            _session_key = session_key
+            logger = _get_logger()
+            logger.info("dispatch.wake_agent.legacy", extra={"agent_name": agent_name})
+            try:
+                from app.services.openclaw.gateway_rpc import send_message as _sm
+                await ensure_session(_session_key, config=_wake_config, label=agent_name)
+                await _sm(
+                    "Read HEARTBEAT.md if it exists. Follow it strictly. "
+                    "If nothing needs attention, reply HEARTBEAT_OK.",
+                    session_key=_session_key,
+                    config=_wake_config,
+                    deliver=True,
+                )
+            except OpenClawGatewayError:
+                pass
+
         try:
             await self.send_agent_message(
                 session_key=session_key,
@@ -122,7 +165,8 @@ class GatewayDispatchService(OpenClawDBService):
                 agent_name=agent_name,
                 message=message,
                 deliver=deliver,
-                last_seen_at=last_seen_at,
+                agent=effective_agent,
+                board=board,
             )
         except OpenClawGatewayError as exc:
             return exc

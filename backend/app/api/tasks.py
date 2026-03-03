@@ -566,16 +566,16 @@ async def _send_lead_task_message(
     config: GatewayClientConfig,
     message: str,
     agent: "Agent | None" = None,
+    board: "Board | None" = None,
 ) -> OpenClawGatewayError | None:
-    from datetime import datetime
-    last_seen_at: datetime | None = getattr(agent, "last_seen_at", None) if agent else None
     return await dispatch.try_send_agent_message(
         session_key=session_key,
         config=config,
         agent_name="Lead Agent",
         message=message,
         deliver=False,
-        last_seen_at=last_seen_at,
+        agent=agent,
+        board=board,
     )
 
 
@@ -587,16 +587,16 @@ async def _send_agent_task_message(
     agent_name: str,
     message: str,
     agent: "Agent | None" = None,
+    board: "Board | None" = None,
 ) -> OpenClawGatewayError | None:
-    from datetime import datetime
-    last_seen_at: datetime | None = getattr(agent, "last_seen_at", None) if agent else None
     return await dispatch.try_send_agent_message(
         session_key=session_key,
         config=config,
         agent_name=agent_name,
         message=message,
         deliver=False,
-        last_seen_at=last_seen_at,
+        agent=agent,
+        board=board,
     )
 
 
@@ -685,6 +685,7 @@ async def _notify_agent_on_task_assign(
         agent_name=agent.name,
         message=message,
         agent=agent,
+        board=board,
     )
     if error is None:
         record_activity(
@@ -1904,6 +1905,7 @@ async def _notify_task_comment_targets(
             agent_name=agent.name,
             message=notification,
             agent=agent,
+            board=board,
         )
 
 

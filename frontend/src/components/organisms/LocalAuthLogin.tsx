@@ -7,16 +7,17 @@ import { setLocalAuthToken } from "@/auth/localAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { getApiBaseUrl } from "@/lib/api-base";
 
 const LOCAL_AUTH_TOKEN_MIN_LENGTH = 50;
 
 async function validateLocalToken(token: string): Promise<string | null> {
-  const rawBaseUrl = process.env.NEXT_PUBLIC_API_URL;
-  if (!rawBaseUrl) {
-    return "NEXT_PUBLIC_API_URL is not set.";
+  let baseUrl: string;
+  try {
+    baseUrl = getApiBaseUrl();
+  } catch {
+    return "Unable to resolve backend URL.";
   }
-
-  const baseUrl = rawBaseUrl.replace(/\/+$/, "");
 
   let response: Response;
   try {

@@ -44,15 +44,15 @@ The frontend reads configuration from standard Next.js env files (`.env.local`, 
 
 #### `NEXT_PUBLIC_API_URL`
 
-Base URL of the backend API.
+Base URL of the backend API (or `auto`).
 
-- Default for local dev: `http://localhost:8000`
+- Default: `auto` (resolved in browser as `http(s)://<current-host>:8000`)
 - Used by the generated API client and helpers (see `src/lib/api-base.ts` and `src/api/mutator.ts`).
 
 Example:
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_API_URL=auto
 ```
 
 ### Authentication mode
@@ -141,9 +141,10 @@ If you’re working on self-hosting, prefer running compose from the repo root s
 
 ## Troubleshooting
 
-### `NEXT_PUBLIC_API_URL is not set`
+### `NEXT_PUBLIC_API_URL` and remote hosts
 
-The API client throws if `NEXT_PUBLIC_API_URL` is missing.
+If unset or set to `auto`, the client uses `http(s)://<current-host>:8000`.
+If your backend is on a different host/port, set `NEXT_PUBLIC_API_URL` explicitly.
 
 Fix:
 

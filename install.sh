@@ -3,7 +3,13 @@
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
-REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+if [[ "$SCRIPT_NAME" == "bash" || "$SCRIPT_NAME" == "-bash" ]]; then
+  SCRIPT_NAME="install.sh"
+fi
+REPO_ROOT=""
+REPO_GIT_URL="${OPENCLAW_REPO_URL:-https://github.com/abhi1693/openclaw-mission-control.git}"
+REPO_CLONE_REF="${OPENCLAW_REPO_REF:-}"
+REPO_DIR_NAME="openclaw-mission-control"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}"
 LOG_DIR="$STATE_DIR/openclaw-mission-control-install"
 
@@ -48,6 +54,66 @@ die() {
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+repo_has_layout() {
+  local dir="$1"
+  [[ -f "$dir/Makefile" && -f "$dir/compose.yml" ]]
+}
+
+resolve_script_directory() {
+  local script_source=""
+  local script_dir=""
+
+  if [[ -n "${BASH_SOURCE:-}" && -n "${BASH_SOURCE[0]:-}" ]]; then
+    script_source="${BASH_SOURCE[0]}"
+  elif [[ -n "${0:-}" && "${0:-}" != "bash" ]]; then
+    script_source="$0"
+  fi
+
+  [[ -n "$script_source" ]] || return 1
+
+  script_dir="$(cd -- "$(dirname -- "$script_source")" 2>/dev/null && pwd -P)" || return 1
+  printf '%s\n' "$script_dir"
+}
+
+bootstrap_repo_checkout() {
+  local target_dir="$PWD/$REPO_DIR_NAME"
+
+  if ! command_exists git; then
+    die "Git is required for one-line bootstrap installs. Install git and re-run."
+  fi
+  if [[ -e "$target_dir" ]]; then
+    die "Cannot auto-clone into $target_dir because it already exists. Run ./install.sh from that repository or remove the directory."
+  fi
+
+  info "Repository checkout not found. Cloning into $target_dir ..."
+  if [[ -n "$REPO_CLONE_REF" ]]; then
+    git clone --depth 1 --branch "$REPO_CLONE_REF" "$REPO_GIT_URL" "$target_dir"
+  else
+    git clone --depth 1 "$REPO_GIT_URL" "$target_dir"
+  fi
+
+  REPO_ROOT="$target_dir"
+  SCRIPT_NAME="install.sh"
+}
+
+resolve_repo_root() {
+  local script_dir=""
+
+  if script_dir="$(resolve_script_directory)"; then
+    if repo_has_layout "$script_dir"; then
+      REPO_ROOT="$script_dir"
+      return
+    fi
+  fi
+
+  if repo_has_layout "$PWD"; then
+    REPO_ROOT="$PWD"
+    return
+  fi
+
+  bootstrap_repo_checkout
 }
 
 usage() {
@@ -668,8 +734,8 @@ start_local_services() {
 }
 
 ensure_repo_layout() {
-  [[ -f "$REPO_ROOT/Makefile" ]] || die "Run $SCRIPT_NAME from repository root."
-  [[ -f "$REPO_ROOT/compose.yml" ]] || die "Missing compose.yml in repository root."
+  [[ -f "$REPO_ROOT/Makefile" ]] || die "Missing Makefile in expected repository root: $REPO_ROOT"
+  [[ -f "$REPO_ROOT/compose.yml" ]] || die "Missing compose.yml in expected repository root: $REPO_ROOT"
 }
 
 main() {
@@ -684,6 +750,7 @@ main() {
   local database_url=""
   local start_services="yes"
 
+  resolve_repo_root
   cd "$REPO_ROOT"
   ensure_repo_layout
   parse_args "$@"

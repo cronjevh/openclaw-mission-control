@@ -237,7 +237,6 @@ async def _authenticate_clerk_request(request: Request) -> RequestState:
 
 async def _fetch_clerk_profile(clerk_user_id: str) -> tuple[str | None, str | None]:
     secret = settings.clerk_secret_key.strip()
-    secret_kind = secret.split("_", maxsplit=1)[0] if "_" in secret else "unknown"
     server_url = _normalize_clerk_server_url(settings.clerk_api_url or "")
     clerk_user_id_log = clerk_user_id[-6:] if clerk_user_id else ""
 
@@ -252,28 +251,24 @@ async def _fetch_clerk_profile(clerk_user_id: str) -> tuple[str | None, str | No
         return email, name
     except ClerkErrors as exc:
         logger.warning(
-            "auth.clerk.profile.fetch_failed clerk_user_id=%s reason=clerk_errors "
-            "secret_kind=%s error_type=%s",
+            "auth.clerk.profile.fetch_failed clerk_user_id=%s reason=clerk_errors " "error_type=%s",
             clerk_user_id_log,
-            secret_kind,
             exc.__class__.__name__,
         )
     except SDKError as exc:
         logger.warning(
             "auth.clerk.profile.fetch_failed clerk_user_id=%s status=%s reason=sdk_error "
-            "server_url=%s secret_kind=%s",
+            "server_url=%s",
             clerk_user_id_log,
             exc.status_code,
             server_url,
-            secret_kind,
         )
     except httpx.TimeoutException as exc:
         logger.warning(
             "auth.clerk.profile.fetch_failed clerk_user_id=%s reason=timeout "
-            "server_url=%s secret_kind=%s error=%s",
+            "server_url=%s error=%s",
             clerk_user_id_log,
             server_url,
-            secret_kind,
             str(exc) or exc.__class__.__name__,
         )
     except Exception as exc:
@@ -293,7 +288,6 @@ async def delete_clerk_user(clerk_user_id: str) -> None:
         return
 
     secret = settings.clerk_secret_key.strip()
-    secret_kind = secret.split("_", maxsplit=1)[0] if "_" in secret else "unknown"
     server_url = _normalize_clerk_server_url(settings.clerk_api_url or "")
     clerk_user_id_log = clerk_user_id[-6:] if clerk_user_id else ""
 
@@ -307,10 +301,8 @@ async def delete_clerk_user(clerk_user_id: str) -> None:
         logger.info("auth.clerk.user.delete clerk_user_id=%s", clerk_user_id_log)
     except ClerkErrors as exc:
         logger.warning(
-            "auth.clerk.user.delete_failed clerk_user_id=%s reason=clerk_errors "
-            "secret_kind=%s error_type=%s",
+            "auth.clerk.user.delete_failed clerk_user_id=%s reason=clerk_errors " "error_type=%s",
             clerk_user_id_log,
-            secret_kind,
             exc.__class__.__name__,
         )
         raise HTTPException(
@@ -323,11 +315,10 @@ async def delete_clerk_user(clerk_user_id: str) -> None:
             return
         logger.warning(
             "auth.clerk.user.delete_failed clerk_user_id=%s status=%s reason=sdk_error "
-            "server_url=%s secret_kind=%s",
+            "server_url=%s",
             clerk_user_id_log,
             exc.status_code,
             server_url,
-            secret_kind,
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

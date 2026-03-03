@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
+from functools import lru_cache
 from typing import Literal, Self
 from urllib.parse import urlparse
 from uuid import UUID
@@ -297,6 +298,12 @@ def _parse_iso_datetime(value: str) -> datetime:
     return datetime.fromisoformat(normalized)
 
 
+@lru_cache(maxsize=256)
+def _compiled_validation_regex(pattern: str) -> re.Pattern[str]:
+    """Compile and cache validation regex patterns for value checks."""
+    return re.compile(pattern)
+
+
 def validate_custom_field_value(
     *,
     field_type: TaskCustomFieldType,
@@ -346,7 +353,11 @@ def validate_custom_field_value(
     if validation_regex is not None and field_type in STRING_FIELD_TYPES:
         if not isinstance(value, str):
             raise ValueError("must be a string for regex validation")
-        if re.fullmatch(validation_regex, value) is None:
+        try:
+            pattern = _compiled_validation_regex(validation_regex)
+        except re.error as exc:
+            raise ValueError(f"validation_regex is invalid: {exc}") from exc
+        if pattern.fullmatch(value) is None:
             raise ValueError("does not match validation_regex")
 
 

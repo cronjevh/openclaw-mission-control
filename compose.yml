@@ -61,7 +61,7 @@ services:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-auto}
         NEXT_PUBLIC_AUTH_MODE: ${AUTH_MODE}
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
     # Optional, user-managed env file.
@@ -71,7 +71,7 @@ services:
       - path: ./frontend/.env
         required: false
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-auto}
       NEXT_PUBLIC_AUTH_MODE: ${AUTH_MODE}
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
@@ -84,7 +84,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    command: ["rq", "worker", "-u", "redis://redis:6379/0"]
+    command: ["python", "scripts/rq-docker", "worker"]
     env_file:
       - ./backend/.env
     depends_on:

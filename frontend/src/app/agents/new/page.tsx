@@ -28,6 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { AGENT_EMOJI_OPTIONS } from "@/lib/agent-emoji";
 import { DEFAULT_IDENTITY_PROFILE } from "@/lib/agent-templates";
 
 type IdentityProfile = {
@@ -35,19 +36,6 @@ type IdentityProfile = {
   communication_style: string;
   emoji: string;
 };
-
-const EMOJI_OPTIONS = [
-  { value: ":gear:", label: "Gear", glyph: "⚙️" },
-  { value: ":sparkles:", label: "Sparkles", glyph: "✨" },
-  { value: ":rocket:", label: "Rocket", glyph: "🚀" },
-  { value: ":megaphone:", label: "Megaphone", glyph: "📣" },
-  { value: ":chart_with_upwards_trend:", label: "Growth", glyph: "📈" },
-  { value: ":bulb:", label: "Idea", glyph: "💡" },
-  { value: ":wrench:", label: "Builder", glyph: "🔧" },
-  { value: ":shield:", label: "Shield", glyph: "🛡️" },
-  { value: ":memo:", label: "Notes", glyph: "📝" },
-  { value: ":brain:", label: "Brain", glyph: "🧠" },
-];
 
 const getBoardOptions = (boards: BoardRead[]): SearchableSelectOption[] =>
   boards.map((board) => ({
@@ -232,7 +220,7 @@ export default function NewAgentPage() {
                     <SelectValue placeholder="Select emoji" />
                   </SelectTrigger>
                   <SelectContent>
-                    {EMOJI_OPTIONS.map((option) => (
+                    {AGENT_EMOJI_OPTIONS.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.glyph} {option.label}
                       </SelectItem>

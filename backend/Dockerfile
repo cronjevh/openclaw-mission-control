@@ -42,6 +42,10 @@ COPY backend/app ./app
 # In-repo these live at `backend/templates/`; runtime path is `/app/templates`.
 COPY backend/templates ./templates
 
+# Copy worker scripts.
+# In-repo these live at `scripts/`; runtime path is `/app/scripts`.
+COPY scripts ./scripts
+
 # Default API port
 EXPOSE 8000
 

@@ -1429,11 +1429,25 @@ async def get_agent_soul(
         target_agent_id=agent_id,
     )
     coordination = GatewayCoordinationService(session)
-    return await coordination.get_agent_soul(
-        board=board,
-        target_agent_id=agent_id,
-        correlation_id=f"soul.read:{board.id}:{agent_id}",
-    )
+    try:
+        return await coordination.get_agent_soul(
+            board=board,
+            target_agent_id=agent_id,
+            correlation_id=f"soul.read:{board.id}:{agent_id}",
+        )
+    except HTTPException as exc:
+        # Keep explicit auth/not-found responses, but avoid relaying internal 5xx details.
+        if exc.status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail="Gateway SOUL read failed",
+            ) from exc
+        raise
+    except Exception as exc:  # pragma: no cover - defensive API boundary guard
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Gateway SOUL read failed",
+        ) from exc
 
 
 @router.put(

@@ -124,6 +124,7 @@ import {
   DEFAULT_HUMAN_LABEL,
   resolveHumanActorName,
 } from "@/lib/display-name";
+import { AGENT_EMOJI_GLYPHS } from "@/lib/agent-emoji";
 import { cn } from "@/lib/utils";
 import { usePageActive } from "@/hooks/usePageActive";
 import {
@@ -524,19 +525,6 @@ const statusOptions = [
   { value: "blocked", label: "Blocked" },
   { value: "done", label: "Done" },
 ];
-
-const EMOJI_GLYPHS: Record<string, string> = {
-  ":gear:": "⚙️",
-  ":sparkles:": "✨",
-  ":rocket:": "🚀",
-  ":megaphone:": "📣",
-  ":chart_with_upwards_trend:": "📈",
-  ":bulb:": "💡",
-  ":wrench:": "🔧",
-  ":shield:": "🛡️",
-  ":memo:": "📝",
-  ":brain:": "🧠",
-};
 
 const SSE_RECONNECT_BACKOFF = {
   baseMs: 1_000,
@@ -2927,7 +2915,7 @@ export default function BoardDetailPage() {
     if (!value) return null;
     const trimmed = value.trim();
     if (!trimmed) return null;
-    if (EMOJI_GLYPHS[trimmed]) return EMOJI_GLYPHS[trimmed];
+    if (AGENT_EMOJI_GLYPHS[trimmed]) return AGENT_EMOJI_GLYPHS[trimmed];
     if (trimmed.startsWith(":") && trimmed.endsWith(":")) return null;
     return trimmed;
   };

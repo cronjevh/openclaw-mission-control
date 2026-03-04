@@ -76,6 +76,7 @@ class GatewayDispatchService(OpenClawDBService):
         try:
             from app.models.gateways import Gateway as GatewayModel
             from app.services.openclaw.lifecycle_orchestrator import AgentLifecycleOrchestrator
+            from app.core.time import utcnow
 
             gateway = await GatewayModel.objects.by_id(agent.gateway_id).first(self.session)
             if gateway is None:
@@ -86,6 +87,18 @@ class GatewayDispatchService(OpenClawDBService):
             resolved_board = board
             if resolved_board is None and agent.board_id is not None:
                 resolved_board = await Board.objects.by_id(agent.board_id).first(self.session)
+
+            # Reset stale offline state so run_lifecycle doesn't get blocked by
+            # max-wake-attempts from a previous dead cycle.
+            if agent.status == "offline" or agent.wake_attempts >= 3:
+                agent.status = "online"
+                agent.wake_attempts = 0
+                agent.provision_action = None
+                agent.checkin_deadline_at = None
+                agent.last_provision_error = None
+                agent.updated_at = utcnow()
+                self.session.add(agent)
+                await self.session.flush()
 
             orchestrator = AgentLifecycleOrchestrator(self.session)
             await orchestrator.run_lifecycle(

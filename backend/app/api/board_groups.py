@@ -25,14 +25,18 @@ from app.schemas.board_group_heartbeat import (
     BoardGroupHeartbeatApplyResult,
     BoardGroupHeartbeatConfig,
 )
+from app.schemas.agents import AgentRead
 from app.schemas.board_groups import BoardGroupCreate, BoardGroupRead, BoardGroupUpdate
 from app.schemas.common import OkResponse
 from app.schemas.pagination import DefaultLimitOffsetPage
 from app.schemas.view_models import BoardGroupSnapshot
 from app.services.board_group_snapshot import build_group_snapshot
 from app.services.openclaw.constants import DEFAULT_HEARTBEAT_CONFIG
+from app.services.openclaw.db_agent_state import mint_agent_token
 from app.services.openclaw.gateway_rpc import OpenClawGatewayError
+from app.services.openclaw.internal.session_keys import group_lead_session_key
 from app.services.openclaw.provisioning import OpenClawGatewayProvisioner
+from app.services.openclaw.provisioning_db import AgentLifecycleService
 from app.services.organizations import (
     OrganizationContext,
     board_access_filter,
@@ -401,6 +405,142 @@ async def update_board_group(
         updates["slug"] = _slugify(updates.get("name") or group.name)
     updates["updated_at"] = utcnow()
     return await crud.patch(session, group, updates)
+
+
+# ---------------------------------------------------------------------------
+# Group Agent Provisioning
+# ---------------------------------------------------------------------------
+
+from sqlmodel import SQLModel  # noqa: E402
+
+
+class GroupAgentProvision(SQLModel):
+    """Payload for provisioning a group lead agent."""
+
+    gateway_id: UUID
+    name: str | None = None  # defaults to "{group.name} Lead"
+
+
+@router.post("/{group_id}/agent", response_model=AgentRead)
+async def provision_group_agent(
+    group_id: UUID,
+    payload: GroupAgentProvision,
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = ORG_ADMIN_DEP,
+) -> AgentRead:
+    """Provision a group lead agent for a board group.
+
+    Creates a new Agent record scoped to the group (no board), sets it as the
+    group's agent, and mints its auth token. Only org admins may call this.
+    """
+    group = await BoardGroup.objects.by_id(group_id).first(session)
+    if group is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if group.organization_id != ctx.organization.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+
+    if group.group_agent_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A group agent is already provisioned for this board group.",
+        )
+
+    gateway = await Gateway.objects.by_id(payload.gateway_id).first(session)
+    if gateway is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Gateway not found.",
+        )
+
+    agent_name = (payload.name or "").strip() or f"{group.name} Lead"
+    session_key = group_lead_session_key(group_id)
+
+    agent = Agent(
+        name=agent_name,
+        board_id=None,
+        group_id=group_id,
+        gateway_id=gateway.id,
+        is_board_lead=True,
+        status="provisioning",
+        openclaw_session_id=session_key,
+    )
+    mint_agent_token(agent)
+    session.add(agent)
+    await session.flush()
+
+    group.group_agent_id = agent.id
+    group.updated_at = utcnow()
+    session.add(group)
+    await session.commit()
+    await session.refresh(agent)
+
+    return AgentLifecycleService.to_agent_read(AgentLifecycleService.with_computed_status(agent))
+
+
+@router.delete("/{group_id}/agent", response_model=OkResponse)
+async def deprovision_group_agent(
+    group_id: UUID,
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = ORG_ADMIN_DEP,
+) -> OkResponse:
+    """Deprovision the group lead agent for a board group.
+
+    Deletes the agent record and clears the group's agent reference.
+    Only org admins may call this.
+    """
+    group = await BoardGroup.objects.by_id(group_id).first(session)
+    if group is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if group.organization_id != ctx.organization.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+
+    if group.group_agent_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No group agent is provisioned for this board group.",
+        )
+
+    agent = await Agent.objects.by_id(group.group_agent_id).first(session)
+
+    group.group_agent_id = None
+    group.updated_at = utcnow()
+    session.add(group)
+    await session.flush()
+
+    if agent is not None:
+        await session.delete(agent)
+
+    await session.commit()
+    return OkResponse()
+
+
+@router.get("/{group_id}/agent", response_model=AgentRead)
+async def get_group_agent(
+    group_id: UUID,
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = ORG_ADMIN_DEP,
+) -> AgentRead:
+    """Get the group lead agent for a board group.
+
+    Returns 404 if no group agent has been provisioned. Only org admins may call this.
+    """
+    group = await BoardGroup.objects.by_id(group_id).first(session)
+    if group is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if group.organization_id != ctx.organization.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+
+    if group.group_agent_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No group agent is provisioned for this board group.",
+        )
+
+    agent = await Agent.objects.by_id(group.group_agent_id).first(session)
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    return AgentLifecycleService.to_agent_read(AgentLifecycleService.with_computed_status(agent))
 
 
 @router.delete("/{group_id}", response_model=OkResponse)

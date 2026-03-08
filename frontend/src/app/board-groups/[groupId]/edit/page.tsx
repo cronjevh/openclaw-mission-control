@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/auth/clerk";
@@ -14,19 +14,152 @@ import {
   useListBoardsApiV1BoardsGet,
 } from "@/api/generated/boards/boards";
 import {
+  applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost,
   type getBoardGroupApiV1BoardGroupsGroupIdGetResponse,
+  type getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetResponse,
   useGetBoardGroupApiV1BoardGroupsGroupIdGet,
+  useGetBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet,
   useUpdateBoardGroupApiV1BoardGroupsGroupIdPatch,
 } from "@/api/generated/board-groups/board-groups";
+import {
+  type getMyMembershipApiV1OrganizationsMeMemberGetResponse,
+  useGetMyMembershipApiV1OrganizationsMeMemberGet,
+} from "@/api/generated/organizations/organizations";
 import type {
+  BoardGroupHeartbeatApplyResult,
+  BoardGroupHeartbeatConfig,
   BoardGroupRead,
   BoardGroupUpdate,
   BoardRead,
 } from "@/api/generated/model";
+import { cn } from "@/lib/utils";
 import { DashboardPageLayout } from "@/components/templates/DashboardPageLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+
+type HeartbeatUnit = "s" | "m" | "h" | "d";
+
+function parseEvery(every: string | null | undefined): { amount: string; unit: HeartbeatUnit } | null {
+  if (!every) return null;
+  const match = every.match(/^(\d+)([smhd])$/);
+  if (!match) return null;
+  return { amount: match[1], unit: match[2] as HeartbeatUnit };
+}
+
+const HEARTBEAT_PRESETS: Array<{ label: string; amount: number; unit: HeartbeatUnit }> = [
+  { label: "30s", amount: 30, unit: "s" },
+  { label: "1m", amount: 1, unit: "m" },
+  { label: "2m", amount: 2, unit: "m" },
+  { label: "5m", amount: 5, unit: "m" },
+  { label: "10m", amount: 10, unit: "m" },
+  { label: "15m", amount: 15, unit: "m" },
+  { label: "30m", amount: 30, unit: "m" },
+  { label: "1h", amount: 1, unit: "h" },
+];
+
+function PaceSelector({
+  amount,
+  unit,
+  every,
+  disabled,
+  isApplying,
+  error,
+  result,
+  onAmountChange,
+  onUnitChange,
+  onApply,
+}: {
+  amount: string;
+  unit: HeartbeatUnit;
+  every: string;
+  disabled: boolean;
+  isApplying: boolean;
+  error: string | null;
+  result: BoardGroupHeartbeatApplyResult | null;
+  onAmountChange: (v: string) => void;
+  onUnitChange: (v: HeartbeatUnit) => void;
+  onApply: () => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-1">
+        {HEARTBEAT_PRESETS.map((preset) => {
+          const value = `${preset.amount}${preset.unit}`;
+          return (
+            <button
+              key={value}
+              type="button"
+              disabled={disabled}
+              onClick={() => {
+                onAmountChange(String(preset.amount));
+                onUnitChange(preset.unit);
+              }}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-xs font-semibold transition-colors border",
+                every === value
+                  ? "border-[color:var(--accent)] bg-[color:var(--accent)] text-white"
+                  : "border-[color:var(--border)] bg-[color:var(--surface)] text-muted hover:border-[color:var(--border-strong)] hover:text-strong",
+                disabled && "opacity-50 cursor-not-allowed",
+              )}
+            >
+              {preset.label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          value={amount}
+          onChange={(e) => onAmountChange(e.target.value)}
+          className={cn(
+            "h-8 w-20 rounded-md border bg-[color:var(--surface)] px-2 text-xs text-strong shadow-sm",
+            every ? "border-[color:var(--border)]" : "border-[color:var(--danger-border)]",
+            disabled && "opacity-60 cursor-not-allowed",
+          )}
+          placeholder="10"
+          inputMode="numeric"
+          type="number"
+          min={1}
+          step={1}
+          disabled={disabled}
+        />
+        <select
+          value={unit}
+          onChange={(e) => onUnitChange(e.target.value as HeartbeatUnit)}
+          className={cn(
+            "h-8 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 text-xs text-strong shadow-sm",
+            disabled && "opacity-60 cursor-not-allowed",
+          )}
+          disabled={disabled}
+        >
+          <option value="s">seconds</option>
+          <option value="m">minutes</option>
+          <option value="h">hours</option>
+          <option value="d">days</option>
+        </select>
+        <Button
+          size="sm"
+          type="button"
+          onClick={onApply}
+          disabled={isApplying || !every || disabled}
+        >
+          {isApplying ? "Applying…" : "Apply"}
+        </Button>
+      </div>
+      {error && <p className="text-xs text-danger">{error}</p>}
+      {result && !error && (
+        <p className="text-xs text-success">
+          ✓ Applied to {result.updated_agent_ids.length} agent
+          {result.updated_agent_ids.length !== 1 ? "s" : ""}
+          {result.failed_agent_ids.length > 0
+            ? `, ${result.failed_agent_ids.length} failed`
+            : ""}
+        </p>
+      )}
+    </div>
+  );
+}
 
 const slugify = (value: string) =>
   value
@@ -58,6 +191,22 @@ export default function EditBoardGroupPage() {
     failed: number;
   } | null>(null);
 
+  // Worker agents heartbeat
+  const [workerAmount, setWorkerAmount] = useState("10");
+  const [workerUnit, setWorkerUnit] = useState<HeartbeatUnit>("m");
+  const [workerSeeded, setWorkerSeeded] = useState(false);
+  const [isWorkerApplying, setIsWorkerApplying] = useState(false);
+  const [workerApplyError, setWorkerApplyError] = useState<string | null>(null);
+  const [workerApplyResult, setWorkerApplyResult] = useState<BoardGroupHeartbeatApplyResult | null>(null);
+
+  // Lead agents heartbeat
+  const [leadAmount, setLeadAmount] = useState("30");
+  const [leadUnit, setLeadUnit] = useState<HeartbeatUnit>("m");
+  const [leadSeeded, setLeadSeeded] = useState(false);
+  const [isLeadApplying, setIsLeadApplying] = useState(false);
+  const [leadApplyError, setLeadApplyError] = useState<string | null>(null);
+  const [leadApplyResult, setLeadApplyResult] = useState<BoardGroupHeartbeatApplyResult | null>(null);
+
   const assignFailedParam = searchParams.get("assign_failed");
   const assignFailedCount = assignFailedParam
     ? Number.parseInt(assignFailedParam, 10)
@@ -78,8 +227,111 @@ export default function EditBoardGroupPage() {
     groupQuery.data?.status === 200 ? groupQuery.data.data : null;
   const baseGroup = loadedGroup;
 
+  const membershipQuery = useGetMyMembershipApiV1OrganizationsMeMemberGet<
+    getMyMembershipApiV1OrganizationsMeMemberGetResponse,
+    ApiError
+  >({
+    query: {
+      enabled: Boolean(isSignedIn),
+      refetchOnMount: "always",
+    },
+  });
+
+  const member =
+    membershipQuery.data?.status === 200 ? membershipQuery.data.data : null;
+  const isOrgAdmin = member?.role === "admin" || member?.role === "owner";
+
+  const heartbeatConfigQuery =
+    useGetBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet<
+      getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetResponse,
+      ApiError
+    >(groupId ?? "", {
+      query: {
+        enabled: Boolean(isSignedIn && groupId && isOrgAdmin),
+        refetchOnMount: "always",
+        retry: false,
+      },
+    });
+
+  const heartbeatConfig: BoardGroupHeartbeatConfig | null =
+    heartbeatConfigQuery.data?.status === 200 ? heartbeatConfigQuery.data.data : null;
+
+  const workerHeartbeatEvery = useMemo(() => {
+    const parsed = Number.parseInt(workerAmount, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return "";
+    return `${parsed}${workerUnit}`;
+  }, [workerAmount, workerUnit]);
+
+  const leadHeartbeatEvery = useMemo(() => {
+    const parsed = Number.parseInt(leadAmount, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return "";
+    return `${parsed}${leadUnit}`;
+  }, [leadAmount, leadUnit]);
+
   const resolvedName = name ?? baseGroup?.name ?? "";
   const resolvedDescription = description ?? baseGroup?.description ?? "";
+
+  useEffect(() => {
+    if (!heartbeatConfig || workerSeeded) return;
+    const parsed = parseEvery(heartbeatConfig.worker_every);
+    if (parsed) {
+      setWorkerAmount(parsed.amount);
+      setWorkerUnit(parsed.unit);
+    }
+    setWorkerSeeded(true);
+  }, [heartbeatConfig, workerSeeded]);
+
+  useEffect(() => {
+    if (!heartbeatConfig || leadSeeded) return;
+    const parsed = parseEvery(heartbeatConfig.lead_every);
+    if (parsed) {
+      setLeadAmount(parsed.amount);
+      setLeadUnit(parsed.unit);
+    }
+    setLeadSeeded(true);
+  }, [heartbeatConfig, leadSeeded]);
+
+  const applyWorkerHeartbeat = useCallback(async () => {
+    if (!isSignedIn || !groupId) { setWorkerApplyError("Sign in to apply."); return; }
+    if (!isOrgAdmin) { setWorkerApplyError("Admin access required."); return; }
+    const trimmed = workerHeartbeatEvery.trim();
+    if (!trimmed) { setWorkerApplyError("Cadence is required."); return; }
+    setIsWorkerApplying(true);
+    setWorkerApplyError(null);
+    try {
+      const result = await applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost(
+        groupId,
+        { every: trimmed, include_board_leads: false },
+      );
+      if (result.status !== 200) throw new Error("Unable to apply.");
+      setWorkerApplyResult(result.data);
+    } catch (err) {
+      setWorkerApplyError(err instanceof Error ? err.message : "Unable to apply.");
+    } finally {
+      setIsWorkerApplying(false);
+    }
+  }, [groupId, isOrgAdmin, isSignedIn, workerHeartbeatEvery]);
+
+  const applyLeadHeartbeat = useCallback(async () => {
+    if (!isSignedIn || !groupId) { setLeadApplyError("Sign in to apply."); return; }
+    if (!isOrgAdmin) { setLeadApplyError("Admin access required."); return; }
+    const trimmed = leadHeartbeatEvery.trim();
+    if (!trimmed) { setLeadApplyError("Cadence is required."); return; }
+    setIsLeadApplying(true);
+    setLeadApplyError(null);
+    try {
+      const result = await applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost(
+        groupId,
+        { every: trimmed, include_board_leads: true },
+      );
+      if (result.status !== 200) throw new Error("Unable to apply.");
+      setLeadApplyResult(result.data);
+    } catch (err) {
+      setLeadApplyError(err instanceof Error ? err.message : "Unable to apply.");
+    } finally {
+      setIsLeadApplying(false);
+    }
+  }, [groupId, isOrgAdmin, isSignedIn, leadHeartbeatEvery]);
 
   const allBoardsQuery = useListBoardsApiV1BoardsGet<
     listBoardsApiV1BoardsGetResponse,
@@ -427,6 +679,63 @@ export default function EditBoardGroupPage() {
             </p>
           ) : null}
         </div>
+
+        {isOrgAdmin && (
+          <div className="space-y-4 border-t border-[color:var(--border)] pt-6">
+            <div>
+              <p className="text-sm font-medium text-strong">Agent Check-in Rates</p>
+              <p className="mt-1 text-xs text-quiet">
+                Configure how often agents in this group wake up and report back.
+              </p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {/* Worker rate */}
+              <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4">
+                <div className="mb-3">
+                  <p className="text-sm font-semibold text-strong">⚙️ Worker check-in rate</p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    How often worker agents wake up, pick up tasks, and report back.
+                  </p>
+                </div>
+                <PaceSelector
+                  amount={workerAmount}
+                  unit={workerUnit}
+                  every={workerHeartbeatEvery}
+                  disabled={isLoading || !baseGroup}
+                  isApplying={isWorkerApplying}
+                  error={workerApplyError}
+                  result={workerApplyResult}
+                  onAmountChange={setWorkerAmount}
+                  onUnitChange={setWorkerUnit}
+                  onApply={() => void applyWorkerHeartbeat()}
+                />
+              </div>
+
+              {/* Lead rate */}
+              <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4">
+                <div className="mb-3">
+                  <p className="text-sm font-semibold text-strong">👑 Lead check-in rate</p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    How often board leads review progress and coordinate across boards.
+                  </p>
+                </div>
+                <PaceSelector
+                  amount={leadAmount}
+                  unit={leadUnit}
+                  every={leadHeartbeatEvery}
+                  disabled={isLoading || !baseGroup}
+                  isApplying={isLeadApplying}
+                  error={leadApplyError}
+                  result={leadApplyResult}
+                  onAmountChange={setLeadAmount}
+                  onUnitChange={setLeadUnit}
+                  onApply={() => void applyLeadHeartbeat()}
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         {errorMessage ? (
           <p className="text-sm text-danger">{errorMessage}</p>

@@ -35,5 +35,6 @@ class BoardGroupRead(BoardGroupBase):
 
     id: UUID
     organization_id: UUID
+    group_agent_id: UUID | None = None
     created_at: datetime
     updated_at: datetime

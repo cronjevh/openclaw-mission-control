@@ -28,6 +28,11 @@ def board_agent_session_key(agent_id: UUID) -> str:
     return f"{AGENT_SESSION_PREFIX}:mc-{agent_id}:main"
 
 
+def group_lead_session_key(group_id: UUID) -> str:
+    """Return the deterministic session key for a group lead agent."""
+    return f"{AGENT_SESSION_PREFIX}:group-lead-{group_id}:main"
+
+
 def board_scoped_session_key(
     *,
     agent_id: UUID,

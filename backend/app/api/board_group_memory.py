@@ -34,7 +34,9 @@ from app.models.users import User
 from app.schemas.board_group_memory import BoardGroupMemoryCreate, BoardGroupMemoryRead
 from app.schemas.pagination import DefaultLimitOffsetPage
 from app.services.mentions import extract_mentions, matches_agent_mention
+from app.models.gateways import Gateway
 from app.services.openclaw.gateway_dispatch import GatewayDispatchService
+from app.services.openclaw.gateway_resolver import optional_gateway_client_config
 from app.services.organizations import (
     is_org_admin,
     list_accessible_board_ids,
@@ -293,6 +295,43 @@ async def _notify_group_target(
         return
 
 
+async def _notify_group_agent_target(
+    *,
+    session: AsyncSession,
+    dispatch: GatewayDispatchService,
+    group: BoardGroup,
+    group_agent: Agent,
+    actor_name: str,
+    snippet: str,
+    base_url: str,
+) -> None:
+    """Deliver a chat message directly to the group lead agent via its gateway."""
+    session_key = group_agent.openclaw_session_id
+    if not session_key:
+        return
+    gateway = await Gateway.objects.by_id(group_agent.gateway_id).first(session)
+    if gateway is None:
+        return
+    config = optional_gateway_client_config(gateway)
+    if config is None:
+        return
+    message = (
+        f"GROUP CHAT\n"
+        f"Group: {group.name}\n"
+        f"From: {actor_name}\n\n"
+        f"{snippet}\n\n"
+        "Reply via group chat:\n"
+        f"POST {base_url}/api/v1/board-groups/{group.id}/memory\n"
+        'Body: {"content":"...","tags":["chat"]}'
+    )
+    await dispatch.try_send_agent_message(
+        session_key=session_key,
+        config=config,
+        agent_name=group_agent.name,
+        message=message,
+    )
+
+
 async def _notify_group_memory_targets(
     *,
     session: AsyncSession,
@@ -309,11 +348,15 @@ async def _notify_group_memory_targets(
 
     # Fetch group boards + agents.
     boards = await Board.objects.filter_by(board_group_id=group.id).all(session)
-    if not boards:
-        return
-    board_by_id = {board.id: board for board in boards}
-    board_ids = list(board_by_id.keys())
-    agents = await Agent.objects.by_field_in("board_id", board_ids).all(session)
+    board_by_id: dict[UUID, Board] = {}
+    board_ids: list[UUID] = []
+    if boards:
+        board_by_id = {board.id: board for board in boards}
+        board_ids = list(board_by_id.keys())
+
+    agents: list[Agent] = []
+    if board_ids:
+        agents = await Agent.objects.by_field_in("board_id", board_ids).all(session)
 
     targets = _group_chat_targets(
         agents=agents,
@@ -321,9 +364,6 @@ async def _notify_group_memory_targets(
         is_broadcast=is_broadcast,
         mentions=mentions,
     )
-
-    if not targets:
-        return
 
     actor_name = _group_actor_name(actor)
 
@@ -333,19 +373,42 @@ async def _notify_group_memory_targets(
 
     base_url = settings.base_url or "http://localhost:8000"
 
-    context = _NotifyGroupContext(
-        session=session,
-        dispatch=GatewayDispatchService(session),
-        group=group,
-        board_by_id=board_by_id,
-        mentions=mentions,
-        is_broadcast=is_broadcast,
-        actor_name=actor_name,
-        snippet=snippet,
-        base_url=base_url,
-    )
-    for agent in targets.values():
-        await _notify_group_target(context, agent)
+    dispatch = GatewayDispatchService(session)
+
+    if targets:
+        context = _NotifyGroupContext(
+            session=session,
+            dispatch=dispatch,
+            group=group,
+            board_by_id=board_by_id,
+            mentions=mentions,
+            is_broadcast=is_broadcast,
+            actor_name=actor_name,
+            snippet=snippet,
+            base_url=base_url,
+        )
+        for agent in targets.values():
+            await _notify_group_target(context, agent)
+
+    # Also notify the group lead agent if one is provisioned.
+    if group.group_agent_id is not None:
+        group_agent = await Agent.objects.by_id(group.group_agent_id).first(session)
+        if group_agent is not None and group_agent.openclaw_session_id:
+            # Skip if the actor IS the group agent (avoid self-delivery).
+            if not (
+                actor.actor_type == "agent"
+                and actor.agent is not None
+                and actor.agent.id == group_agent.id
+            ):
+                await _notify_group_agent_target(
+                    session=session,
+                    dispatch=dispatch,
+                    group=group,
+                    group_agent=group_agent,
+                    actor_name=actor_name,
+                    snippet=snippet,
+                    base_url=base_url,
+                )
 
 
 @group_router.get("", response_model=DefaultLimitOffsetPage[BoardGroupMemoryRead])

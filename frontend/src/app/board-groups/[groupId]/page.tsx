@@ -8,14 +8,13 @@ import { useParams } from "next/navigation";
 
 import { SignedIn, SignedOut, useAuth } from "@/auth/clerk";
 import {
-  ArrowUpRight,
   MessageSquare,
   NotebookText,
   Settings,
   X,
 } from "lucide-react";
 
-import { ApiError } from "@/api/mutator";
+import { ApiError, customFetch } from "@/api/mutator";
 import {
   applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost,
   type getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetResponse,
@@ -39,7 +38,7 @@ import type {
   BoardGroupMemoryRead,
   OrganizationMemberRead,
 } from "@/api/generated/model";
-import type { BoardGroupBoardSnapshot } from "@/api/generated/model";
+
 import { Markdown } from "@/components/atoms/Markdown";
 import { SignedOutPanel } from "@/components/auth/SignedOutPanel";
 import { DashboardSidebar } from "@/components/organisms/DashboardSidebar";
@@ -91,8 +90,6 @@ const priorityTone = (value?: string | null) => {
   }
 };
 
-const safeCount = (snapshot: BoardGroupBoardSnapshot, key: string) =>
-  snapshot.task_counts?.[key] ?? 0;
 
 const canWriteGroupBoards = (
   member: OrganizationMemberRead | null,
@@ -269,6 +266,13 @@ const HEARTBEAT_PRESETS: Array<{
   { label: "1h", amount: 1, unit: "h" },
 ];
 
+type GroupAgentInfo = {
+  id: string;
+  status: string;
+  name: string;
+  last_seen_at: string | null;
+};
+
 export default function BoardGroupDetailPage() {
   const { isSignedIn } = useAuth();
   const params = useParams();
@@ -279,6 +283,17 @@ export default function BoardGroupDetailPage() {
   const [includeDone] = useState(true);
   const [perBoardLimit] = useState(5);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+
+  // Unified task table filters
+  const [boardFilter, setBoardFilter] = useState<string | null>(null);
+  const [taskSearch, setTaskSearch] = useState("");
+
+  // Group Agent
+  const [groupAgent, setGroupAgent] = useState<GroupAgentInfo | null>(null);
+  const [isAgentLoading, setIsAgentLoading] = useState(false);
+  const [isProvisioningAgent, setIsProvisioningAgent] = useState(false);
+  const [isDeprovisioningAgent, setIsDeprovisioningAgent] = useState(false);
+  const [agentError, setAgentError] = useState<string | null>(null);
 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<BoardGroupMemoryRead[]>([]);
@@ -898,6 +913,87 @@ export default function BoardGroupDetailPage() {
     }
   }, [canManageHeartbeat, groupId, isSignedIn, leadHeartbeatEvery]);
 
+  // Group Agent callbacks
+  const fetchGroupAgent = useCallback(async () => {
+    if (!groupId || !isSignedIn) return;
+    setIsAgentLoading(true);
+    setAgentError(null);
+    try {
+      const result = await customFetch<{ data: GroupAgentInfo; status: number }>(
+        `/api/v1/board-groups/${groupId}/agent`,
+        { method: "GET" },
+      );
+      if (result.status === 200) {
+        setGroupAgent(result.data);
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        setGroupAgent(null);
+      } else {
+        setAgentError(err instanceof Error ? err.message : "Failed to load agent status.");
+      }
+    } finally {
+      setIsAgentLoading(false);
+    }
+  }, [groupId, isSignedIn]);
+
+  useEffect(() => {
+    void fetchGroupAgent();
+  }, [fetchGroupAgent]);
+
+  const provisionGroupAgent = useCallback(async () => {
+    if (!groupId || !isSignedIn) return;
+    setIsProvisioningAgent(true);
+    setAgentError(null);
+    try {
+      await customFetch(`/api/v1/board-groups/${groupId}/agent`, { method: "POST" });
+      await fetchGroupAgent();
+    } catch (err) {
+      setAgentError(err instanceof Error ? err.message : "Failed to provision agent.");
+    } finally {
+      setIsProvisioningAgent(false);
+    }
+  }, [groupId, isSignedIn, fetchGroupAgent]);
+
+  const deprovisionGroupAgent = useCallback(async () => {
+    if (!groupId || !isSignedIn) return;
+    if (!window.confirm("Remove the Group Agent? This cannot be undone.")) return;
+    setIsDeprovisioningAgent(true);
+    setAgentError(null);
+    try {
+      await customFetch(`/api/v1/board-groups/${groupId}/agent`, { method: "DELETE" });
+      setGroupAgent(null);
+    } catch (err) {
+      setAgentError(err instanceof Error ? err.message : "Failed to deprovision agent.");
+    } finally {
+      setIsDeprovisioningAgent(false);
+    }
+  }, [groupId, isSignedIn]);
+
+  // Flat tasks for unified table
+  const flatTasks = useMemo(() => {
+    const all: Array<{ task: NonNullable<(typeof boards)[0]["tasks"]>[0]; boardId: string; boardName: string }> = [];
+    boards.forEach((item) => {
+      (item.tasks ?? []).forEach((task) => {
+        all.push({ task, boardId: item.board.id, boardName: item.board.name });
+      });
+    });
+    return all;
+  }, [boards]);
+
+  const filteredTasks = useMemo(() => {
+    return flatTasks.filter((item) => {
+      if (boardFilter && item.boardId !== boardFilter) return false;
+      if (statusFilter && item.task.status !== statusFilter) return false;
+      const q = taskSearch.trim().toLowerCase();
+      if (q) {
+        const matchTitle = item.task.title?.toLowerCase().includes(q);
+        if (!matchTitle) return false;
+      }
+      return true;
+    });
+  }, [flatTasks, boardFilter, statusFilter, taskSearch]);
+
   return (
     <DashboardShell>
       <SignedOut>
@@ -973,72 +1069,75 @@ export default function BoardGroupDetailPage() {
                     <NotebookText className="mr-2 h-4 w-4" />
                     Notes
                   </Button>
-                  <Link
-                    href="/boards"
-                    className={buttonVariants({ variant: "ghost", size: "sm" })}
-                  >
-                    View boards
-                  </Link>
                 </div>
               </div>
-
-              {canManageHeartbeat && (
-                <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                  {/* Worker agents pace card */}
-                  <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4">
-                    <div className="mb-3">
-                      <p className="text-sm font-semibold text-strong">⚙️ Worker check-in rate</p>
-                      <p className="mt-0.5 text-xs text-muted">
-                        How often worker agents wake up, pick up tasks, and report back. Set faster for active sprints, slower to reduce noise.
-                      </p>
-                    </div>
-                    <PaceSelector
-                      amount={workerAmount}
-                      unit={workerUnit}
-                      every={workerHeartbeatEvery}
-                      disabled={!canManageHeartbeat}
-                      isApplying={isWorkerApplying}
-                      error={workerApplyError}
-                      result={workerApplyResult}
-                      onAmountChange={setWorkerAmount}
-                      onUnitChange={setWorkerUnit}
-                      onApply={() => void applyWorkerHeartbeat()}
-                    />
-                  </div>
-
-                  {/* Lead agents pace card */}
-                  <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4">
-                    <div className="mb-3">
-                      <p className="text-sm font-semibold text-strong">👑 Lead check-in rate</p>
-                      <p className="mt-0.5 text-xs text-muted">
-                        How often board leads review progress, unblock workers, and coordinate across boards. Usually slower than workers.
-                      </p>
-                    </div>
-                    <PaceSelector
-                      amount={leadAmount}
-                      unit={leadUnit}
-                      every={leadHeartbeatEvery}
-                      disabled={!canManageHeartbeat}
-                      isApplying={isLeadApplying}
-                      error={leadApplyError}
-                      result={leadApplyResult}
-                      onAmountChange={setLeadAmount}
-                      onUnitChange={setLeadUnit}
-                      onApply={() => void applyLeadHeartbeat()}
-                    />
-                  </div>
-                </div>
-              )}
-              {!canManageHeartbeat && (
-                <p className="mt-4 text-xs text-quiet">
-                  Read-only access — only admins can change agent check-in rates.
-                </p>
-              )}
             </div>
           </div>
 
           <div className="p-8">
             <div className="space-y-6">
+              {/* Group Agent card */}
+              <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] p-5 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-strong">🤖 Group Agent</p>
+                    <p className="mt-0.5 text-xs text-muted">
+                      A shared lead that has context across all boards in this group.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {isAgentLoading ? (
+                      <span className="inline-flex items-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-2.5 py-1 text-xs text-muted">
+                        Loading…
+                      </span>
+                    ) : groupAgent ? (
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold",
+                          groupAgent.status === "online"
+                            ? "border-emerald-200 bg-[color:var(--success-soft)] text-success"
+                            : "border-[color:var(--warning-border)] bg-[color:var(--warning-soft)] text-warning",
+                        )}
+                      >
+                        {groupAgent.status}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-2.5 py-1 text-xs text-muted">
+                        Not provisioned
+                      </span>
+                    )}
+                    {isAdmin && !groupAgent && !isAgentLoading && (
+                      <Button
+                        size="sm"
+                        onClick={() => void provisionGroupAgent()}
+                        disabled={isProvisioningAgent}
+                      >
+                        {isProvisioningAgent ? "Provisioning…" : "Provision"}
+                      </Button>
+                    )}
+                    {isAdmin && groupAgent && (
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => void deprovisionGroupAgent()}
+                        disabled={isDeprovisioningAgent}
+                      >
+                        {isDeprovisioningAgent ? "Removing…" : "Deprovision"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                {groupAgent?.name && (
+                  <p className="mt-2 text-xs text-muted">
+                    Agent: <span className="font-medium text-strong">{groupAgent.name}</span>
+                  </p>
+                )}
+                {agentError && (
+                  <p className="mt-2 text-xs text-danger">{agentError}</p>
+                )}
+              </div>
+
+              {/* Unified task table */}
               {snapshotQuery.isLoading ? (
                 <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] p-6 text-sm text-muted shadow-sm">
                   Loading group snapshot…
@@ -1053,130 +1152,119 @@ export default function BoardGroupDetailPage() {
                   settings page.
                 </div>
               ) : (
-                <div className="grid gap-6 lg:grid-cols-2">
-                  {boards.map((item) => (
-                    <div
-                      key={item.board.id}
-                      className="overflow-hidden rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] shadow-sm"
+                <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] shadow-sm">
+                  {/* Filters row */}
+                  <div className="flex flex-wrap items-center gap-3 border-b border-[color:var(--border)] px-6 py-4">
+                    <select
+                      value={boardFilter ?? ""}
+                      onChange={(e) => setBoardFilter(e.target.value || null)}
+                      className="h-8 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 text-xs text-strong shadow-sm"
                     >
-                      <div className="border-b border-[color:var(--border)] px-6 py-4">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <Link
-                              href={`/boards/${item.board.id}`}
-                              className="group inline-flex items-center gap-2"
-                              title="Open board"
-                            >
-                              <p className="truncate text-sm font-semibold text-strong group-hover:text-info">
-                                {item.board.name}
-                              </p>
-                              <ArrowUpRight className="h-4 w-4 text-quiet group-hover:text-info" />
-                            </Link>
-                            <p className="mt-1 text-xs text-quiet">
-                              Updated {formatTimestamp(item.board.updated_at)}
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
-                            {(
-                              [
-                                { key: "inbox", label: "Inbox", cls: "border-[color:var(--border)] bg-[color:var(--surface-muted)] text-muted" },
-                                { key: "in_progress", label: "In progress", cls: "border-emerald-200 bg-[color:var(--success-soft)] text-success" },
-                                { key: "review", label: "Review", cls: "border-[color:var(--warning-border)] bg-[color:var(--warning-soft)] text-warning" },
-                                { key: "done", label: "Done", cls: "border-[color:var(--border)] bg-[color:var(--surface-muted)] text-quiet" },
-                              ] as const
-                            ).map(({ key, label, cls }) => (
-                              <button
-                                key={key}
-                                type="button"
-                                onClick={() =>
-                                  setStatusFilter((prev) =>
-                                    prev === key ? null : key,
-                                  )
-                                }
-                                className={cn(
-                                  "rounded-full border px-2 py-0.5 transition-all",
-                                  cls,
-                                  statusFilter === key
-                                    ? "ring-2 ring-offset-1 ring-[color:var(--accent)] opacity-100"
-                                    : "opacity-80 hover:opacity-100",
-                                )}
-                              >
-                                {label} {safeCount(item, key)}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
+                      <option value="">All boards</option>
+                      {boards.map((item) => (
+                        <option key={item.board.id} value={item.board.id}>
+                          {item.board.name}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={statusFilter ?? ""}
+                      onChange={(e) => setStatusFilter(e.target.value || null)}
+                      className="h-8 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 text-xs text-strong shadow-sm"
+                    >
+                      <option value="">All statuses</option>
+                      <option value="inbox">Inbox</option>
+                      <option value="in_progress">In progress</option>
+                      <option value="review">Review</option>
+                      <option value="done">Done</option>
+                    </select>
+                    <input
+                      type="text"
+                      value={taskSearch}
+                      onChange={(e) => setTaskSearch(e.target.value)}
+                      placeholder="Search tasks…"
+                      className="h-8 min-w-[160px] flex-1 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-3 text-xs text-strong shadow-sm placeholder:text-quiet"
+                    />
+                    <span className="whitespace-nowrap text-xs text-quiet">
+                      {filteredTasks.length} of {flatTasks.length}
+                    </span>
+                  </div>
 
-                      <div className="px-6 py-4">
-                        {(() => {
-                          const filtered = (item.tasks ?? []).filter(
-                            (task) => !statusFilter || task.status === statusFilter,
-                          );
-                          return filtered.length > 0 ? (
-                          <ul className="space-y-3">
-                            {filtered.map((task) => (
-                              <li key={task.id}>
-                                <Link
-                                  href={{
-                                    pathname: `/boards/${item.board.id}`,
-                                    query: { taskId: task.id },
-                                  }}
-                                  className="block rounded-lg border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-3 transition hover:border-[color:var(--info-border)] hover:bg-[color:var(--info-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-                                  title="Open task on board"
-                                >
-                                  <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <div className="flex min-w-0 items-center gap-2">
-                                      <span
-                                        className={cn(
-                                          "inline-flex flex-shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
-                                          statusTone(task.status),
-                                        )}
-                                      >
-                                        {statusLabel(task.status)}
-                                      </span>
-                                      <span
-                                        className={cn(
-                                          "inline-flex flex-shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
-                                          priorityTone(task.priority),
-                                        )}
-                                      >
-                                        {task.priority}
-                                      </span>
-                                      <p className="truncate text-sm font-medium text-strong">
-                                        {task.title}
-                                      </p>
-                                    </div>
-                                    <p className="text-xs text-quiet">
-                                      {formatTimestamp(task.updated_at)}
-                                    </p>
-                                  </div>
-                                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
-                                    <p className="truncate">
-                                      Assignee:{" "}
-                                      <span className="font-medium text-strong">
-                                        {task.assignee ?? "Unassigned"}
-                                      </span>
-                                    </p>
-                                    <p className="font-mono text-[11px] text-quiet">
-                                      {task.id}
-                                    </p>
-                                  </div>
-                                </Link>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="text-sm text-quiet">
-                            {statusFilter
-                              ? `No ${statusFilter.replace("_", " ")} tasks.`
-                              : "No tasks in this snapshot."}
-                          </p>
-                        );
-                        })()}
-                      </div>
+                  {/* Task table */}
+                  {filteredTasks.length === 0 ? (
+                    <div className="px-6 py-8 text-center text-sm text-muted">
+                      No tasks match your filters.
                     </div>
-                  ))}
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-[color:var(--border)] bg-[color:var(--surface-muted)]">
+                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                              Board
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                              Task
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                              Status
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                              Priority
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[color:var(--border)]">
+                          {filteredTasks.map(({ task, boardId, boardName }) => (
+                            <tr
+                              key={task.id}
+                              className="transition-colors hover:bg-[color:var(--surface-muted)]"
+                            >
+                              <td className="px-4 py-3">
+                                <span className="inline-flex items-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-2 py-0.5 text-xs text-muted">
+                                  {boardName}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <Link
+                                  href={`/boards/${boardId}`}
+                                  className="font-medium text-strong transition-colors hover:text-info"
+                                  title="Open board"
+                                >
+                                  {task.title}
+                                </Link>
+                                {task.assignee && (
+                                  <p className="mt-0.5 text-xs text-quiet">
+                                    {task.assignee}
+                                  </p>
+                                )}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-3">
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+                                    statusTone(task.status),
+                                  )}
+                                >
+                                  {statusLabel(task.status)}
+                                </span>
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-3">
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize",
+                                    priorityTone(task.priority),
+                                  )}
+                                >
+                                  {task.priority ?? "—"}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

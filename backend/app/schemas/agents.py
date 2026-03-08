@@ -228,6 +228,10 @@ class AgentRead(AgentBase):
 
     id: UUID = Field(description="Agent UUID.")
     gateway_id: UUID = Field(description="Gateway UUID that manages this agent.")
+    group_id: UUID | None = Field(
+        default=None,
+        description="Board group UUID for group-level agents. None for board-scoped agents.",
+    )
     is_board_lead: bool = Field(
         default=False,
         description="Whether this agent is the board lead.",

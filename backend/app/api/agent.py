@@ -168,8 +168,20 @@ def _agent_board_openapi_hints(
 
 
 def _guard_board_access(agent_ctx: AgentAuthContext, board: Board) -> None:
-    allowed = not (agent_ctx.agent.board_id and agent_ctx.agent.board_id != board.id)
-    OpenClawAuthorizationPolicy.require_board_write_access(allowed=allowed)
+    agent = agent_ctx.agent
+    # Board-scoped agent: must match the specific board.
+    if agent.board_id:
+        OpenClawAuthorizationPolicy.require_board_write_access(
+            allowed=agent.board_id == board.id,
+        )
+        return
+    # Group agent: may only access boards that belong to the same group.
+    if agent.group_id is not None:
+        OpenClawAuthorizationPolicy.require_board_write_access(
+            allowed=board.board_group_id == agent.group_id,
+        )
+        return
+    # Gateway main agent (no board_id, no group_id): unrestricted access.
 
 
 def _require_board_lead(agent_ctx: AgentAuthContext) -> Agent:
@@ -179,11 +191,24 @@ def _require_board_lead(agent_ctx: AgentAuthContext) -> Agent:
     )
 
 
-def _guard_task_access(agent_ctx: AgentAuthContext, task: Task) -> None:
-    allowed = not (
-        agent_ctx.agent.board_id and task.board_id and agent_ctx.agent.board_id != task.board_id
-    )
-    OpenClawAuthorizationPolicy.require_board_write_access(allowed=allowed)
+def _guard_task_access(
+    agent_ctx: AgentAuthContext,
+    task: Task,
+    board: Board | None = None,
+) -> None:
+    agent = agent_ctx.agent
+    # Board-scoped agent: must match the task's board.
+    if agent.board_id:
+        allowed = not (task.board_id and agent.board_id != task.board_id)
+        OpenClawAuthorizationPolicy.require_board_write_access(allowed=allowed)
+        return
+    # Group agent: verify the task's board belongs to the agent's group.
+    if agent.group_id is not None and board is not None:
+        OpenClawAuthorizationPolicy.require_board_write_access(
+            allowed=board.board_group_id == agent.group_id,
+        )
+        return
+    # Gateway main agent (no board_id, no group_id): unrestricted access.
 
 
 @router.get(
@@ -792,6 +817,7 @@ async def create_task(
 )
 async def update_task(
     payload: TaskUpdate,
+    board: Board = BOARD_DEP,
     task: Task = TASK_DEP,
     session: AsyncSession = SESSION_DEP,
     agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
@@ -800,7 +826,7 @@ async def update_task(
 
     Supports status, assignment, dependencies, and optional inline comment.
     """
-    _guard_task_access(agent_ctx, task)
+    _guard_task_access(agent_ctx, task, board)
     return await tasks_api.update_task(
         payload=payload,
         task=task,
@@ -842,12 +868,13 @@ async def update_task(
     ),
 )
 async def delete_task(
+    board: Board = BOARD_DEP,
     task: Task = TASK_DEP,
     session: AsyncSession = SESSION_DEP,
     agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
 ) -> OkResponse:
     """Delete a task after board-lead authorization checks."""
-    _guard_task_access(agent_ctx, task)
+    _guard_task_access(agent_ctx, task, board)
     _require_board_lead(agent_ctx)
     if task.board_id is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT)
@@ -876,6 +903,7 @@ async def delete_task(
     ),
 )
 async def list_task_comments(
+    board: Board = BOARD_DEP,
     task: Task = TASK_DEP,
     session: AsyncSession = SESSION_DEP,
     agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
@@ -884,7 +912,7 @@ async def list_task_comments(
 
     Read this before posting updates to avoid duplicate or low-value comments.
     """
-    _guard_task_access(agent_ctx, task)
+    _guard_task_access(agent_ctx, task, board)
     return await tasks_api.list_task_comments(
         task=task,
         session=session,
@@ -913,6 +941,7 @@ async def list_task_comments(
 )
 async def create_task_comment(
     payload: TaskCommentCreate,
+    board: Board = BOARD_DEP,
     task: Task = TASK_DEP,
     session: AsyncSession = SESSION_DEP,
     agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
@@ -921,7 +950,7 @@ async def create_task_comment(
 
     This is the primary collaboration/log surface for task progress.
     """
-    _guard_task_access(agent_ctx, task)
+    _guard_task_access(agent_ctx, task, board)
     return await tasks_api.create_task_comment(
         payload=payload,
         task=task,

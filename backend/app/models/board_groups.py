@@ -23,5 +23,6 @@ class BoardGroup(TenantScoped, table=True):
     name: str
     slug: str = Field(index=True)
     description: str | None = None
+    group_agent_id: UUID | None = Field(default=None, foreign_key="agents.id")
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

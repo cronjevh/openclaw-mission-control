@@ -549,9 +549,12 @@ async def deprovision_group_agent(
     await session.flush()
 
     if agent is not None:
-        await session.delete(agent)
+        # Use the proper service delete path so FK-linked rows (activity_events,
+        # approvals, webhooks, etc.) are nullified before the agent is removed.
+        await AgentLifecycleService(session)._delete_agent_record(agent=agent)
+    else:
+        await session.commit()
 
-    await session.commit()
     return OkResponse()
 
 

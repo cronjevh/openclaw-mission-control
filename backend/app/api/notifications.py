@@ -14,7 +14,7 @@ from sqlalchemy import desc
 from sqlmodel import col, select
 from sse_starlette.sse import EventSourceResponse
 
-from app.api.deps import require_admin_auth
+from app.api.deps import require_user_auth
 from app.core.auth import AuthContext
 from app.core.time import utcnow
 from app.db.session import async_session_maker, get_session
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 SESSION_DEP = Depends(get_session)
-AUTH_DEP = Depends(require_admin_auth)
+AUTH_DEP = Depends(require_user_auth)
 SINCE_QUERY = Query(default=None)
 LIMIT_QUERY = Query(default=40, ge=1, le=100)
 

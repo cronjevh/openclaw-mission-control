@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlmodel import col, select
 
-from app.api.deps import require_admin_auth
+from app.api.deps import require_user_auth
 from app.core.auth import AuthContext
 from app.db.session import get_session
 from app.models.activity_events import ActivityEvent
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 router = APIRouter(prefix="/boards/{board_id}/search", tags=["search"])
 
 SESSION_DEP = Depends(get_session)
-AUTH_DEP = Depends(require_admin_auth)
+AUTH_DEP = Depends(require_user_auth)
 Q_QUERY = Query(default="", min_length=0)
 LIMIT = 20
 

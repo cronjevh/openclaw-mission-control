@@ -2975,7 +2975,7 @@ async def bulk_update_task_status(
     payload: BulkTaskStatusUpdate,
     board: Board = Depends(get_board_for_user_write),
     session: AsyncSession = SESSION_DEP,
-    actor: ActorContext = Depends(require_admin_or_agent),
+    actor: ActorContext = Depends(require_user_or_agent),
 ) -> BulkResult:
     """Move multiple tasks to a new status."""
     if payload.status not in ALLOWED_STATUSES:
@@ -3015,7 +3015,7 @@ async def bulk_delete_tasks(
     payload: BulkTaskDelete,
     board: Board = Depends(get_board_for_user_write),
     session: AsyncSession = SESSION_DEP,
-    actor: ActorContext = Depends(require_admin_or_agent),
+    actor: ActorContext = Depends(require_user_or_agent),
 ) -> BulkResult:
     """Delete multiple tasks."""
     updated = 0

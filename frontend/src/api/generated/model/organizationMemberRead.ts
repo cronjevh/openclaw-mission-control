@@ -17,6 +17,7 @@ export interface OrganizationMemberRead {
   created_at: string;
   id: string;
   organization_id: string;
+  organization_name?: string | null;
   role: string;
   updated_at: string;
   user?: OrganizationUserRead | null;

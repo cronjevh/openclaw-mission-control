@@ -15,6 +15,8 @@ export interface UserRead {
   email?: string | null;
   /** Full display name. */
   name?: string | null;
+  /** Preferred short name. */
+  preferred_name?: string | null;
   /** Preferred pronouns. */
   pronouns?: string | null;
   /** IANA timezone identifier. */

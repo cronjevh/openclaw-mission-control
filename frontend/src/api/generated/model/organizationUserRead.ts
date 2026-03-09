@@ -12,4 +12,5 @@ export interface OrganizationUserRead {
   email?: string | null;
   id: string;
   name?: string | null;
+  preferred_name?: string | null;
 }

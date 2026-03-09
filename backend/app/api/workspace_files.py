@@ -28,6 +28,24 @@ OPENCLAW_CONFIG_PATH = Path(
     os.environ.get("OPENCLAW_CONFIG_PATH", "/root/.openclaw/openclaw.json")
 )
 
+# Optional remap: "src_prefix=dst_prefix" e.g. "/root/.openclaw/workspace=/app/workspaces"
+# Allows container to access host workspace paths that are mounted at a different location.
+_WORKSPACE_REMAP: tuple[str, str] | None = None
+_remap_env = os.environ.get("WORKSPACE_ROOT_REMAP", "")
+if "=" in _remap_env:
+    _src, _dst = _remap_env.split("=", 1)
+    _WORKSPACE_REMAP = (_src.rstrip("/"), _dst.rstrip("/"))
+
+
+def _apply_workspace_remap(path: Path) -> Path:
+    if _WORKSPACE_REMAP is None:
+        return path
+    src, dst = _WORKSPACE_REMAP
+    s = str(path)
+    if s.startswith(src):
+        return Path(dst + s[len(src):])
+    return path
+
 # File extensions we consider safe to read as text
 _TEXT_EXTENSIONS = {
     ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".py", ".js",
@@ -65,7 +83,7 @@ def _workspace_root_for_config_id(config_id: str) -> Path | None:
         if entry.get("id") == config_id:
             ws = entry.get("workspace")
             if ws:
-                return Path(ws)
+                return _apply_workspace_remap(Path(ws))
     return None
 
 
@@ -85,7 +103,7 @@ def _workspace_root_for_agent(agent_id: UUID) -> Path | None:
         if str_id in entry.get("id", ""):
             ws = entry.get("workspace")
             if ws:
-                return Path(ws)
+                return _apply_workspace_remap(Path(ws))
     return None
 
 

@@ -24,6 +24,7 @@ import type {
   BoardGroupCreate,
   BoardGroupHeartbeatApply,
   BoardGroupHeartbeatApplyResult,
+  BoardGroupHeartbeatConfig,
   BoardGroupRead,
   BoardGroupSnapshot,
   BoardGroupUpdate,
@@ -370,129 +371,6 @@ export const useCreateBoardGroupApiV1BoardGroupsPost = <
   );
 };
 /**
- * Delete a board group.
- * @summary Delete Board Group
- */
-export type deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponse200 = {
-  data: OkResponse;
-  status: 200;
-};
-
-export type deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponse422 = {
-  data: HTTPValidationError;
-  status: 422;
-};
-
-export type deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponseSuccess =
-  deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponse200 & {
-    headers: Headers;
-  };
-export type deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponseError =
-  deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponse422 & {
-    headers: Headers;
-  };
-
-export type deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponse =
-  | deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponseSuccess
-  | deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponseError;
-
-export const getDeleteBoardGroupApiV1BoardGroupsGroupIdDeleteUrl = (
-  groupId: string,
-) => {
-  return `/api/v1/board-groups/${groupId}`;
-};
-
-export const deleteBoardGroupApiV1BoardGroupsGroupIdDelete = async (
-  groupId: string,
-  options?: RequestInit,
-): Promise<deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponse> => {
-  return customFetch<deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponse>(
-    getDeleteBoardGroupApiV1BoardGroupsGroupIdDeleteUrl(groupId),
-    {
-      ...options,
-      method: "DELETE",
-    },
-  );
-};
-
-export const getDeleteBoardGroupApiV1BoardGroupsGroupIdDeleteMutationOptions = <
-  TError = HTTPValidationError,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof deleteBoardGroupApiV1BoardGroupsGroupIdDelete>>,
-    TError,
-    { groupId: string },
-    TContext
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof deleteBoardGroupApiV1BoardGroupsGroupIdDelete>>,
-  TError,
-  { groupId: string },
-  TContext
-> => {
-  const mutationKey = ["deleteBoardGroupApiV1BoardGroupsGroupIdDelete"];
-  const { mutation: mutationOptions, request: requestOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, request: undefined };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof deleteBoardGroupApiV1BoardGroupsGroupIdDelete>>,
-    { groupId: string }
-  > = (props) => {
-    const { groupId } = props ?? {};
-
-    return deleteBoardGroupApiV1BoardGroupsGroupIdDelete(
-      groupId,
-      requestOptions,
-    );
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type DeleteBoardGroupApiV1BoardGroupsGroupIdDeleteMutationResult =
-  NonNullable<
-    Awaited<ReturnType<typeof deleteBoardGroupApiV1BoardGroupsGroupIdDelete>>
-  >;
-
-export type DeleteBoardGroupApiV1BoardGroupsGroupIdDeleteMutationError =
-  HTTPValidationError;
-
-/**
- * @summary Delete Board Group
- */
-export const useDeleteBoardGroupApiV1BoardGroupsGroupIdDelete = <
-  TError = HTTPValidationError,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof deleteBoardGroupApiV1BoardGroupsGroupIdDelete>>,
-      TError,
-      { groupId: string },
-      TContext
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof deleteBoardGroupApiV1BoardGroupsGroupIdDelete>>,
-  TError,
-  { groupId: string },
-  TContext
-> => {
-  return useMutation(
-    getDeleteBoardGroupApiV1BoardGroupsGroupIdDeleteMutationOptions(options),
-    queryClient,
-  );
-};
-/**
  * Get a board group by id.
  * @summary Get Board Group
  */
@@ -830,161 +708,125 @@ export const useUpdateBoardGroupApiV1BoardGroupsGroupIdPatch = <
   );
 };
 /**
- * Apply heartbeat settings to agents in a board group.
- * @summary Apply Board Group Heartbeat
+ * Delete a board group.
+ * @summary Delete Board Group
  */
-export type applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponse200 =
-  {
-    data: BoardGroupHeartbeatApplyResult;
-    status: 200;
-  };
+export type deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponse200 = {
+  data: OkResponse;
+  status: 200;
+};
 
-export type applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponse422 =
-  {
-    data: HTTPValidationError;
-    status: 422;
-  };
+export type deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponse422 = {
+  data: HTTPValidationError;
+  status: 422;
+};
 
-export type applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponseSuccess =
-  applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponse200 & {
+export type deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponseSuccess =
+  deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponse200 & {
     headers: Headers;
   };
-export type applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponseError =
-  applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponse422 & {
+export type deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponseError =
+  deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponse422 & {
     headers: Headers;
   };
 
-export type applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponse =
+export type deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponse =
+  | deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponseSuccess
+  | deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponseError;
 
-    | applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponseSuccess
-    | applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponseError;
+export const getDeleteBoardGroupApiV1BoardGroupsGroupIdDeleteUrl = (
+  groupId: string,
+) => {
+  return `/api/v1/board-groups/${groupId}`;
+};
 
-export const getApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostUrl =
-  (groupId: string) => {
-    return `/api/v1/board-groups/${groupId}/heartbeat`;
-  };
+export const deleteBoardGroupApiV1BoardGroupsGroupIdDelete = async (
+  groupId: string,
+  options?: RequestInit,
+): Promise<deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponse> => {
+  return customFetch<deleteBoardGroupApiV1BoardGroupsGroupIdDeleteResponse>(
+    getDeleteBoardGroupApiV1BoardGroupsGroupIdDeleteUrl(groupId),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
 
-export const applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost =
-  async (
-    groupId: string,
-    boardGroupHeartbeatApply: BoardGroupHeartbeatApply,
-    options?: RequestInit,
-  ): Promise<applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponse> => {
-    return customFetch<applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponse>(
-      getApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostUrl(
-        groupId,
-      ),
-      {
-        ...options,
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...options?.headers },
-        body: JSON.stringify(boardGroupHeartbeatApply),
-      },
+export const getDeleteBoardGroupApiV1BoardGroupsGroupIdDeleteMutationOptions = <
+  TError = HTTPValidationError,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteBoardGroupApiV1BoardGroupsGroupIdDelete>>,
+    TError,
+    { groupId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteBoardGroupApiV1BoardGroupsGroupIdDelete>>,
+  TError,
+  { groupId: string },
+  TContext
+> => {
+  const mutationKey = ["deleteBoardGroupApiV1BoardGroupsGroupIdDelete"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteBoardGroupApiV1BoardGroupsGroupIdDelete>>,
+    { groupId: string }
+  > = (props) => {
+    const { groupId } = props ?? {};
+
+    return deleteBoardGroupApiV1BoardGroupsGroupIdDelete(
+      groupId,
+      requestOptions,
     );
   };
 
-export const getApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostMutationOptions =
-  <TError = HTTPValidationError, TContext = unknown>(options?: {
-    mutation?: UseMutationOptions<
-      Awaited<
-        ReturnType<
-          typeof applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost
-        >
-      >,
-      TError,
-      { groupId: string; data: BoardGroupHeartbeatApply },
-      TContext
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  }): UseMutationOptions<
-    Awaited<
-      ReturnType<
-        typeof applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost
-      >
-    >,
-    TError,
-    { groupId: string; data: BoardGroupHeartbeatApply },
-    TContext
-  > => {
-    const mutationKey = [
-      "applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost",
-    ];
-    const { mutation: mutationOptions, request: requestOptions } = options
-      ? options.mutation &&
-        "mutationKey" in options.mutation &&
-        options.mutation.mutationKey
-        ? options
-        : { ...options, mutation: { ...options.mutation, mutationKey } }
-      : { mutation: { mutationKey }, request: undefined };
+  return { mutationFn, ...mutationOptions };
+};
 
-    const mutationFn: MutationFunction<
-      Awaited<
-        ReturnType<
-          typeof applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost
-        >
-      >,
-      { groupId: string; data: BoardGroupHeartbeatApply }
-    > = (props) => {
-      const { groupId, data } = props ?? {};
-
-      return applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost(
-        groupId,
-        data,
-        requestOptions,
-      );
-    };
-
-    return { mutationFn, ...mutationOptions };
-  };
-
-export type ApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostMutationResult =
+export type DeleteBoardGroupApiV1BoardGroupsGroupIdDeleteMutationResult =
   NonNullable<
-    Awaited<
-      ReturnType<
-        typeof applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost
-      >
-    >
+    Awaited<ReturnType<typeof deleteBoardGroupApiV1BoardGroupsGroupIdDelete>>
   >;
-export type ApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostMutationBody =
-  BoardGroupHeartbeatApply;
-export type ApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostMutationError =
+
+export type DeleteBoardGroupApiV1BoardGroupsGroupIdDeleteMutationError =
   HTTPValidationError;
 
 /**
- * @summary Apply Board Group Heartbeat
+ * @summary Delete Board Group
  */
-export const useApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost = <
+export const useDeleteBoardGroupApiV1BoardGroupsGroupIdDelete = <
   TError = HTTPValidationError,
   TContext = unknown,
 >(
   options?: {
     mutation?: UseMutationOptions<
-      Awaited<
-        ReturnType<
-          typeof applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost
-        >
-      >,
+      Awaited<ReturnType<typeof deleteBoardGroupApiV1BoardGroupsGroupIdDelete>>,
       TError,
-      { groupId: string; data: BoardGroupHeartbeatApply },
+      { groupId: string },
       TContext
     >;
     request?: SecondParameter<typeof customFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
-  Awaited<
-    ReturnType<
-      typeof applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost
-    >
-  >,
+  Awaited<ReturnType<typeof deleteBoardGroupApiV1BoardGroupsGroupIdDelete>>,
   TError,
-  { groupId: string; data: BoardGroupHeartbeatApply },
+  { groupId: string },
   TContext
 > => {
   return useMutation(
-    getApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostMutationOptions(
-      options,
-    ),
+    getDeleteBoardGroupApiV1BoardGroupsGroupIdDeleteMutationOptions(options),
     queryClient,
   );
 };
@@ -1290,3 +1132,438 @@ export function useGetBoardGroupSnapshotApiV1BoardGroupsGroupIdSnapshotGet<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Return the current heartbeat cadence for worker and lead agents in a group.
+ * @summary Get Board Group Heartbeat
+ */
+export type getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetResponse200 =
+  {
+    data: BoardGroupHeartbeatConfig;
+    status: 200;
+  };
+
+export type getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetResponse422 =
+  {
+    data: HTTPValidationError;
+    status: 422;
+  };
+
+export type getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetResponseSuccess =
+  getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetResponse200 & {
+    headers: Headers;
+  };
+export type getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetResponseError =
+  getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetResponse422 & {
+    headers: Headers;
+  };
+
+export type getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetResponse =
+  | getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetResponseSuccess
+  | getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetResponseError;
+
+export const getGetBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetUrl = (
+  groupId: string,
+) => {
+  return `/api/v1/board-groups/${groupId}/heartbeat`;
+};
+
+export const getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet = async (
+  groupId: string,
+  options?: RequestInit,
+): Promise<getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetResponse> => {
+  return customFetch<getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetResponse>(
+    getGetBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetUrl(groupId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetQueryKey =
+  (groupId: string) => {
+    return [`/api/v1/board-groups/${groupId}/heartbeat`] as const;
+  };
+
+export const getGetBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetQueryOptions =
+  <
+    TData = Awaited<
+      ReturnType<
+        typeof getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet
+      >
+    >,
+    TError = HTTPValidationError,
+  >(
+    groupId: string,
+    options?: {
+      query?: Partial<
+        UseQueryOptions<
+          Awaited<
+            ReturnType<
+              typeof getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet
+            >
+          >,
+          TError,
+          TData
+        >
+      >;
+      request?: SecondParameter<typeof customFetch>;
+    },
+  ) => {
+    const { query: queryOptions, request: requestOptions } = options ?? {};
+
+    const queryKey =
+      queryOptions?.queryKey ??
+      getGetBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetQueryKey(
+        groupId,
+      );
+
+    const queryFn: QueryFunction<
+      Awaited<
+        ReturnType<
+          typeof getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet
+        >
+      >
+    > = ({ signal }) =>
+      getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet(groupId, {
+        signal,
+        ...requestOptions,
+      });
+
+    return {
+      queryKey,
+      queryFn,
+      enabled: !!groupId,
+      ...queryOptions,
+    } as UseQueryOptions<
+      Awaited<
+        ReturnType<
+          typeof getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet
+        >
+      >,
+      TError,
+      TData
+    > & { queryKey: DataTag<QueryKey, TData, TError> };
+  };
+
+export type GetBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetQueryResult =
+  NonNullable<
+    Awaited<
+      ReturnType<
+        typeof getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet
+      >
+    >
+  >;
+export type GetBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetQueryError =
+  HTTPValidationError;
+
+export function useGetBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet<
+  TData = Awaited<
+    ReturnType<typeof getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet
+          >
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet<
+  TData = Awaited<
+    ReturnType<typeof getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet
+          >
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet<
+  TData = Awaited<
+    ReturnType<typeof getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet
+          >
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary Get Board Group Heartbeat
+ */
+
+export function useGetBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet<
+  TData = Awaited<
+    ReturnType<typeof getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof getBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet
+          >
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions =
+    getGetBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGetQueryOptions(
+      groupId,
+      options,
+    );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Apply heartbeat settings to agents in a board group.
+ * @summary Apply Board Group Heartbeat
+ */
+export type applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponse200 =
+  {
+    data: BoardGroupHeartbeatApplyResult;
+    status: 200;
+  };
+
+export type applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponse422 =
+  {
+    data: HTTPValidationError;
+    status: 422;
+  };
+
+export type applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponseSuccess =
+  applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponse200 & {
+    headers: Headers;
+  };
+export type applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponseError =
+  applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponse422 & {
+    headers: Headers;
+  };
+
+export type applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponse =
+
+    | applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponseSuccess
+    | applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponseError;
+
+export const getApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostUrl =
+  (groupId: string) => {
+    return `/api/v1/board-groups/${groupId}/heartbeat`;
+  };
+
+export const applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost =
+  async (
+    groupId: string,
+    boardGroupHeartbeatApply: BoardGroupHeartbeatApply,
+    options?: RequestInit,
+  ): Promise<applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponse> => {
+    return customFetch<applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostResponse>(
+      getApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostUrl(
+        groupId,
+      ),
+      {
+        ...options,
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...options?.headers },
+        body: JSON.stringify(boardGroupHeartbeatApply),
+      },
+    );
+  };
+
+export const getApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostMutationOptions =
+  <TError = HTTPValidationError, TContext = unknown>(options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<
+          typeof applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost
+        >
+      >,
+      TError,
+      { groupId: string; data: BoardGroupHeartbeatApply },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  }): UseMutationOptions<
+    Awaited<
+      ReturnType<
+        typeof applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost
+      >
+    >,
+    TError,
+    { groupId: string; data: BoardGroupHeartbeatApply },
+    TContext
+  > => {
+    const mutationKey = [
+      "applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost",
+    ];
+    const { mutation: mutationOptions, request: requestOptions } = options
+      ? options.mutation &&
+        "mutationKey" in options.mutation &&
+        options.mutation.mutationKey
+        ? options
+        : { ...options, mutation: { ...options.mutation, mutationKey } }
+      : { mutation: { mutationKey }, request: undefined };
+
+    const mutationFn: MutationFunction<
+      Awaited<
+        ReturnType<
+          typeof applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost
+        >
+      >,
+      { groupId: string; data: BoardGroupHeartbeatApply }
+    > = (props) => {
+      const { groupId, data } = props ?? {};
+
+      return applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost(
+        groupId,
+        data,
+        requestOptions,
+      );
+    };
+
+    return { mutationFn, ...mutationOptions };
+  };
+
+export type ApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostMutationResult =
+  NonNullable<
+    Awaited<
+      ReturnType<
+        typeof applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost
+      >
+    >
+  >;
+export type ApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostMutationBody =
+  BoardGroupHeartbeatApply;
+export type ApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostMutationError =
+  HTTPValidationError;
+
+/**
+ * @summary Apply Board Group Heartbeat
+ */
+export const useApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost = <
+  TError = HTTPValidationError,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<
+          typeof applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost
+        >
+      >,
+      TError,
+      { groupId: string; data: BoardGroupHeartbeatApply },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<
+    ReturnType<
+      typeof applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost
+    >
+  >,
+  TError,
+  { groupId: string; data: BoardGroupHeartbeatApply },
+  TContext
+> => {
+  return useMutation(
+    getApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostMutationOptions(
+      options,
+    ),
+    queryClient,
+  );
+};

@@ -2033,3 +2033,40 @@ async def broadcast_gateway_lead_message(
         actor_agent=agent_ctx.agent,
         payload=payload,
     )
+
+
+@router.get(
+    "/secrets",
+    summary="List board secrets (decrypted) for the calling agent",
+    response_model=list[dict],
+)
+async def get_agent_secrets(
+    session: AsyncSession = SESSION_DEP,
+    agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
+) -> list[dict]:
+    """Return decrypted board secrets for the agent's board.
+
+    Only available to board-scoped agents (board_id must be set).
+    The gateway main agent cannot call this endpoint.
+    """
+    from app.models.board_secrets import BoardSecret
+    from app.core.encryption import decrypt_secret
+    from sqlmodel import select, col
+
+    agent = agent_ctx.agent
+    if not agent.board_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Secrets are only available to board-scoped agents.",
+        )
+
+    result = await session.exec(
+        select(BoardSecret)
+        .where(BoardSecret.board_id == agent.board_id)
+        .order_by(col(BoardSecret.key))
+    )
+    secrets = result.all()
+    return [
+        {"key": s.key, "value": decrypt_secret(s.encrypted_value), "description": s.description}
+        for s in secrets
+    ]

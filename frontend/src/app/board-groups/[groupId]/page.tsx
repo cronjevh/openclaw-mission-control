@@ -63,7 +63,7 @@ const canWriteGroupBoards = (
   if (member.all_boards_write) return true;
   if (!member.board_access || boardIds.size === 0) return false;
   return member.board_access.some(
-    (access) => access.can_write && boardIds.has(access.board_id),
+    (access) => access.can_write && access.board_id && boardIds.has(access.board_id),
   );
 };
 

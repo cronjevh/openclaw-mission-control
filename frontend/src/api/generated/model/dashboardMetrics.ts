@@ -6,6 +6,7 @@
  */
 import type { DashboardKpis } from "./dashboardKpis";
 import type { DashboardMetricsRange } from "./dashboardMetricsRange";
+import type { DashboardPendingApprovals } from "./dashboardPendingApprovals";
 import type { DashboardSeriesSet } from "./dashboardSeriesSet";
 import type { DashboardWipSeriesSet } from "./dashboardWipSeriesSet";
 
@@ -20,4 +21,5 @@ export interface DashboardMetrics {
   cycle_time: DashboardSeriesSet;
   error_rate: DashboardSeriesSet;
   wip: DashboardWipSeriesSet;
+  pending_approvals: DashboardPendingApprovals;
 }

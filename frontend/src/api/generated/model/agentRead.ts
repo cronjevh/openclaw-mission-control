@@ -32,6 +32,8 @@ export interface AgentRead {
   id: string;
   /** Gateway UUID that manages this agent. */
   gateway_id: string;
+  /** Board group UUID for group-level agents. None for board-scoped agents. */
+  group_id?: string | null;
   /** Whether this agent is the board lead. */
   is_board_lead?: boolean;
   /** Whether this agent is the primary gateway agent. */

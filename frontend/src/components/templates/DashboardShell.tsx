@@ -34,7 +34,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
     },
   });
   const profile = meQuery.data?.status === 200 ? meQuery.data.data : null;
-  const displayName = profile?.name ?? profile?.preferred_name ?? "Operator";
+  const displayName = profile?.name ?? "Operator";
   const displayEmail = profile?.email ?? "";
 
   useEffect(() => {

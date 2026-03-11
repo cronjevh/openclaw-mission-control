@@ -14,6 +14,8 @@ export interface BoardWebhookRead {
   agent_id?: string | null;
   description: string;
   enabled: boolean;
+  has_secret?: boolean;
+  signature_header?: string | null;
   endpoint_path: string;
   endpoint_url?: string | null;
   created_at: string;

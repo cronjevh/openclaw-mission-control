@@ -21,6 +21,7 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  AgentRead,
   BoardGroupCreate,
   BoardGroupHeartbeatApply,
   BoardGroupHeartbeatApplyResult,
@@ -29,10 +30,16 @@ import type {
   BoardGroupSnapshot,
   BoardGroupUpdate,
   GetBoardGroupSnapshotApiV1BoardGroupsGroupIdSnapshotGetParams,
+  GroupAgentProvision,
   HTTPValidationError,
   LimitOffsetPageTypeVarCustomizedBoardGroupRead,
+  LimitOffsetPageTypeVarCustomizedTaskRead,
   ListBoardGroupsApiV1BoardGroupsGetParams,
+  ListGroupTasksApiV1BoardGroupsGroupIdTasksGetParams,
   OkResponse,
+  TaskCreate,
+  TaskRead,
+  TaskUpdate,
 } from ".././model";
 
 import { customFetch } from "../../mutator";
@@ -1562,6 +1569,1499 @@ export const useApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost = <
 > => {
   return useMutation(
     getApplyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPostMutationOptions(
+      options,
+    ),
+    queryClient,
+  );
+};
+/**
+ * Provision a group lead agent for a board group.
+
+Creates a new Agent record scoped to the group (no board), sets it as the
+group's agent, and mints its auth token. Only org admins may call this.
+If gateway_id is omitted, the first gateway in the organization is used.
+ * @summary Provision Group Agent
+ */
+export type provisionGroupAgentApiV1BoardGroupsGroupIdAgentPostResponse200 = {
+  data: AgentRead;
+  status: 200;
+};
+
+export type provisionGroupAgentApiV1BoardGroupsGroupIdAgentPostResponse422 = {
+  data: HTTPValidationError;
+  status: 422;
+};
+
+export type provisionGroupAgentApiV1BoardGroupsGroupIdAgentPostResponseSuccess =
+  provisionGroupAgentApiV1BoardGroupsGroupIdAgentPostResponse200 & {
+    headers: Headers;
+  };
+export type provisionGroupAgentApiV1BoardGroupsGroupIdAgentPostResponseError =
+  provisionGroupAgentApiV1BoardGroupsGroupIdAgentPostResponse422 & {
+    headers: Headers;
+  };
+
+export type provisionGroupAgentApiV1BoardGroupsGroupIdAgentPostResponse =
+  | provisionGroupAgentApiV1BoardGroupsGroupIdAgentPostResponseSuccess
+  | provisionGroupAgentApiV1BoardGroupsGroupIdAgentPostResponseError;
+
+export const getProvisionGroupAgentApiV1BoardGroupsGroupIdAgentPostUrl = (
+  groupId: string,
+) => {
+  return `/api/v1/board-groups/${groupId}/agent`;
+};
+
+export const provisionGroupAgentApiV1BoardGroupsGroupIdAgentPost = async (
+  groupId: string,
+  groupAgentProvision: GroupAgentProvision,
+  options?: RequestInit,
+): Promise<provisionGroupAgentApiV1BoardGroupsGroupIdAgentPostResponse> => {
+  return customFetch<provisionGroupAgentApiV1BoardGroupsGroupIdAgentPostResponse>(
+    getProvisionGroupAgentApiV1BoardGroupsGroupIdAgentPostUrl(groupId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(groupAgentProvision),
+    },
+  );
+};
+
+export const getProvisionGroupAgentApiV1BoardGroupsGroupIdAgentPostMutationOptions =
+  <TError = HTTPValidationError, TContext = unknown>(options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<typeof provisionGroupAgentApiV1BoardGroupsGroupIdAgentPost>
+      >,
+      TError,
+      { groupId: string; data: GroupAgentProvision },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  }): UseMutationOptions<
+    Awaited<
+      ReturnType<typeof provisionGroupAgentApiV1BoardGroupsGroupIdAgentPost>
+    >,
+    TError,
+    { groupId: string; data: GroupAgentProvision },
+    TContext
+  > => {
+    const mutationKey = ["provisionGroupAgentApiV1BoardGroupsGroupIdAgentPost"];
+    const { mutation: mutationOptions, request: requestOptions } = options
+      ? options.mutation &&
+        "mutationKey" in options.mutation &&
+        options.mutation.mutationKey
+        ? options
+        : { ...options, mutation: { ...options.mutation, mutationKey } }
+      : { mutation: { mutationKey }, request: undefined };
+
+    const mutationFn: MutationFunction<
+      Awaited<
+        ReturnType<typeof provisionGroupAgentApiV1BoardGroupsGroupIdAgentPost>
+      >,
+      { groupId: string; data: GroupAgentProvision }
+    > = (props) => {
+      const { groupId, data } = props ?? {};
+
+      return provisionGroupAgentApiV1BoardGroupsGroupIdAgentPost(
+        groupId,
+        data,
+        requestOptions,
+      );
+    };
+
+    return { mutationFn, ...mutationOptions };
+  };
+
+export type ProvisionGroupAgentApiV1BoardGroupsGroupIdAgentPostMutationResult =
+  NonNullable<
+    Awaited<
+      ReturnType<typeof provisionGroupAgentApiV1BoardGroupsGroupIdAgentPost>
+    >
+  >;
+export type ProvisionGroupAgentApiV1BoardGroupsGroupIdAgentPostMutationBody =
+  GroupAgentProvision;
+export type ProvisionGroupAgentApiV1BoardGroupsGroupIdAgentPostMutationError =
+  HTTPValidationError;
+
+/**
+ * @summary Provision Group Agent
+ */
+export const useProvisionGroupAgentApiV1BoardGroupsGroupIdAgentPost = <
+  TError = HTTPValidationError,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<typeof provisionGroupAgentApiV1BoardGroupsGroupIdAgentPost>
+      >,
+      TError,
+      { groupId: string; data: GroupAgentProvision },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<
+    ReturnType<typeof provisionGroupAgentApiV1BoardGroupsGroupIdAgentPost>
+  >,
+  TError,
+  { groupId: string; data: GroupAgentProvision },
+  TContext
+> => {
+  return useMutation(
+    getProvisionGroupAgentApiV1BoardGroupsGroupIdAgentPostMutationOptions(
+      options,
+    ),
+    queryClient,
+  );
+};
+/**
+ * Deprovision the group lead agent for a board group.
+
+Deletes the agent record and clears the group's agent reference.
+Only org admins may call this.
+ * @summary Deprovision Group Agent
+ */
+export type deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDeleteResponse200 =
+  {
+    data: OkResponse;
+    status: 200;
+  };
+
+export type deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDeleteResponse422 =
+  {
+    data: HTTPValidationError;
+    status: 422;
+  };
+
+export type deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDeleteResponseSuccess =
+  deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDeleteResponse200 & {
+    headers: Headers;
+  };
+export type deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDeleteResponseError =
+  deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDeleteResponse422 & {
+    headers: Headers;
+  };
+
+export type deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDeleteResponse =
+  | deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDeleteResponseSuccess
+  | deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDeleteResponseError;
+
+export const getDeprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDeleteUrl = (
+  groupId: string,
+) => {
+  return `/api/v1/board-groups/${groupId}/agent`;
+};
+
+export const deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDelete = async (
+  groupId: string,
+  options?: RequestInit,
+): Promise<deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDeleteResponse> => {
+  return customFetch<deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDeleteResponse>(
+    getDeprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDeleteUrl(groupId),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getDeprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDeleteMutationOptions =
+  <TError = HTTPValidationError, TContext = unknown>(options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<
+          typeof deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDelete
+        >
+      >,
+      TError,
+      { groupId: string },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  }): UseMutationOptions<
+    Awaited<
+      ReturnType<typeof deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDelete>
+    >,
+    TError,
+    { groupId: string },
+    TContext
+  > => {
+    const mutationKey = [
+      "deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDelete",
+    ];
+    const { mutation: mutationOptions, request: requestOptions } = options
+      ? options.mutation &&
+        "mutationKey" in options.mutation &&
+        options.mutation.mutationKey
+        ? options
+        : { ...options, mutation: { ...options.mutation, mutationKey } }
+      : { mutation: { mutationKey }, request: undefined };
+
+    const mutationFn: MutationFunction<
+      Awaited<
+        ReturnType<
+          typeof deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDelete
+        >
+      >,
+      { groupId: string }
+    > = (props) => {
+      const { groupId } = props ?? {};
+
+      return deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDelete(
+        groupId,
+        requestOptions,
+      );
+    };
+
+    return { mutationFn, ...mutationOptions };
+  };
+
+export type DeprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDeleteMutationResult =
+  NonNullable<
+    Awaited<
+      ReturnType<typeof deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDelete>
+    >
+  >;
+
+export type DeprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDeleteMutationError =
+  HTTPValidationError;
+
+/**
+ * @summary Deprovision Group Agent
+ */
+export const useDeprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDelete = <
+  TError = HTTPValidationError,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<
+          typeof deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDelete
+        >
+      >,
+      TError,
+      { groupId: string },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<
+    ReturnType<typeof deprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDelete>
+  >,
+  TError,
+  { groupId: string },
+  TContext
+> => {
+  return useMutation(
+    getDeprovisionGroupAgentApiV1BoardGroupsGroupIdAgentDeleteMutationOptions(
+      options,
+    ),
+    queryClient,
+  );
+};
+/**
+ * Get the group lead agent for a board group.
+
+Returns 404 if no group agent has been provisioned. Only org admins may call this.
+ * @summary Get Group Agent
+ */
+export type getGroupAgentApiV1BoardGroupsGroupIdAgentGetResponse200 = {
+  data: AgentRead;
+  status: 200;
+};
+
+export type getGroupAgentApiV1BoardGroupsGroupIdAgentGetResponse422 = {
+  data: HTTPValidationError;
+  status: 422;
+};
+
+export type getGroupAgentApiV1BoardGroupsGroupIdAgentGetResponseSuccess =
+  getGroupAgentApiV1BoardGroupsGroupIdAgentGetResponse200 & {
+    headers: Headers;
+  };
+export type getGroupAgentApiV1BoardGroupsGroupIdAgentGetResponseError =
+  getGroupAgentApiV1BoardGroupsGroupIdAgentGetResponse422 & {
+    headers: Headers;
+  };
+
+export type getGroupAgentApiV1BoardGroupsGroupIdAgentGetResponse =
+  | getGroupAgentApiV1BoardGroupsGroupIdAgentGetResponseSuccess
+  | getGroupAgentApiV1BoardGroupsGroupIdAgentGetResponseError;
+
+export const getGetGroupAgentApiV1BoardGroupsGroupIdAgentGetUrl = (
+  groupId: string,
+) => {
+  return `/api/v1/board-groups/${groupId}/agent`;
+};
+
+export const getGroupAgentApiV1BoardGroupsGroupIdAgentGet = async (
+  groupId: string,
+  options?: RequestInit,
+): Promise<getGroupAgentApiV1BoardGroupsGroupIdAgentGetResponse> => {
+  return customFetch<getGroupAgentApiV1BoardGroupsGroupIdAgentGetResponse>(
+    getGetGroupAgentApiV1BoardGroupsGroupIdAgentGetUrl(groupId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetGroupAgentApiV1BoardGroupsGroupIdAgentGetQueryKey = (
+  groupId: string,
+) => {
+  return [`/api/v1/board-groups/${groupId}/agent`] as const;
+};
+
+export const getGetGroupAgentApiV1BoardGroupsGroupIdAgentGetQueryOptions = <
+  TData = Awaited<
+    ReturnType<typeof getGroupAgentApiV1BoardGroupsGroupIdAgentGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof getGroupAgentApiV1BoardGroupsGroupIdAgentGet>
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getGetGroupAgentApiV1BoardGroupsGroupIdAgentGetQueryKey(groupId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getGroupAgentApiV1BoardGroupsGroupIdAgentGet>>
+  > = ({ signal }) =>
+    getGroupAgentApiV1BoardGroupsGroupIdAgentGet(groupId, {
+      signal,
+      ...requestOptions,
+    });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!groupId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getGroupAgentApiV1BoardGroupsGroupIdAgentGet>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetGroupAgentApiV1BoardGroupsGroupIdAgentGetQueryResult =
+  NonNullable<
+    Awaited<ReturnType<typeof getGroupAgentApiV1BoardGroupsGroupIdAgentGet>>
+  >;
+export type GetGroupAgentApiV1BoardGroupsGroupIdAgentGetQueryError =
+  HTTPValidationError;
+
+export function useGetGroupAgentApiV1BoardGroupsGroupIdAgentGet<
+  TData = Awaited<
+    ReturnType<typeof getGroupAgentApiV1BoardGroupsGroupIdAgentGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof getGroupAgentApiV1BoardGroupsGroupIdAgentGet>
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<
+            ReturnType<typeof getGroupAgentApiV1BoardGroupsGroupIdAgentGet>
+          >,
+          TError,
+          Awaited<
+            ReturnType<typeof getGroupAgentApiV1BoardGroupsGroupIdAgentGet>
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetGroupAgentApiV1BoardGroupsGroupIdAgentGet<
+  TData = Awaited<
+    ReturnType<typeof getGroupAgentApiV1BoardGroupsGroupIdAgentGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof getGroupAgentApiV1BoardGroupsGroupIdAgentGet>
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<
+            ReturnType<typeof getGroupAgentApiV1BoardGroupsGroupIdAgentGet>
+          >,
+          TError,
+          Awaited<
+            ReturnType<typeof getGroupAgentApiV1BoardGroupsGroupIdAgentGet>
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetGroupAgentApiV1BoardGroupsGroupIdAgentGet<
+  TData = Awaited<
+    ReturnType<typeof getGroupAgentApiV1BoardGroupsGroupIdAgentGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof getGroupAgentApiV1BoardGroupsGroupIdAgentGet>
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary Get Group Agent
+ */
+
+export function useGetGroupAgentApiV1BoardGroupsGroupIdAgentGet<
+  TData = Awaited<
+    ReturnType<typeof getGroupAgentApiV1BoardGroupsGroupIdAgentGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof getGroupAgentApiV1BoardGroupsGroupIdAgentGet>
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions =
+    getGetGroupAgentApiV1BoardGroupsGroupIdAgentGetQueryOptions(
+      groupId,
+      options,
+    );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * List tasks belonging directly to a board group (not scoped to any inner board).
+ * @summary List Group Tasks
+ */
+export type listGroupTasksApiV1BoardGroupsGroupIdTasksGetResponse200 = {
+  data: LimitOffsetPageTypeVarCustomizedTaskRead;
+  status: 200;
+};
+
+export type listGroupTasksApiV1BoardGroupsGroupIdTasksGetResponse422 = {
+  data: HTTPValidationError;
+  status: 422;
+};
+
+export type listGroupTasksApiV1BoardGroupsGroupIdTasksGetResponseSuccess =
+  listGroupTasksApiV1BoardGroupsGroupIdTasksGetResponse200 & {
+    headers: Headers;
+  };
+export type listGroupTasksApiV1BoardGroupsGroupIdTasksGetResponseError =
+  listGroupTasksApiV1BoardGroupsGroupIdTasksGetResponse422 & {
+    headers: Headers;
+  };
+
+export type listGroupTasksApiV1BoardGroupsGroupIdTasksGetResponse =
+  | listGroupTasksApiV1BoardGroupsGroupIdTasksGetResponseSuccess
+  | listGroupTasksApiV1BoardGroupsGroupIdTasksGetResponseError;
+
+export const getListGroupTasksApiV1BoardGroupsGroupIdTasksGetUrl = (
+  groupId: string,
+  params?: ListGroupTasksApiV1BoardGroupsGroupIdTasksGetParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/v1/board-groups/${groupId}/tasks?${stringifiedParams}`
+    : `/api/v1/board-groups/${groupId}/tasks`;
+};
+
+export const listGroupTasksApiV1BoardGroupsGroupIdTasksGet = async (
+  groupId: string,
+  params?: ListGroupTasksApiV1BoardGroupsGroupIdTasksGetParams,
+  options?: RequestInit,
+): Promise<listGroupTasksApiV1BoardGroupsGroupIdTasksGetResponse> => {
+  return customFetch<listGroupTasksApiV1BoardGroupsGroupIdTasksGetResponse>(
+    getListGroupTasksApiV1BoardGroupsGroupIdTasksGetUrl(groupId, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListGroupTasksApiV1BoardGroupsGroupIdTasksGetQueryKey = (
+  groupId: string,
+  params?: ListGroupTasksApiV1BoardGroupsGroupIdTasksGetParams,
+) => {
+  return [
+    `/api/v1/board-groups/${groupId}/tasks`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getListGroupTasksApiV1BoardGroupsGroupIdTasksGetQueryOptions = <
+  TData = Awaited<
+    ReturnType<typeof listGroupTasksApiV1BoardGroupsGroupIdTasksGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  params?: ListGroupTasksApiV1BoardGroupsGroupIdTasksGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof listGroupTasksApiV1BoardGroupsGroupIdTasksGet>
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getListGroupTasksApiV1BoardGroupsGroupIdTasksGetQueryKey(groupId, params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listGroupTasksApiV1BoardGroupsGroupIdTasksGet>>
+  > = ({ signal }) =>
+    listGroupTasksApiV1BoardGroupsGroupIdTasksGet(groupId, params, {
+      signal,
+      ...requestOptions,
+    });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!groupId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listGroupTasksApiV1BoardGroupsGroupIdTasksGet>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListGroupTasksApiV1BoardGroupsGroupIdTasksGetQueryResult =
+  NonNullable<
+    Awaited<ReturnType<typeof listGroupTasksApiV1BoardGroupsGroupIdTasksGet>>
+  >;
+export type ListGroupTasksApiV1BoardGroupsGroupIdTasksGetQueryError =
+  HTTPValidationError;
+
+export function useListGroupTasksApiV1BoardGroupsGroupIdTasksGet<
+  TData = Awaited<
+    ReturnType<typeof listGroupTasksApiV1BoardGroupsGroupIdTasksGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  params: undefined | ListGroupTasksApiV1BoardGroupsGroupIdTasksGetParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof listGroupTasksApiV1BoardGroupsGroupIdTasksGet>
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<
+            ReturnType<typeof listGroupTasksApiV1BoardGroupsGroupIdTasksGet>
+          >,
+          TError,
+          Awaited<
+            ReturnType<typeof listGroupTasksApiV1BoardGroupsGroupIdTasksGet>
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useListGroupTasksApiV1BoardGroupsGroupIdTasksGet<
+  TData = Awaited<
+    ReturnType<typeof listGroupTasksApiV1BoardGroupsGroupIdTasksGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  params?: ListGroupTasksApiV1BoardGroupsGroupIdTasksGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof listGroupTasksApiV1BoardGroupsGroupIdTasksGet>
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<
+            ReturnType<typeof listGroupTasksApiV1BoardGroupsGroupIdTasksGet>
+          >,
+          TError,
+          Awaited<
+            ReturnType<typeof listGroupTasksApiV1BoardGroupsGroupIdTasksGet>
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useListGroupTasksApiV1BoardGroupsGroupIdTasksGet<
+  TData = Awaited<
+    ReturnType<typeof listGroupTasksApiV1BoardGroupsGroupIdTasksGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  params?: ListGroupTasksApiV1BoardGroupsGroupIdTasksGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof listGroupTasksApiV1BoardGroupsGroupIdTasksGet>
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary List Group Tasks
+ */
+
+export function useListGroupTasksApiV1BoardGroupsGroupIdTasksGet<
+  TData = Awaited<
+    ReturnType<typeof listGroupTasksApiV1BoardGroupsGroupIdTasksGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  params?: ListGroupTasksApiV1BoardGroupsGroupIdTasksGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof listGroupTasksApiV1BoardGroupsGroupIdTasksGet>
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions =
+    getListGroupTasksApiV1BoardGroupsGroupIdTasksGetQueryOptions(
+      groupId,
+      params,
+      options,
+    );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Create a task directly owned by a board group.
+ * @summary Create Group Task
+ */
+export type createGroupTaskApiV1BoardGroupsGroupIdTasksPostResponse200 = {
+  data: TaskRead;
+  status: 200;
+};
+
+export type createGroupTaskApiV1BoardGroupsGroupIdTasksPostResponse422 = {
+  data: HTTPValidationError;
+  status: 422;
+};
+
+export type createGroupTaskApiV1BoardGroupsGroupIdTasksPostResponseSuccess =
+  createGroupTaskApiV1BoardGroupsGroupIdTasksPostResponse200 & {
+    headers: Headers;
+  };
+export type createGroupTaskApiV1BoardGroupsGroupIdTasksPostResponseError =
+  createGroupTaskApiV1BoardGroupsGroupIdTasksPostResponse422 & {
+    headers: Headers;
+  };
+
+export type createGroupTaskApiV1BoardGroupsGroupIdTasksPostResponse =
+  | createGroupTaskApiV1BoardGroupsGroupIdTasksPostResponseSuccess
+  | createGroupTaskApiV1BoardGroupsGroupIdTasksPostResponseError;
+
+export const getCreateGroupTaskApiV1BoardGroupsGroupIdTasksPostUrl = (
+  groupId: string,
+) => {
+  return `/api/v1/board-groups/${groupId}/tasks`;
+};
+
+export const createGroupTaskApiV1BoardGroupsGroupIdTasksPost = async (
+  groupId: string,
+  taskCreate: TaskCreate,
+  options?: RequestInit,
+): Promise<createGroupTaskApiV1BoardGroupsGroupIdTasksPostResponse> => {
+  return customFetch<createGroupTaskApiV1BoardGroupsGroupIdTasksPostResponse>(
+    getCreateGroupTaskApiV1BoardGroupsGroupIdTasksPostUrl(groupId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(taskCreate),
+    },
+  );
+};
+
+export const getCreateGroupTaskApiV1BoardGroupsGroupIdTasksPostMutationOptions =
+  <TError = HTTPValidationError, TContext = unknown>(options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<typeof createGroupTaskApiV1BoardGroupsGroupIdTasksPost>
+      >,
+      TError,
+      { groupId: string; data: TaskCreate },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  }): UseMutationOptions<
+    Awaited<ReturnType<typeof createGroupTaskApiV1BoardGroupsGroupIdTasksPost>>,
+    TError,
+    { groupId: string; data: TaskCreate },
+    TContext
+  > => {
+    const mutationKey = ["createGroupTaskApiV1BoardGroupsGroupIdTasksPost"];
+    const { mutation: mutationOptions, request: requestOptions } = options
+      ? options.mutation &&
+        "mutationKey" in options.mutation &&
+        options.mutation.mutationKey
+        ? options
+        : { ...options, mutation: { ...options.mutation, mutationKey } }
+      : { mutation: { mutationKey }, request: undefined };
+
+    const mutationFn: MutationFunction<
+      Awaited<
+        ReturnType<typeof createGroupTaskApiV1BoardGroupsGroupIdTasksPost>
+      >,
+      { groupId: string; data: TaskCreate }
+    > = (props) => {
+      const { groupId, data } = props ?? {};
+
+      return createGroupTaskApiV1BoardGroupsGroupIdTasksPost(
+        groupId,
+        data,
+        requestOptions,
+      );
+    };
+
+    return { mutationFn, ...mutationOptions };
+  };
+
+export type CreateGroupTaskApiV1BoardGroupsGroupIdTasksPostMutationResult =
+  NonNullable<
+    Awaited<ReturnType<typeof createGroupTaskApiV1BoardGroupsGroupIdTasksPost>>
+  >;
+export type CreateGroupTaskApiV1BoardGroupsGroupIdTasksPostMutationBody =
+  TaskCreate;
+export type CreateGroupTaskApiV1BoardGroupsGroupIdTasksPostMutationError =
+  HTTPValidationError;
+
+/**
+ * @summary Create Group Task
+ */
+export const useCreateGroupTaskApiV1BoardGroupsGroupIdTasksPost = <
+  TError = HTTPValidationError,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<typeof createGroupTaskApiV1BoardGroupsGroupIdTasksPost>
+      >,
+      TError,
+      { groupId: string; data: TaskCreate },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof createGroupTaskApiV1BoardGroupsGroupIdTasksPost>>,
+  TError,
+  { groupId: string; data: TaskCreate },
+  TContext
+> => {
+  return useMutation(
+    getCreateGroupTaskApiV1BoardGroupsGroupIdTasksPostMutationOptions(options),
+    queryClient,
+  );
+};
+/**
+ * Get a single group-level task.
+ * @summary Get Group Task
+ */
+export type getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetResponse200 = {
+  data: TaskRead;
+  status: 200;
+};
+
+export type getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetResponse422 = {
+  data: HTTPValidationError;
+  status: 422;
+};
+
+export type getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetResponseSuccess =
+  getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetResponse200 & {
+    headers: Headers;
+  };
+export type getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetResponseError =
+  getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetResponse422 & {
+    headers: Headers;
+  };
+
+export type getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetResponse =
+  | getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetResponseSuccess
+  | getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetResponseError;
+
+export const getGetGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetUrl = (
+  groupId: string,
+  taskId: string,
+) => {
+  return `/api/v1/board-groups/${groupId}/tasks/${taskId}`;
+};
+
+export const getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet = async (
+  groupId: string,
+  taskId: string,
+  options?: RequestInit,
+): Promise<getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetResponse> => {
+  return customFetch<getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetResponse>(
+    getGetGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetUrl(groupId, taskId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetQueryKey = (
+  groupId: string,
+  taskId: string,
+) => {
+  return [`/api/v1/board-groups/${groupId}/tasks/${taskId}`] as const;
+};
+
+export const getGetGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetQueryOptions =
+  <
+    TData = Awaited<
+      ReturnType<typeof getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet>
+    >,
+    TError = HTTPValidationError,
+  >(
+    groupId: string,
+    taskId: string,
+    options?: {
+      query?: Partial<
+        UseQueryOptions<
+          Awaited<
+            ReturnType<typeof getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet>
+          >,
+          TError,
+          TData
+        >
+      >;
+      request?: SecondParameter<typeof customFetch>;
+    },
+  ) => {
+    const { query: queryOptions, request: requestOptions } = options ?? {};
+
+    const queryKey =
+      queryOptions?.queryKey ??
+      getGetGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetQueryKey(
+        groupId,
+        taskId,
+      );
+
+    const queryFn: QueryFunction<
+      Awaited<
+        ReturnType<typeof getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet>
+      >
+    > = ({ signal }) =>
+      getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet(groupId, taskId, {
+        signal,
+        ...requestOptions,
+      });
+
+    return {
+      queryKey,
+      queryFn,
+      enabled: !!(groupId && taskId),
+      ...queryOptions,
+    } as UseQueryOptions<
+      Awaited<
+        ReturnType<typeof getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet>
+      >,
+      TError,
+      TData
+    > & { queryKey: DataTag<QueryKey, TData, TError> };
+  };
+
+export type GetGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetQueryResult =
+  NonNullable<
+    Awaited<
+      ReturnType<typeof getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet>
+    >
+  >;
+export type GetGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetQueryError =
+  HTTPValidationError;
+
+export function useGetGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet<
+  TData = Awaited<
+    ReturnType<typeof getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  taskId: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet>
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<
+            ReturnType<typeof getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet>
+          >,
+          TError,
+          Awaited<
+            ReturnType<typeof getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet>
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet<
+  TData = Awaited<
+    ReturnType<typeof getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  taskId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet>
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<
+            ReturnType<typeof getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet>
+          >,
+          TError,
+          Awaited<
+            ReturnType<typeof getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet>
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet<
+  TData = Awaited<
+    ReturnType<typeof getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  taskId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet>
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary Get Group Task
+ */
+
+export function useGetGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet<
+  TData = Awaited<
+    ReturnType<typeof getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  taskId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof getGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGet>
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions =
+    getGetGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdGetQueryOptions(
+      groupId,
+      taskId,
+      options,
+    );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Update a group-level task.
+ * @summary Update Group Task
+ */
+export type updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchResponse200 =
+  {
+    data: TaskRead;
+    status: 200;
+  };
+
+export type updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchResponse422 =
+  {
+    data: HTTPValidationError;
+    status: 422;
+  };
+
+export type updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchResponseSuccess =
+  updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchResponse200 & {
+    headers: Headers;
+  };
+export type updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchResponseError =
+  updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchResponse422 & {
+    headers: Headers;
+  };
+
+export type updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchResponse =
+  | updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchResponseSuccess
+  | updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchResponseError;
+
+export const getUpdateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchUrl = (
+  groupId: string,
+  taskId: string,
+) => {
+  return `/api/v1/board-groups/${groupId}/tasks/${taskId}`;
+};
+
+export const updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatch = async (
+  groupId: string,
+  taskId: string,
+  taskUpdate: TaskUpdate,
+  options?: RequestInit,
+): Promise<updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchResponse> => {
+  return customFetch<updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchResponse>(
+    getUpdateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchUrl(
+      groupId,
+      taskId,
+    ),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(taskUpdate),
+    },
+  );
+};
+
+export const getUpdateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchMutationOptions =
+  <TError = HTTPValidationError, TContext = unknown>(options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<
+          typeof updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatch
+        >
+      >,
+      TError,
+      { groupId: string; taskId: string; data: TaskUpdate },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  }): UseMutationOptions<
+    Awaited<
+      ReturnType<typeof updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatch>
+    >,
+    TError,
+    { groupId: string; taskId: string; data: TaskUpdate },
+    TContext
+  > => {
+    const mutationKey = [
+      "updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatch",
+    ];
+    const { mutation: mutationOptions, request: requestOptions } = options
+      ? options.mutation &&
+        "mutationKey" in options.mutation &&
+        options.mutation.mutationKey
+        ? options
+        : { ...options, mutation: { ...options.mutation, mutationKey } }
+      : { mutation: { mutationKey }, request: undefined };
+
+    const mutationFn: MutationFunction<
+      Awaited<
+        ReturnType<
+          typeof updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatch
+        >
+      >,
+      { groupId: string; taskId: string; data: TaskUpdate }
+    > = (props) => {
+      const { groupId, taskId, data } = props ?? {};
+
+      return updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatch(
+        groupId,
+        taskId,
+        data,
+        requestOptions,
+      );
+    };
+
+    return { mutationFn, ...mutationOptions };
+  };
+
+export type UpdateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchMutationResult =
+  NonNullable<
+    Awaited<
+      ReturnType<typeof updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatch>
+    >
+  >;
+export type UpdateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchMutationBody =
+  TaskUpdate;
+export type UpdateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchMutationError =
+  HTTPValidationError;
+
+/**
+ * @summary Update Group Task
+ */
+export const useUpdateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatch = <
+  TError = HTTPValidationError,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<
+          typeof updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatch
+        >
+      >,
+      TError,
+      { groupId: string; taskId: string; data: TaskUpdate },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<
+    ReturnType<typeof updateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatch>
+  >,
+  TError,
+  { groupId: string; taskId: string; data: TaskUpdate },
+  TContext
+> => {
+  return useMutation(
+    getUpdateGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdPatchMutationOptions(
+      options,
+    ),
+    queryClient,
+  );
+};
+/**
+ * Delete a group-level task.
+ * @summary Delete Group Task
+ */
+export type deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDeleteResponse200 =
+  {
+    data: OkResponse;
+    status: 200;
+  };
+
+export type deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDeleteResponse422 =
+  {
+    data: HTTPValidationError;
+    status: 422;
+  };
+
+export type deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDeleteResponseSuccess =
+  deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDeleteResponse200 & {
+    headers: Headers;
+  };
+export type deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDeleteResponseError =
+  deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDeleteResponse422 & {
+    headers: Headers;
+  };
+
+export type deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDeleteResponse =
+  | deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDeleteResponseSuccess
+  | deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDeleteResponseError;
+
+export const getDeleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDeleteUrl = (
+  groupId: string,
+  taskId: string,
+) => {
+  return `/api/v1/board-groups/${groupId}/tasks/${taskId}`;
+};
+
+export const deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDelete = async (
+  groupId: string,
+  taskId: string,
+  options?: RequestInit,
+): Promise<deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDeleteResponse> => {
+  return customFetch<deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDeleteResponse>(
+    getDeleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDeleteUrl(
+      groupId,
+      taskId,
+    ),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getDeleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDeleteMutationOptions =
+  <TError = HTTPValidationError, TContext = unknown>(options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<
+          typeof deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDelete
+        >
+      >,
+      TError,
+      { groupId: string; taskId: string },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  }): UseMutationOptions<
+    Awaited<
+      ReturnType<typeof deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDelete>
+    >,
+    TError,
+    { groupId: string; taskId: string },
+    TContext
+  > => {
+    const mutationKey = [
+      "deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDelete",
+    ];
+    const { mutation: mutationOptions, request: requestOptions } = options
+      ? options.mutation &&
+        "mutationKey" in options.mutation &&
+        options.mutation.mutationKey
+        ? options
+        : { ...options, mutation: { ...options.mutation, mutationKey } }
+      : { mutation: { mutationKey }, request: undefined };
+
+    const mutationFn: MutationFunction<
+      Awaited<
+        ReturnType<
+          typeof deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDelete
+        >
+      >,
+      { groupId: string; taskId: string }
+    > = (props) => {
+      const { groupId, taskId } = props ?? {};
+
+      return deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDelete(
+        groupId,
+        taskId,
+        requestOptions,
+      );
+    };
+
+    return { mutationFn, ...mutationOptions };
+  };
+
+export type DeleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDeleteMutationResult =
+  NonNullable<
+    Awaited<
+      ReturnType<typeof deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDelete>
+    >
+  >;
+
+export type DeleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDeleteMutationError =
+  HTTPValidationError;
+
+/**
+ * @summary Delete Group Task
+ */
+export const useDeleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDelete = <
+  TError = HTTPValidationError,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<
+          typeof deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDelete
+        >
+      >,
+      TError,
+      { groupId: string; taskId: string },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<
+    ReturnType<typeof deleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDelete>
+  >,
+  TError,
+  { groupId: string; taskId: string },
+  TContext
+> => {
+  return useMutation(
+    getDeleteGroupTaskApiV1BoardGroupsGroupIdTasksTaskIdDeleteMutationOptions(
       options,
     ),
     queryClient,

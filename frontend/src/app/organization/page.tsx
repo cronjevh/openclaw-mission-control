@@ -15,6 +15,10 @@ import {
   useListBoardsApiV1BoardsGet,
 } from "@/api/generated/boards/boards";
 import {
+  type listBoardGroupsApiV1BoardGroupsGetResponse,
+  useListBoardGroupsApiV1BoardGroupsGet,
+} from "@/api/generated/board-groups/board-groups";
+import {
   type getMyOrgApiV1OrganizationsMeGetResponse,
   type getMyMembershipApiV1OrganizationsMeMemberGetResponse,
   type getOrgMemberApiV1OrganizationsMeMembersMemberIdGetResponse,
@@ -65,25 +69,42 @@ import {
 import { DashboardShell } from "@/components/templates/DashboardShell";
 import { cn } from "@/lib/utils";
 
-type AccessScope = "all" | "custom";
+type AccessScope = "all" | "boards" | "board-groups";
 
 type BoardAccessState = Record<string, { read: boolean; write: boolean }>;
+type BoardGroupAccessState = Record<string, { read: boolean; write: boolean }>;
 
 const buildAccessList = (
-  access: BoardAccessState,
-): OrganizationBoardAccessSpec[] =>
-  Object.entries(access)
+  boardAccess: BoardAccessState,
+  boardGroupAccess: BoardGroupAccessState,
+): OrganizationBoardAccessSpec[] => {
+  const boardEntries = Object.entries(boardAccess)
     .filter(([, entry]) => entry.read || entry.write)
     .map(([boardId, entry]) => ({
-      board_id: boardId,
+      board_id: boardId as string,
+      board_group_id: null,
       can_read: entry.read || entry.write,
       can_write: entry.write,
     }));
 
+  const groupEntries = Object.entries(boardGroupAccess)
+    .filter(([, entry]) => entry.read || entry.write)
+    .map(([groupId, entry]) => ({
+      board_id: null,
+      board_group_id: groupId as string,
+      can_read: entry.read || entry.write,
+      can_write: entry.write,
+    }));
+
+  return [...boardEntries, ...groupEntries] as OrganizationBoardAccessSpec[];
+};
+
 const defaultBoardAccess: BoardAccessState = {};
+const defaultBoardGroupAccess: BoardGroupAccessState = {};
 
 function BoardAccessEditor({
   boards,
+  boardGroups,
   scope,
   onScopeChange,
   allRead,
@@ -92,10 +113,13 @@ function BoardAccessEditor({
   onAllWriteChange,
   access,
   onAccessChange,
+  boardGroupAccess,
+  onBoardGroupAccessChange,
   disabled,
   emptyMessage,
 }: {
   boards: BoardRead[];
+  boardGroups: any[];
   scope: AccessScope;
   onScopeChange: (scope: AccessScope) => void;
   allRead: boolean;
@@ -104,6 +128,8 @@ function BoardAccessEditor({
   onAllWriteChange: (next: boolean) => void;
   access: BoardAccessState;
   onAccessChange: (next: BoardAccessState) => void;
+  boardGroupAccess: BoardGroupAccessState;
+  onBoardGroupAccessChange: (next: BoardGroupAccessState) => void;
   disabled?: boolean;
   emptyMessage?: string;
 }) {
@@ -178,14 +204,27 @@ function BoardAccessEditor({
             type="button"
             className={cn(
               "rounded-md px-3 py-1.5 text-xs font-semibold transition",
-              scope === "custom"
+              scope === "boards"
                 ? "bg-[color:var(--surface)] text-strong shadow-sm"
                 : "text-quiet hover:text-muted",
             )}
-            onClick={() => onScopeChange("custom")}
+            onClick={() => onScopeChange("boards")}
             disabled={disabled}
           >
             Selected boards
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "rounded-md px-3 py-1.5 text-xs font-semibold transition",
+              scope === "board-groups"
+                ? "bg-[color:var(--surface)] text-strong shadow-sm"
+                : "text-quiet hover:text-muted",
+            )}
+            onClick={() => onScopeChange("board-groups")}
+            disabled={disabled}
+          >
+            Board groups
           </button>
         </div>
       </div>
@@ -216,7 +255,7 @@ function BoardAccessEditor({
             Write access implies read permissions.
           </span>
         </div>
-      ) : (
+      ) : scope === "boards" ? (
         <div>
           {boards.length === 0 ? (
             <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-4 py-3 text-sm text-quiet">
@@ -234,7 +273,113 @@ function BoardAccessEditor({
             </div>
           )}
         </div>
+      ) : (
+        <BoardGroupAccessEditor
+          boardGroups={boardGroups}
+          access={boardGroupAccess}
+          onAccessChange={onBoardGroupAccessChange}
+          disabled={disabled}
+        />
       )}
+    </div>
+  );
+}
+
+function BoardGroupAccessEditor({
+  boardGroups,
+  access,
+  onAccessChange,
+  disabled,
+}: {
+  boardGroups: any[];
+  access: BoardGroupAccessState;
+  onAccessChange: (next: BoardGroupAccessState) => void;
+  disabled?: boolean;
+}) {
+  const handleBoardGroupReadToggle = (groupId: string) => {
+    if (disabled) return;
+    const current = access[groupId] ?? { read: false, write: false };
+    const nextRead = !current.read;
+    const nextWrite = nextRead ? current.write : false;
+    onAccessChange({
+      ...access,
+      [groupId]: {
+        read: nextRead,
+        write: nextWrite,
+      },
+    });
+  };
+
+  const handleBoardGroupWriteToggle = (groupId: string) => {
+    if (disabled) return;
+    const current = access[groupId] ?? { read: false, write: false };
+    const nextWrite = !current.write;
+    const nextRead = nextWrite || current.read;
+    onAccessChange({
+      ...access,
+      [groupId]: {
+        read: nextRead,
+        write: nextWrite,
+      },
+    });
+  };
+
+  if (!boardGroups.length) {
+    return (
+      <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-4 py-3 text-sm text-quiet">
+        No board groups available.
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-[color:var(--border)]">
+      <table className="w-full border-collapse text-sm">
+        <thead className="border-b border-[color:var(--border)] bg-[color:var(--surface-strong)]">
+          <tr>
+            <th className="px-4 py-2 text-left font-semibold text-strong">
+              Board Group
+            </th>
+            <th className="px-4 py-2 text-center font-semibold text-strong w-16">
+              Read
+            </th>
+            <th className="px-4 py-2 text-center font-semibold text-strong w-16">
+              Write
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {boardGroups.map((group, index) => (
+            <tr
+              key={group.id}
+              className={cn(
+                "border-b border-[color:var(--border)]",
+                index % 2 === 0 ? "bg-[color:var(--surface)]" : "bg-transparent",
+              )}
+            >
+              <td className="px-4 py-2 text-muted">{group.name}</td>
+              <td className="px-4 py-2 text-center">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={access[group.id]?.read ?? false}
+                  onChange={() => handleBoardGroupReadToggle(group.id)}
+                  disabled={disabled}
+                />
+              </td>
+              <td className="px-4 py-2 text-center">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={access[group.id]?.write ?? false}
+                  onChange={() => handleBoardGroupWriteToggle(group.id)}
+                  disabled={disabled}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -252,6 +397,8 @@ export default function OrganizationPage() {
   const [inviteAllWrite, setInviteAllWrite] = useState(false);
   const [inviteAccess, setInviteAccess] =
     useState<BoardAccessState>(defaultBoardAccess);
+  const [inviteBoardGroupAccess, setInviteBoardGroupAccess] =
+    useState<BoardGroupAccessState>(defaultBoardGroupAccess);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
 
@@ -262,6 +409,8 @@ export default function OrganizationPage() {
   const [accessAllWrite, setAccessAllWrite] = useState<boolean | null>(null);
   const [accessRole, setAccessRole] = useState<string | null>(null);
   const [accessMap, setAccessMap] = useState<BoardAccessState | null>(null);
+  const [accessBoardGroupMap, setAccessBoardGroupMap] =
+    useState<BoardGroupAccessState | null>(null);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [deleteOrgOpen, setDeleteOrgOpen] = useState(false);
   const [removeMemberOpen, setRemoveMemberOpen] = useState(false);
@@ -291,6 +440,19 @@ export default function OrganizationPage() {
 
   const boardsQuery = useListBoardsApiV1BoardsGet<
     listBoardsApiV1BoardsGetResponse,
+    ApiError
+  >(
+    { limit: 200 },
+    {
+      query: {
+        enabled: Boolean(isSignedIn),
+        refetchOnMount: "always",
+      },
+    },
+  );
+
+  const boardGroupsQuery = useListBoardGroupsApiV1BoardGroupsGet<
+    listBoardGroupsApiV1BoardGroupsGetResponse,
     ApiError
   >(
     { limit: 200 },
@@ -348,20 +510,28 @@ export default function OrganizationPage() {
     return boardsQuery.data.data.items ?? [];
   }, [boardsQuery.data]);
 
+  const boardGroups = useMemo(() => {
+    if (boardGroupsQuery.data?.status !== 200) return [];
+    return boardGroupsQuery.data.data.items ?? [];
+  }, [boardGroupsQuery.data]);
+
   const memberDetailsQuery =
     useGetOrgMemberApiV1OrganizationsMeMembersMemberIdGet<
       getOrgMemberApiV1OrganizationsMeMembersMemberIdGetResponse,
       ApiError
     >(activeMemberId ?? "", {
       query: {
-        enabled: Boolean(activeMemberId && accessDialogOpen),
+        enabled: !!(activeMemberId && accessDialogOpen),
+        retry: 1,
       },
     });
 
-  const memberDetails =
-    memberDetailsQuery.data?.status === 200
+  const memberDetails = useMemo(() => {
+    if (memberDetailsQuery.isLoading || memberDetailsQuery.isError) return null;
+    return memberDetailsQuery.data?.status === 200
       ? memberDetailsQuery.data.data
       : null;
+  }, [memberDetailsQuery.data, memberDetailsQuery.isLoading, memberDetailsQuery.isError]);
 
   const defaultAccess = useMemo(() => {
     if (!memberDetails) {
@@ -371,23 +541,41 @@ export default function OrganizationPage() {
         allRead: false,
         allWrite: false,
         access: {},
+        boardGroupAccess: {},
       };
     }
     const isAll =
       memberDetails.all_boards_read || memberDetails.all_boards_write;
-    const nextAccess: BoardAccessState = {};
+    const nextBoardAccess: BoardAccessState = {};
+    const nextGroupAccess: BoardGroupAccessState = {};
+    
     for (const entry of memberDetails.board_access ?? []) {
-      nextAccess[entry.board_id] = {
-        read: entry.can_read || entry.can_write,
-        write: entry.can_write,
-      };
+      if (entry.board_id) {
+        nextBoardAccess[entry.board_id] = {
+          read: entry.can_read || entry.can_write,
+          write: entry.can_write,
+        };
+      } else if (entry.board_group_id) {
+        nextGroupAccess[entry.board_group_id] = {
+          read: entry.can_read || entry.can_write,
+          write: entry.can_write,
+        };
+      }
     }
+    
+    // Determine scope based on access type
+    let scope: AccessScope = "all";
+    if (!isAll) {
+      scope = Object.keys(nextGroupAccess).length > 0 ? "board-groups" : "boards";
+    }
+    
     return {
       role: memberDetails.role,
-      scope: isAll ? "all" : ("custom" as AccessScope),
+      scope: scope,
       allRead: memberDetails.all_boards_read,
       allWrite: memberDetails.all_boards_write,
-      access: nextAccess,
+      access: nextBoardAccess,
+      boardGroupAccess: nextGroupAccess,
     };
   }, [memberDetails]);
 
@@ -396,6 +584,8 @@ export default function OrganizationPage() {
   const resolvedAccessAllRead = accessAllRead ?? defaultAccess.allRead;
   const resolvedAccessAllWrite = accessAllWrite ?? defaultAccess.allWrite;
   const resolvedAccessMap = accessMap ?? defaultAccess.access;
+  const resolvedAccessBoardGroupMap =
+    accessBoardGroupMap ?? defaultAccess.boardGroupAccess ?? defaultBoardGroupAccess;
 
   const createInviteMutation =
     useCreateOrgInviteApiV1OrganizationsMeInvitesPost<ApiError>({
@@ -408,6 +598,7 @@ export default function OrganizationPage() {
             setInviteAllRead(true);
             setInviteAllWrite(false);
             setInviteAccess(defaultBoardAccess);
+            setInviteBoardGroupAccess(defaultBoardGroupAccess);
             setInviteError(null);
             queryClient.invalidateQueries({
               queryKey: getListOrgInvitesApiV1OrganizationsMeInvitesGetQueryKey(
@@ -558,12 +749,15 @@ export default function OrganizationPage() {
 
     const hasAllAccess =
       inviteScope === "all" && (inviteAllRead || inviteAllWrite);
-    const inviteAccessList = buildAccessList(inviteAccess);
+    const inviteAccessList = buildAccessList(inviteAccess, inviteBoardGroupAccess);
     const hasCustomAccess =
-      inviteScope === "custom" && inviteAccessList.length > 0;
+      (inviteScope === "boards" || inviteScope === "board-groups") &&
+      inviteAccessList.length > 0;
 
     if (!hasAllAccess && !hasCustomAccess) {
-      setInviteError("Select read or write access for at least one board.");
+      setInviteError(
+        `Select read or write access for at least one ${inviteScope === "boards" ? "board" : "board group"}.`,
+      );
       return;
     }
 
@@ -574,7 +768,7 @@ export default function OrganizationPage() {
         role: inviteRole,
         all_boards_read: inviteScope === "all" ? inviteAllRead : false,
         all_boards_write: inviteScope === "all" ? inviteAllWrite : false,
-        board_access: inviteScope === "custom" ? inviteAccessList : [],
+        board_access: inviteScope !== "all" ? inviteAccessList : [],
       },
     });
   };
@@ -635,12 +829,18 @@ export default function OrganizationPage() {
     const hasAllAccess =
       resolvedAccessScope === "all" &&
       (resolvedAccessAllRead || resolvedAccessAllWrite);
-    const accessList = buildAccessList(resolvedAccessMap);
+    const accessList = buildAccessList(
+      resolvedAccessMap,
+      resolvedAccessBoardGroupMap,
+    );
     const hasCustomAccess =
-      resolvedAccessScope === "custom" && accessList.length > 0;
+      (resolvedAccessScope === "boards" || resolvedAccessScope === "board-groups") &&
+      accessList.length > 0;
 
     if (!hasAllAccess && !hasCustomAccess) {
-      setAccessError("Select read or write access for at least one board.");
+      setAccessError(
+        `Select read or write access for at least one ${resolvedAccessScope === "boards" ? "board" : "board group"}.`,
+      );
       return;
     }
 
@@ -663,7 +863,7 @@ export default function OrganizationPage() {
             resolvedAccessScope === "all" ? resolvedAccessAllRead : false,
           all_boards_write:
             resolvedAccessScope === "all" ? resolvedAccessAllWrite : false,
-          board_access: resolvedAccessScope === "custom" ? accessList : [],
+          board_access: resolvedAccessScope !== "all" ? accessList : [],
         },
       });
 
@@ -857,6 +1057,7 @@ export default function OrganizationPage() {
 
               <BoardAccessEditor
                 boards={boards}
+                boardGroups={boardGroups}
                 scope={inviteScope}
                 onScopeChange={setInviteScope}
                 allRead={inviteAllRead}
@@ -865,6 +1066,8 @@ export default function OrganizationPage() {
                 onAllWriteChange={setInviteAllWrite}
                 access={inviteAccess}
                 onAccessChange={setInviteAccess}
+                boardGroupAccess={inviteBoardGroupAccess}
+                onBoardGroupAccessChange={setInviteBoardGroupAccess}
                 emptyMessage={
                   boardsQuery.isLoading
                     ? "Loading boards..."
@@ -912,7 +1115,7 @@ export default function OrganizationPage() {
             <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-4 py-3 text-sm text-quiet">
               Loading member access...
             </div>
-          ) : memberDetailsQuery.data?.status === 200 ? (
+          ) : memberDetailsQuery.data?.status === 200 && memberDetails ? (
             <div className="space-y-6">
               <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-5 py-4">
                 <p className="text-sm font-semibold text-strong">
@@ -947,6 +1150,7 @@ export default function OrganizationPage() {
 
               <BoardAccessEditor
                 boards={boards}
+                boardGroups={boardGroups}
                 scope={resolvedAccessScope}
                 onScopeChange={setAccessScope}
                 allRead={resolvedAccessAllRead}
@@ -955,6 +1159,8 @@ export default function OrganizationPage() {
                 onAllWriteChange={setAccessAllWrite}
                 access={resolvedAccessMap}
                 onAccessChange={setAccessMap}
+                boardGroupAccess={resolvedAccessBoardGroupMap}
+                onBoardGroupAccessChange={setAccessBoardGroupMap}
                 emptyMessage={
                   boardsQuery.isLoading ? "Loading boards..." : undefined
                 }

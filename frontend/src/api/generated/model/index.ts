@@ -6,6 +6,7 @@
  */
 
 export * from "./activityEventRead";
+export * from "./activityEventReadRouteParams";
 export * from "./activityTaskCommentFeedItemRead";
 export * from "./agentCreate";
 export * from "./agentCreateHeartbeatConfig";
@@ -85,6 +86,8 @@ export * from "./dashboardMetrics";
 export * from "./dashboardMetricsApiV1MetricsDashboardGetParams";
 export * from "./dashboardMetricsApiV1MetricsDashboardGetRangeKey";
 export * from "./dashboardMetricsRange";
+export * from "./dashboardPendingApproval";
+export * from "./dashboardPendingApprovals";
 export * from "./dashboardRangeSeries";
 export * from "./dashboardRangeSeriesBucket";
 export * from "./dashboardRangeSeriesRange";
@@ -117,11 +120,14 @@ export * from "./gatewaysStatusResponse";
 export * from "./gatewayTemplatesSyncError";
 export * from "./gatewayTemplatesSyncResult";
 export * from "./gatewayUpdate";
+export * from "./getAgentSecretsApiV1AgentSecretsGet200Item";
 export * from "./getBoardGroupSnapshotApiV1BoardGroupsGroupIdSnapshotGetParams";
 export * from "./getBoardGroupSnapshotApiV1BoardsBoardIdGroupSnapshotGetParams";
 export * from "./getGatewaySessionApiV1GatewaysSessionsSessionIdGetParams";
 export * from "./getSessionHistoryApiV1GatewaysSessionsSessionIdHistoryGetParams";
+export * from "./getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetParams";
 export * from "./getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams";
+export * from "./groupAgentProvision";
 export * from "./healthHealthGet200";
 export * from "./healthStatusResponse";
 export * from "./healthzHealthzGet200";
@@ -159,6 +165,7 @@ export * from "./listBoardWebhookPayloadsApiV1BoardsBoardIdWebhooksWebhookIdPayl
 export * from "./listBoardWebhooksApiV1BoardsBoardIdWebhooksGetParams";
 export * from "./listGatewaysApiV1GatewaysGetParams";
 export * from "./listGatewaySessionsApiV1GatewaysSessionsGetParams";
+export * from "./listGroupTasksApiV1BoardGroupsGroupIdTasksGetParams";
 export * from "./listMarketplaceSkillsApiV1SkillsMarketplaceGetParams";
 export * from "./listNotificationsApiV1NotificationsGet200Item";
 export * from "./listNotificationsApiV1NotificationsGetParams";

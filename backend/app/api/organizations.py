@@ -503,7 +503,8 @@ async def update_member_access(
         member_id=member_id,
     )
 
-    board_ids = {entry.board_id for entry in payload.board_access}
+    # Validate board IDs (filter out None values for board group access)
+    board_ids = {entry.board_id for entry in payload.board_access if entry.board_id is not None}
     if board_ids:
         valid_board_ids = {
             board.id
@@ -514,6 +515,21 @@ async def update_member_access(
             .all(session)
         }
         if valid_board_ids != board_ids:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT)
+    
+    # Validate board group IDs (filter out None values for direct board access)
+    group_ids = {entry.board_group_id for entry in payload.board_access if entry.board_group_id is not None}
+    if group_ids:
+        from app.models.board_groups import BoardGroup
+        valid_group_ids = {
+            group.id
+            for group in await BoardGroup.objects.filter_by(
+                organization_id=ctx.organization.id,
+            )
+            .filter(col(BoardGroup.id).in_(group_ids))
+            .all(session)
+        }
+        if valid_group_ids != group_ids:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT)
 
     await apply_member_access_update(session, member=member, update=payload)
@@ -644,7 +660,8 @@ async def create_org_invite(
     session.add(invite)
     await session.flush()
 
-    board_ids = {entry.board_id for entry in payload.board_access}
+    # Validate board IDs (filter out None values for board group access)
+    board_ids = {entry.board_id for entry in payload.board_access if entry.board_id is not None}
     if board_ids:
         valid_board_ids = {
             board.id
@@ -656,6 +673,22 @@ async def create_org_invite(
         }
         if valid_board_ids != board_ids:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT)
+    
+    # Validate board group IDs (filter out None values for direct board access)
+    group_ids = {entry.board_group_id for entry in payload.board_access if entry.board_group_id is not None}
+    if group_ids:
+        from app.models.board_groups import BoardGroup
+        valid_group_ids = {
+            group.id
+            for group in await BoardGroup.objects.filter_by(
+                organization_id=ctx.organization.id,
+            )
+            .filter(col(BoardGroup.id).in_(group_ids))
+            .all(session)
+        }
+        if valid_group_ids != group_ids:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT)
+    
     await apply_invite_board_access(
         session,
         invite=invite,

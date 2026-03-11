@@ -11,6 +11,10 @@
 export interface DashboardKpis {
   active_agents: number;
   tasks_in_progress: number;
+  inbox_tasks: number;
+  in_progress_tasks: number;
+  review_tasks: number;
+  done_tasks: number;
   error_rate_pct: number;
   median_cycle_time_hours_7d: number | null;
 }

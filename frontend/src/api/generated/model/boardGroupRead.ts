@@ -14,6 +14,7 @@ export interface BoardGroupRead {
   description?: string | null;
   id: string;
   organization_id: string;
+  group_agent_id?: string | null;
   created_at: string;
   updated_at: string;
 }

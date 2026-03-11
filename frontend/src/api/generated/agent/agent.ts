@@ -22,7 +22,6 @@ import type {
 
 import type {
   AgentCreate,
-  AgentGetSecrets200,
   AgentHealthStatusResponse,
   AgentNudge,
   AgentRead,
@@ -34,12 +33,15 @@ import type {
   BoardOnboardingAgentQuestion,
   BoardOnboardingRead,
   BoardRead,
+  BoardWebhookPayloadRead,
   GatewayLeadBroadcastRequest,
   GatewayLeadBroadcastResponse,
   GatewayLeadMessageRequest,
   GatewayLeadMessageResponse,
   GatewayMainAskUserRequest,
   GatewayMainAskUserResponse,
+  GetAgentSecretsApiV1AgentSecretsGet200Item,
+  GetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetParams,
   HTTPValidationError,
   LLMErrorResponse,
   LimitOffsetPageTypeVarCustomizedAgentRead,
@@ -1598,6 +1600,358 @@ export function useListTagsApiV1AgentBoardsBoardIdTagsGet<
     boardId,
     options,
   );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Fetch a stored webhook payload (agent-accessible, read-only).
+
+This enables board-scoped agents to backfill dropped webhook events and enforce
+idempotency by inspecting previously received payloads.
+
+If `max_chars` is provided and the serialized payload exceeds the limit,
+the response payload is returned as a truncated string preview.
+ * @summary Get Webhook Payload
+ */
+export type getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetResponse200 =
+  {
+    data: BoardWebhookPayloadRead;
+    status: 200;
+  };
+
+export type getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetResponse422 =
+  {
+    data: HTTPValidationError;
+    status: 422;
+  };
+
+export type getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetResponseSuccess =
+  getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetResponse200 & {
+    headers: Headers;
+  };
+export type getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetResponseError =
+  getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetResponse422 & {
+    headers: Headers;
+  };
+
+export type getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetResponse =
+
+    | getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetResponseSuccess
+    | getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetResponseError;
+
+export const getGetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetUrl =
+  (
+    boardId: string,
+    webhookId: string,
+    payloadId: string,
+    params?: GetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetParams,
+  ) => {
+    const normalizedParams = new URLSearchParams();
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+      if (value !== undefined) {
+        normalizedParams.append(
+          key,
+          value === null ? "null" : value.toString(),
+        );
+      }
+    });
+
+    const stringifiedParams = normalizedParams.toString();
+
+    return stringifiedParams.length > 0
+      ? `/api/v1/agent/boards/${boardId}/webhooks/${webhookId}/payloads/${payloadId}?${stringifiedParams}`
+      : `/api/v1/agent/boards/${boardId}/webhooks/${webhookId}/payloads/${payloadId}`;
+  };
+
+export const getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet =
+  async (
+    boardId: string,
+    webhookId: string,
+    payloadId: string,
+    params?: GetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetParams,
+    options?: RequestInit,
+  ): Promise<getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetResponse> => {
+    return customFetch<getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetResponse>(
+      getGetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetUrl(
+        boardId,
+        webhookId,
+        payloadId,
+        params,
+      ),
+      {
+        ...options,
+        method: "GET",
+      },
+    );
+  };
+
+export const getGetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetQueryKey =
+  (
+    boardId: string,
+    webhookId: string,
+    payloadId: string,
+    params?: GetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetParams,
+  ) => {
+    return [
+      `/api/v1/agent/boards/${boardId}/webhooks/${webhookId}/payloads/${payloadId}`,
+      ...(params ? [params] : []),
+    ] as const;
+  };
+
+export const getGetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetQueryOptions =
+  <
+    TData = Awaited<
+      ReturnType<
+        typeof getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet
+      >
+    >,
+    TError = HTTPValidationError,
+  >(
+    boardId: string,
+    webhookId: string,
+    payloadId: string,
+    params?: GetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetParams,
+    options?: {
+      query?: Partial<
+        UseQueryOptions<
+          Awaited<
+            ReturnType<
+              typeof getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet
+            >
+          >,
+          TError,
+          TData
+        >
+      >;
+      request?: SecondParameter<typeof customFetch>;
+    },
+  ) => {
+    const { query: queryOptions, request: requestOptions } = options ?? {};
+
+    const queryKey =
+      queryOptions?.queryKey ??
+      getGetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetQueryKey(
+        boardId,
+        webhookId,
+        payloadId,
+        params,
+      );
+
+    const queryFn: QueryFunction<
+      Awaited<
+        ReturnType<
+          typeof getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet
+        >
+      >
+    > = ({ signal }) =>
+      getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet(
+        boardId,
+        webhookId,
+        payloadId,
+        params,
+        { signal, ...requestOptions },
+      );
+
+    return {
+      queryKey,
+      queryFn,
+      enabled: !!(boardId && webhookId && payloadId),
+      ...queryOptions,
+    } as UseQueryOptions<
+      Awaited<
+        ReturnType<
+          typeof getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet
+        >
+      >,
+      TError,
+      TData
+    > & { queryKey: DataTag<QueryKey, TData, TError> };
+  };
+
+export type GetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetQueryResult =
+  NonNullable<
+    Awaited<
+      ReturnType<
+        typeof getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet
+      >
+    >
+  >;
+export type GetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetQueryError =
+  HTTPValidationError;
+
+export function useGetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet<
+  TData = Awaited<
+    ReturnType<
+      typeof getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  webhookId: string,
+  payloadId: string,
+  params:
+    | undefined
+    | GetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet
+          >
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet<
+  TData = Awaited<
+    ReturnType<
+      typeof getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  webhookId: string,
+  payloadId: string,
+  params?: GetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet
+          >
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet<
+  TData = Awaited<
+    ReturnType<
+      typeof getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  webhookId: string,
+  payloadId: string,
+  params?: GetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet
+          >
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary Get Webhook Payload
+ */
+
+export function useGetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet<
+  TData = Awaited<
+    ReturnType<
+      typeof getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  webhookId: string,
+  payloadId: string,
+  params?: GetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof getWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGet
+          >
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions =
+    getGetWebhookPayloadApiV1AgentBoardsBoardIdWebhooksWebhookIdPayloadsPayloadIdGetQueryOptions(
+      boardId,
+      webhookId,
+      payloadId,
+      params,
+      options,
+    );
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<
     TData,
@@ -4619,95 +4973,107 @@ export const useAgentMainBroadcastLeadMessage = <
   );
 };
 /**
- * Returns all secrets provisioned for the agent's board as key/value pairs.
+ * Return decrypted board secrets for the agent's board.
 
-Call this **once per session** before any task that requires external credentials. Export the returned values as environment variables and use them in commands.
- * @summary Fetch board secrets for this agent's board
+Only available to board-scoped agents (board_id must be set).
+The gateway main agent cannot call this endpoint.
+ * @summary List board secrets (decrypted) for the calling agent
  */
-export type agentGetSecretsResponse200 = {
-  data: AgentGetSecrets200;
+export type getAgentSecretsApiV1AgentSecretsGetResponse200 = {
+  data: GetAgentSecretsApiV1AgentSecretsGet200Item[];
   status: 200;
 };
 
-export type agentGetSecretsResponse422 = {
+export type getAgentSecretsApiV1AgentSecretsGetResponse422 = {
   data: HTTPValidationError;
   status: 422;
 };
 
-export type agentGetSecretsResponseSuccess = agentGetSecretsResponse200 & {
-  headers: Headers;
-};
-export type agentGetSecretsResponseError = agentGetSecretsResponse422 & {
-  headers: Headers;
-};
+export type getAgentSecretsApiV1AgentSecretsGetResponseSuccess =
+  getAgentSecretsApiV1AgentSecretsGetResponse200 & {
+    headers: Headers;
+  };
+export type getAgentSecretsApiV1AgentSecretsGetResponseError =
+  getAgentSecretsApiV1AgentSecretsGetResponse422 & {
+    headers: Headers;
+  };
 
-export type agentGetSecretsResponse =
-  | agentGetSecretsResponseSuccess
-  | agentGetSecretsResponseError;
+export type getAgentSecretsApiV1AgentSecretsGetResponse =
+  | getAgentSecretsApiV1AgentSecretsGetResponseSuccess
+  | getAgentSecretsApiV1AgentSecretsGetResponseError;
 
-export const getAgentGetSecretsUrl = () => {
+export const getGetAgentSecretsApiV1AgentSecretsGetUrl = () => {
   return `/api/v1/agent/secrets`;
 };
 
-export const agentGetSecrets = async (
+export const getAgentSecretsApiV1AgentSecretsGet = async (
   options?: RequestInit,
-): Promise<agentGetSecretsResponse> => {
-  return customFetch<agentGetSecretsResponse>(getAgentGetSecretsUrl(), {
-    ...options,
-    method: "GET",
-  });
+): Promise<getAgentSecretsApiV1AgentSecretsGetResponse> => {
+  return customFetch<getAgentSecretsApiV1AgentSecretsGetResponse>(
+    getGetAgentSecretsApiV1AgentSecretsGetUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
 };
 
-export const getAgentGetSecretsQueryKey = () => {
+export const getGetAgentSecretsApiV1AgentSecretsGetQueryKey = () => {
   return [`/api/v1/agent/secrets`] as const;
 };
 
-export const getAgentGetSecretsQueryOptions = <
-  TData = Awaited<ReturnType<typeof agentGetSecrets>>,
+export const getGetAgentSecretsApiV1AgentSecretsGetQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAgentSecretsApiV1AgentSecretsGet>>,
   TError = HTTPValidationError,
 >(options?: {
   query?: Partial<
-    UseQueryOptions<Awaited<ReturnType<typeof agentGetSecrets>>, TError, TData>
+    UseQueryOptions<
+      Awaited<ReturnType<typeof getAgentSecretsApiV1AgentSecretsGet>>,
+      TError,
+      TData
+    >
   >;
   request?: SecondParameter<typeof customFetch>;
 }) => {
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getAgentGetSecretsQueryKey();
+  const queryKey =
+    queryOptions?.queryKey ?? getGetAgentSecretsApiV1AgentSecretsGetQueryKey();
 
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof agentGetSecrets>>> = ({
-    signal,
-  }) => agentGetSecrets({ signal, ...requestOptions });
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getAgentSecretsApiV1AgentSecretsGet>>
+  > = ({ signal }) =>
+    getAgentSecretsApiV1AgentSecretsGet({ signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof agentGetSecrets>>,
+    Awaited<ReturnType<typeof getAgentSecretsApiV1AgentSecretsGet>>,
     TError,
     TData
   > & { queryKey: DataTag<QueryKey, TData, TError> };
 };
 
-export type AgentGetSecretsQueryResult = NonNullable<
-  Awaited<ReturnType<typeof agentGetSecrets>>
+export type GetAgentSecretsApiV1AgentSecretsGetQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAgentSecretsApiV1AgentSecretsGet>>
 >;
-export type AgentGetSecretsQueryError = HTTPValidationError;
+export type GetAgentSecretsApiV1AgentSecretsGetQueryError = HTTPValidationError;
 
-export function useAgentGetSecrets<
-  TData = Awaited<ReturnType<typeof agentGetSecrets>>,
+export function useGetAgentSecretsApiV1AgentSecretsGet<
+  TData = Awaited<ReturnType<typeof getAgentSecretsApiV1AgentSecretsGet>>,
   TError = HTTPValidationError,
 >(
   options: {
     query: Partial<
       UseQueryOptions<
-        Awaited<ReturnType<typeof agentGetSecrets>>,
+        Awaited<ReturnType<typeof getAgentSecretsApiV1AgentSecretsGet>>,
         TError,
         TData
       >
     > &
       Pick<
         DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof agentGetSecrets>>,
+          Awaited<ReturnType<typeof getAgentSecretsApiV1AgentSecretsGet>>,
           TError,
-          Awaited<ReturnType<typeof agentGetSecrets>>
+          Awaited<ReturnType<typeof getAgentSecretsApiV1AgentSecretsGet>>
         >,
         "initialData"
       >;
@@ -4717,23 +5083,23 @@ export function useAgentGetSecrets<
 ): DefinedUseQueryResult<TData, TError> & {
   queryKey: DataTag<QueryKey, TData, TError>;
 };
-export function useAgentGetSecrets<
-  TData = Awaited<ReturnType<typeof agentGetSecrets>>,
+export function useGetAgentSecretsApiV1AgentSecretsGet<
+  TData = Awaited<ReturnType<typeof getAgentSecretsApiV1AgentSecretsGet>>,
   TError = HTTPValidationError,
 >(
   options?: {
     query?: Partial<
       UseQueryOptions<
-        Awaited<ReturnType<typeof agentGetSecrets>>,
+        Awaited<ReturnType<typeof getAgentSecretsApiV1AgentSecretsGet>>,
         TError,
         TData
       >
     > &
       Pick<
         UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof agentGetSecrets>>,
+          Awaited<ReturnType<typeof getAgentSecretsApiV1AgentSecretsGet>>,
           TError,
-          Awaited<ReturnType<typeof agentGetSecrets>>
+          Awaited<ReturnType<typeof getAgentSecretsApiV1AgentSecretsGet>>
         >,
         "initialData"
       >;
@@ -4743,14 +5109,14 @@ export function useAgentGetSecrets<
 ): UseQueryResult<TData, TError> & {
   queryKey: DataTag<QueryKey, TData, TError>;
 };
-export function useAgentGetSecrets<
-  TData = Awaited<ReturnType<typeof agentGetSecrets>>,
+export function useGetAgentSecretsApiV1AgentSecretsGet<
+  TData = Awaited<ReturnType<typeof getAgentSecretsApiV1AgentSecretsGet>>,
   TError = HTTPValidationError,
 >(
   options?: {
     query?: Partial<
       UseQueryOptions<
-        Awaited<ReturnType<typeof agentGetSecrets>>,
+        Awaited<ReturnType<typeof getAgentSecretsApiV1AgentSecretsGet>>,
         TError,
         TData
       >
@@ -4762,17 +5128,17 @@ export function useAgentGetSecrets<
   queryKey: DataTag<QueryKey, TData, TError>;
 };
 /**
- * @summary Fetch board secrets for this agent's board
+ * @summary List board secrets (decrypted) for the calling agent
  */
 
-export function useAgentGetSecrets<
-  TData = Awaited<ReturnType<typeof agentGetSecrets>>,
+export function useGetAgentSecretsApiV1AgentSecretsGet<
+  TData = Awaited<ReturnType<typeof getAgentSecretsApiV1AgentSecretsGet>>,
   TError = HTTPValidationError,
 >(
   options?: {
     query?: Partial<
       UseQueryOptions<
-        Awaited<ReturnType<typeof agentGetSecrets>>,
+        Awaited<ReturnType<typeof getAgentSecretsApiV1AgentSecretsGet>>,
         TError,
         TData
       >
@@ -4783,7 +5149,8 @@ export function useAgentGetSecrets<
 ): UseQueryResult<TData, TError> & {
   queryKey: DataTag<QueryKey, TData, TError>;
 } {
-  const queryOptions = getAgentGetSecretsQueryOptions(options);
+  const queryOptions =
+    getGetAgentSecretsApiV1AgentSecretsGetQueryOptions(options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<
     TData,

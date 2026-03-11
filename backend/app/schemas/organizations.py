@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
+from pydantic import field_validator, model_validator
 from sqlmodel import Field, SQLModel
 
 RUNTIME_ANNOTATION_TYPES = (datetime, UUID)
@@ -73,16 +74,27 @@ class OrganizationMemberUpdate(SQLModel):
 class OrganizationBoardAccessSpec(SQLModel):
     """Board access specification used in member/invite mutation payloads."""
 
-    board_id: UUID
+    board_id: UUID | None = None
+    board_group_id: UUID | None = None
     can_read: bool = True
     can_write: bool = False
+
+    @model_validator(mode="after")
+    def validate_either_board_or_group(self):
+        """Ensure at least one of board_id or board_group_id is set."""
+        if self.board_id is None and self.board_group_id is None:
+            raise ValueError(
+                "Either board_id or board_group_id must be specified, not both None"
+            )
+        return self
 
 
 class OrganizationBoardAccessRead(SQLModel):
     """Board access payload returned from read endpoints."""
 
     id: UUID
-    board_id: UUID
+    board_id: UUID | None = None
+    board_group_id: UUID | None = None
     can_read: bool
     can_write: bool
     created_at: datetime

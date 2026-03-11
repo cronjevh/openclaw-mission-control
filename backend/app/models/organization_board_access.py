@@ -22,7 +22,8 @@ class OrganizationBoardAccess(QueryModel, table=True):
         UniqueConstraint(
             "organization_member_id",
             "board_id",
-            name="uq_org_board_access_member_board",
+            "board_group_id",
+            name="uq_org_board_access_member_board_group",
         ),
     )
 
@@ -31,7 +32,10 @@ class OrganizationBoardAccess(QueryModel, table=True):
         foreign_key="organization_members.id",
         index=True,
     )
-    board_id: UUID = Field(foreign_key="boards.id", index=True)
+    board_id: UUID | None = Field(foreign_key="boards.id", index=True, default=None)
+    board_group_id: UUID | None = Field(
+        foreign_key="board_groups.id", index=True, default=None
+    )
     can_read: bool = Field(default=True)
     can_write: bool = Field(default=False)
     created_at: datetime = Field(default_factory=utcnow)

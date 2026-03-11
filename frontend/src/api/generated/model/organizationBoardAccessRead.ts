@@ -10,7 +10,8 @@
  */
 export interface OrganizationBoardAccessRead {
   id: string;
-  board_id: string;
+  board_id?: string | null;
+  board_group_id?: string | null;
   can_read: boolean;
   can_write: boolean;
   created_at: string;

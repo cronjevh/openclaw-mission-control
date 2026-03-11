@@ -218,6 +218,7 @@ async def accept_invite(
                 OrganizationBoardAccess(
                     organization_member_id=member.id,
                     board_id=row.board_id,
+                    board_group_id=row.board_group_id,
                     can_read=row.can_read,
                     can_write=row.can_write,
                     created_at=now,
@@ -370,7 +371,7 @@ async def has_board_access(
     board: Board,
     write: bool,
 ) -> bool:
-    """Return whether a member has board access for the requested mode."""
+    """Return whether a member has board access for the requested mode (direct or via board group)."""
     if member.organization_id != board.organization_id:
         return False
     if write:
@@ -378,15 +379,29 @@ async def has_board_access(
             return True
     elif member_all_boards_read(member):
         return True
+    
+    # Check direct board access
     access = await OrganizationBoardAccess.objects.filter_by(
         organization_member_id=member.id,
         board_id=board.id,
     ).first(session)
-    if access is None:
-        return False
-    if write:
-        return bool(access.can_write)
-    return bool(access.can_read or access.can_write)
+    if access is not None:
+        if write:
+            return bool(access.can_write)
+        return bool(access.can_read or access.can_write)
+    
+    # Check board group access (if board belongs to a group)
+    if board.board_group_id:
+        group_access = await OrganizationBoardAccess.objects.filter_by(
+            organization_member_id=member.id,
+            board_group_id=board.board_group_id,
+        ).first(session)
+        if group_access is not None:
+            if write:
+                return bool(group_access.can_write)
+            return bool(group_access.can_read or group_access.can_write)
+    
+    return False
 
 
 async def require_board_access(
@@ -420,13 +435,18 @@ def board_access_filter(
     *,
     write: bool,
 ) -> ColumnElement[bool]:
-    """Build a SQL filter expression for boards visible to a member."""
+    """Build a SQL filter expression for boards visible to a member, including board group access."""
+    from app.models.board_groups import BoardGroup
+
     if write and member_all_boards_write(member):
         return col(Board.organization_id) == member.organization_id
     if not write and member_all_boards_read(member):
         return col(Board.organization_id) == member.organization_id
+
+    # Direct board access
     access_stmt = select(OrganizationBoardAccess.board_id).where(
         col(OrganizationBoardAccess.organization_member_id) == member.id,
+        col(OrganizationBoardAccess.board_id).isnot(None),
     )
     if write:
         access_stmt = access_stmt.where(
@@ -439,7 +459,34 @@ def board_access_filter(
                 col(OrganizationBoardAccess.can_write).is_(True),
             ),
         )
-    return col(Board.id).in_(access_stmt)
+
+    # Board group access - boards that belong to a group the member has access to
+    group_access_stmt = select(Board.id).join(
+        BoardGroup, col(Board.board_group_id) == col(BoardGroup.id)
+    ).where(
+        col(BoardGroup.id).in_(
+            select(OrganizationBoardAccess.board_group_id).where(
+                col(OrganizationBoardAccess.organization_member_id) == member.id,
+                col(OrganizationBoardAccess.board_group_id).isnot(None),
+            )
+        ),
+    )
+    if write:
+        group_access_stmt = group_access_stmt.where(
+            col(OrganizationBoardAccess.can_write).is_(True),
+        )
+    else:
+        group_access_stmt = group_access_stmt.where(
+            or_(
+                col(OrganizationBoardAccess.can_read).is_(True),
+                col(OrganizationBoardAccess.can_write).is_(True),
+            ),
+        )
+
+    return or_(
+        col(Board.id).in_(access_stmt),
+        col(Board.id).in_(group_access_stmt),
+    )
 
 
 async def list_accessible_board_ids(
@@ -448,7 +495,9 @@ async def list_accessible_board_ids(
     member: OrganizationMember,
     write: bool,
 ) -> list[UUID]:
-    """List board ids accessible to a member for read or write mode."""
+    """List board ids accessible to a member for read or write mode, including board group access."""
+    from app.models.board_groups import BoardGroup
+
     if (write and member_all_boards_write(member)) or (
         not write and member_all_boards_read(member)
     ):
@@ -459,8 +508,10 @@ async def list_accessible_board_ids(
         )
         return list(ids)
 
+    # Direct board access
     access_stmt = select(OrganizationBoardAccess.board_id).where(
         col(OrganizationBoardAccess.organization_member_id) == member.id,
+        col(OrganizationBoardAccess.board_id).isnot(None),
     )
     if write:
         access_stmt = access_stmt.where(
@@ -473,8 +524,23 @@ async def list_accessible_board_ids(
                 col(OrganizationBoardAccess.can_write).is_(True),
             ),
         )
-    board_ids = await session.exec(access_stmt)
-    return list(board_ids)
+    direct_board_ids = await session.exec(access_stmt)
+
+    # Board group access - boards that belong to a group the member has access to
+    group_access_stmt = select(Board.id).join(
+        BoardGroup, col(Board.board_group_id) == col(BoardGroup.id)
+    ).where(
+        col(BoardGroup.id).in_(
+            select(OrganizationBoardAccess.board_group_id).where(
+                col(OrganizationBoardAccess.organization_member_id) == member.id,
+                col(OrganizationBoardAccess.board_group_id).isnot(None),
+            )
+        ),
+    )
+    group_board_ids = await session.exec(group_access_stmt)
+
+    # Combine both sets
+    return list(set(direct_board_ids) | set(group_board_ids))
 
 
 async def apply_member_access_update(
@@ -483,7 +549,7 @@ async def apply_member_access_update(
     member: OrganizationMember,
     update: OrganizationMemberAccessUpdate,
 ) -> None:
-    """Replace explicit member board-access rows from an access update."""
+    """Replace explicit member board-access rows from an access update, supporting both boards and board groups."""
     now = utcnow()
     member.all_boards_read = update.all_boards_read
     member.all_boards_write = update.all_boards_write
@@ -504,6 +570,7 @@ async def apply_member_access_update(
         OrganizationBoardAccess(
             organization_member_id=member.id,
             board_id=entry.board_id,
+            board_group_id=entry.board_group_id,
             can_read=entry.can_read,
             can_write=entry.can_write,
             created_at=now,
@@ -520,7 +587,7 @@ async def apply_invite_board_access(
     invite: OrganizationInvite,
     entries: Iterable[OrganizationBoardAccessSpec],
 ) -> None:
-    """Replace explicit invite board-access rows for an invite."""
+    """Replace explicit invite board-access rows for an invite, supporting both boards and board groups."""
     await crud.delete_where(
         session,
         OrganizationInviteBoardAccess,
@@ -534,6 +601,7 @@ async def apply_invite_board_access(
         OrganizationInviteBoardAccess(
             organization_invite_id=invite.id,
             board_id=entry.board_id,
+            board_group_id=entry.board_group_id,
             can_read=entry.can_read,
             can_write=entry.can_write,
             created_at=now,
@@ -593,14 +661,26 @@ async def apply_invite_to_member(
         ),
     )
     for row in access_rows:
-        existing = (
-            await session.exec(
-                select(OrganizationBoardAccess).where(
-                    col(OrganizationBoardAccess.organization_member_id) == member.id,
-                    col(OrganizationBoardAccess.board_id) == row.board_id,
-                ),
-            )
-        ).first()
+        # Find existing access for this board/group (either board_id or board_group_id match)
+        existing = None
+        if row.board_id:
+            existing = (
+                await session.exec(
+                    select(OrganizationBoardAccess).where(
+                        col(OrganizationBoardAccess.organization_member_id) == member.id,
+                        col(OrganizationBoardAccess.board_id) == row.board_id,
+                    ),
+                )
+            ).first()
+        elif row.board_group_id:
+            existing = (
+                await session.exec(
+                    select(OrganizationBoardAccess).where(
+                        col(OrganizationBoardAccess.organization_member_id) == member.id,
+                        col(OrganizationBoardAccess.board_group_id) == row.board_group_id,
+                    ),
+                )
+            ).first()
         can_write = bool(row.can_write)
         can_read = bool(row.can_read or row.can_write)
         if existing is None:
@@ -608,6 +688,7 @@ async def apply_invite_to_member(
                 OrganizationBoardAccess(
                     organization_member_id=member.id,
                     board_id=row.board_id,
+                    board_group_id=row.board_group_id,
                     can_read=can_read,
                     can_write=can_write,
                     created_at=now,

@@ -258,6 +258,8 @@ async def _notify_lead_on_approval_resolution(
         agent_name=lead.name,
         message=message,
         deliver=False,
+        agent=lead,
+        board=board,
     )
     if error is None:
         record_activity(

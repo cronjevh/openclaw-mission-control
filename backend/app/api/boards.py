@@ -336,6 +336,8 @@ async def _notify_agents_on_board_group_change(
             agent_name=agent.name,
             message=message,
             deliver=False,
+            agent=agent,
+            board=recipient_board,
         )
         if error is None:
             notified += 1
@@ -453,6 +455,8 @@ async def _refresh_group_agent_context(
                 agent_name=agent.name,
                 message=notify_msg,
                 deliver=True,
+                agent=agent,
+                board=changed_board,
             )
         record_activity(
             session,
@@ -541,6 +545,8 @@ async def _notify_lead_on_board_update(
         agent_name=lead.name,
         message=message,
         deliver=False,
+        agent=lead,
+        board=board,
     )
     if error is None:
         record_activity(

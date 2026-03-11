@@ -290,6 +290,8 @@ async def _notify_group_target(
         config=config,
         agent_name=agent.name,
         message=message,
+        agent=agent,
+        board=board,
     )
     if error is not None:
         return
@@ -329,6 +331,8 @@ async def _notify_group_agent_target(
         config=config,
         agent_name=group_agent.name,
         message=message,
+        agent=group_agent,
+        board=None,
     )
 
 

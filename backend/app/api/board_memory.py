@@ -119,6 +119,8 @@ async def _send_control_command(
             agent_name=agent.name,
             message=command,
             deliver=True,
+            agent=agent,
+            board=board,
         )
         if error is not None:
             continue
@@ -211,6 +213,8 @@ async def _notify_chat_targets(
             config=config,
             agent_name=agent.name,
             message=message,
+            agent=agent,
+            board=board,
         )
         if error is not None:
             continue

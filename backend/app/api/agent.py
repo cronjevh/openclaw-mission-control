@@ -36,6 +36,7 @@ from app.schemas.agents import (
 from app.schemas.approvals import ApprovalCreate, ApprovalRead, ApprovalStatus
 from app.schemas.board_memory import BoardMemoryCreate, BoardMemoryRead
 from app.schemas.board_onboarding import BoardOnboardingAgentUpdate, BoardOnboardingRead
+from app.models.board_documents import BoardDocumentRead
 from app.schemas.board_webhooks import BoardWebhookPayloadRead
 from app.schemas.boards import BoardRead
 from app.schemas.common import OkResponse
@@ -1141,6 +1142,53 @@ async def create_board_memory(
         session=session,
         actor=_actor(agent_ctx),
     )
+
+
+@router.get(
+    "/boards/{board_id}/documents",
+    response_model=DefaultLimitOffsetPage[BoardDocumentRead],
+    tags=AGENT_BOARD_TAGS,
+    summary="List board documents/guides",
+    description=(
+        "Return all documents and guides attached to this board.\n\n"
+        "Use this to get board-specific context, setup guides, architecture docs, etc."
+    ),
+    openapi_extra=_agent_board_openapi_hints(
+        intent="agent_board_documents_discovery",
+        when_to_use=[
+            "Agent needs board-specific documentation or guides.",
+            "Agent needs context about board architecture, setup, or conventions.",
+            "Agent is starting work on a new board and needs background info.",
+        ],
+        routing_examples=[
+            {
+                "input": {
+                    "intent": "get board documentation before starting work",
+                    "required_privilege": "any_agent",
+                },
+                "decision": "agent_board_documents_discovery",
+            }
+        ],
+    ),
+)
+async def list_board_documents(
+    board: Board = BOARD_DEP,
+    session: AsyncSession = SESSION_DEP,
+    agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
+) -> LimitOffsetPage[BoardDocumentRead]:
+    """List all documents and guides for a board.
+    
+    Documents provide persistent context like setup guides, architecture docs,
+    coding conventions, etc. that agents should reference when working on the board.
+    """
+    _guard_board_access(agent_ctx, board)
+    from app.models.board_documents import BoardDocument
+    statement = (
+        select(BoardDocument)
+        .where(col(BoardDocument.board_id) == board.id)
+        .order_by(col(BoardDocument.order), col(BoardDocument.created_at))
+    )
+    return await paginate(session, statement)
 
 
 @router.get(

@@ -49,6 +49,24 @@ jq -r '
 
 ## API safety
 If no confident match exists for current intent, ask one clarifying question.
+## Board Documents
+
+{% if board_documents %}
+The following documents/guides are available for this board:
+{% for doc in board_documents %}
+### {{ doc.title }}
+{% if doc.description %}
+*{{ doc.description }}*
+{% endif %}
+
+{{ doc.content }}
+
+---
+{% endfor %}
+{% else %}
+No board documents available yet.
+{% endif %}
+
 ## Board Secrets
 
 {% if board_secrets %}

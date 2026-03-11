@@ -15,6 +15,7 @@ from sqlmodel import col, select
 from app.core.time import utcnow
 from app.models.agents import Agent
 from app.models.board_secrets import BoardSecret
+from app.models.board_documents import BoardDocument
 from app.models.boards import Board
 from app.models.gateways import Gateway
 from app.services.openclaw.constants import CHECKIN_DEADLINE_AFTER_WAKE
@@ -118,6 +119,21 @@ class AgentLifecycleOrchestrator(OpenClawDBService):
                     "description": s.description,
                 })
 
+        # Load board documents/guides for agent context.
+        board_documents: list[dict[str, str]] = []
+        if board is not None:
+            docs_result = await self.session.exec(
+                select(BoardDocument)
+                .where(BoardDocument.board_id == board.id)
+                .order_by(BoardDocument.order, BoardDocument.created_at)
+            )
+            for doc in docs_result.all():
+                board_documents.append({
+                    "title": doc.title,
+                    "description": doc.description or "",
+                    "content": doc.content,
+                })
+
         try:
             await OpenClawGatewayProvisioner().apply_agent_lifecycle(
                 agent=locked,
@@ -132,6 +148,7 @@ class AgentLifecycleOrchestrator(OpenClawDBService):
                 deliver_wakeup=deliver_wakeup,
                 wakeup_verb=wakeup_verb,
                 board_secrets=board_secrets,
+                board_documents=board_documents,
             )
         except OpenClawGatewayError as exc:
             locked.last_provision_error = str(exc)

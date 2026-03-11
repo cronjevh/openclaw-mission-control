@@ -26,7 +26,7 @@ export const useListBoardDocumentsApiV1BoardsBoardIdDocumentsGet = <
       const queryParams = new URLSearchParams();
       if (params?.limit) queryParams.set("limit", String(params.limit));
       const queryString = queryParams.toString();
-      const url = `/boards/${boardId}/documents${queryString ? `?${queryString}` : ""}`;
+      const url = `/api/v1/boards/${boardId}/documents${queryString ? `?${queryString}` : ""}`;
       return customFetch<TData>(url, { method: "GET" });
     },
     enabled: !!boardId,
@@ -44,7 +44,7 @@ export const useCreateBoardDocumentApiV1BoardsBoardIdDocumentsPost = <
   const queryClient = useQueryClient();
   return useMutation<{ data: BoardDocumentRead; status: number }, TError, BoardDocumentCreate>({
     mutationFn: async (payload) => {
-      return customFetch(`/boards/${boardId}/documents`, {
+      return customFetch(`/api/v1/boards/${boardId}/documents`, {
         method: "POST",
         body: JSON.stringify(payload),
       });
@@ -71,7 +71,7 @@ export const useUpdateBoardDocumentApiV1BoardsBoardIdDocumentsDocIdPatch = <
     { board_id: string; doc_id: string; data: Partial<BoardDocumentUpdate> }
   >({
     mutationFn: async ({ board_id, doc_id, data }) => {
-      return customFetch(`/boards/${board_id}/documents/${doc_id}`, {
+      return customFetch(`/api/v1/boards/${board_id}/documents/${doc_id}`, {
         method: "PATCH",
         body: JSON.stringify(data),
       });
@@ -93,7 +93,7 @@ export const useDeleteBoardDocumentApiV1BoardsBoardIdDocumentsDocIdDelete = <
   const queryClient = useQueryClient();
   return useMutation<void, TError, { board_id: string; doc_id: string }>({
     mutationFn: async ({ board_id, doc_id }) => {
-      await customFetch(`/boards/${board_id}/documents/${doc_id}`, {
+      await customFetch(`/api/v1/boards/${board_id}/documents/${doc_id}`, {
         method: "DELETE",
       });
     },

@@ -26,7 +26,7 @@ export function BoardSecretsPanel({ boardId }: BoardSecretsPanelProps) {
   const [newKey, setNewKey] = useState("");
   const [newValue, setNewValue] = useState("");
   const [newDesc, setNewDesc] = useState("");
-  const [showValue, setShowValue] = useState(false);
+  const [showValue, setShowValue] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -141,19 +141,28 @@ export function BoardSecretsPanel({ boardId }: BoardSecretsPanelProps) {
             className="min-w-0 flex-1 rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-xs text-strong focus:outline-none focus:border-[color:var(--accent)]"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2">
           <div className="relative flex-1">
-            <input
-              type={showValue ? "text" : "password"}
-              placeholder="Secret value"
-              value={newValue}
-              onChange={(e) => setNewValue(e.target.value)}
-              className="w-full rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 pr-8 text-xs text-strong focus:outline-none focus:border-[color:var(--accent)]"
-            />
+            {showValue ? (
+              <textarea
+                placeholder="Secret value (paste multi-line keys here)"
+                value={newValue}
+                onChange={(e) => setNewValue(e.target.value)}
+                className="w-full h-32 rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 pr-8 text-xs text-strong font-mono focus:outline-none focus:border-[color:var(--accent)] resize-none"
+              />
+            ) : (
+              <input
+                type="password"
+                placeholder="Secret value (paste multi-line keys here)"
+                value={newValue}
+                onChange={(e) => setNewValue(e.target.value)}
+                className="w-full rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 pr-8 text-xs text-strong focus:outline-none focus:border-[color:var(--accent)]"
+              />
+            )}
             <button
               type="button"
               onClick={() => setShowValue((v) => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-quiet hover:text-muted"
+              className="absolute right-2 top-2 text-quiet hover:text-muted"
             >
               {showValue ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
             </button>
@@ -163,7 +172,7 @@ export function BoardSecretsPanel({ boardId }: BoardSecretsPanelProps) {
             onClick={handleSave}
             disabled={saving || !newKey.trim() || !newValue.trim()}
             className={cn(
-              "flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition",
+              "flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition self-start",
               "bg-[color:var(--accent)] text-white hover:bg-[color:var(--accent-strong)]",
               "disabled:opacity-50 disabled:cursor-not-allowed",
             )}

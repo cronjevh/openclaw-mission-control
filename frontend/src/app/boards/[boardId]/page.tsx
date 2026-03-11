@@ -81,8 +81,10 @@ import {
 import {
   type getMyMembershipApiV1OrganizationsMeMemberGetResponse,
   useGetMyMembershipApiV1OrganizationsMeMemberGet,
-  useListOrgMembersApiV1OrganizationsMeMembersGet,
 } from "@/api/generated/organizations/organizations";
+import {
+  useListBoardMembersApiV1BoardsBoardIdMembersGet,
+} from "@/api/generated/boards/boards";
 import {
   createTaskApiV1BoardsBoardIdTasksPost,
   createTaskCommentApiV1BoardsBoardIdTasksTaskIdCommentsPost,
@@ -751,9 +753,10 @@ export default function BoardDetailPage() {
       refetchOnMount: "always",
     },
   });
-  const membersQuery = useListOrgMembersApiV1OrganizationsMeMembersGet(
+  const membersQuery = useListBoardMembersApiV1BoardsBoardIdMembersGet(
+    boardId ?? "",
     undefined,
-    { query: { enabled: Boolean(isSignedIn) } },
+    { query: { enabled: Boolean(isSignedIn && boardId) } },
   );
   const orgMembers = useMemo(
     () => (membersQuery.data?.status === 200 ? (membersQuery.data.data.items ?? []) : []),

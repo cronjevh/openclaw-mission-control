@@ -40,6 +40,8 @@ from app.services.openclaw.gateway_dispatch import GatewayDispatchService
 from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
 from app.services.openclaw.gateway_rpc import OpenClawGatewayError
 from app.services.organizations import OrganizationContext, board_access_filter
+from app.schemas.organizations import OrganizationMemberRead
+from typing import Sequence, Any
 
 if TYPE_CHECKING:
     from fastapi_pagination.limit_offset import LimitOffsetPage
@@ -599,6 +601,62 @@ def get_board(
 ) -> Board:
     """Get a board by id."""
     return board
+
+
+@router.get("/{board_id}/members", response_model=DefaultLimitOffsetPage[OrganizationMemberRead])
+async def list_board_members(
+    board: Board = BOARD_USER_READ_DEP,
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = Depends(require_org_member),
+) -> LimitOffsetPage[OrganizationMemberRead]:
+    """List organization members who have access to this board.
+    
+    Includes:
+    - Members with all_boards_read or all_boards_write
+    - Members with direct board access
+    - Members with access to the board's group (if board is in a group)
+    """
+    from app.models.organization_board_access import OrganizationBoardAccess
+    from app.models.organization_members import OrganizationMember
+    from app.models.users import User
+    from app.schemas.organizations import OrganizationMemberRead
+    
+    # Build subquery for members with specific board/group access
+    access_member_ids = (
+        select(OrganizationBoardAccess.organization_member_id)
+        .where(
+            (col(OrganizationBoardAccess.board_id) == board.id) |
+            (col(OrganizationBoardAccess.board_group_id) == board.board_group_id)
+            if board.board_group_id else
+            (col(OrganizationBoardAccess.board_id) == board.id)
+        )
+    )
+    
+    # Members with org-wide access OR specific board/group access
+    statement = (
+        select(OrganizationMember, User)
+        .join(User, col(User.id) == col(OrganizationMember.user_id))
+        .where(
+            col(OrganizationMember.organization_id) == ctx.organization.id,
+            (
+                col(OrganizationMember.all_boards_read) == True  # noqa: E712
+            ) | (
+                col(OrganizationMember.all_boards_write) == True  # noqa: E712
+            ) | (
+                col(OrganizationMember.id).in_(access_member_ids)
+            )
+        )
+        .order_by(func.lower(col(User.email)).asc(), col(User.name).asc())
+    )
+
+    def _transform(items: Sequence[Any]) -> Sequence[Any]:
+        from app.api.organizations import _member_to_read
+        output: list[OrganizationMemberRead] = []
+        for member, user in items:
+            output.append(_member_to_read(member, user))
+        return output
+
+    return await paginate(session, statement, transformer=_transform)
 
 
 @router.get("/{board_id}/snapshot", response_model=BoardSnapshot)

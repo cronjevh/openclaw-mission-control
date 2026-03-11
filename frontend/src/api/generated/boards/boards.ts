@@ -29,6 +29,8 @@ import type {
   GetBoardGroupSnapshotApiV1BoardsBoardIdGroupSnapshotGetParams,
   HTTPValidationError,
   LimitOffsetPageTypeVarCustomizedBoardRead,
+  LimitOffsetPageTypeVarCustomizedOrganizationMemberRead,
+  ListBoardMembersApiV1BoardsBoardIdMembersGetParams,
   ListBoardsApiV1BoardsGetParams,
   OkResponse,
 } from ".././model";
@@ -800,6 +802,274 @@ export const useDeleteBoardApiV1BoardsBoardIdDelete = <
     queryClient,
   );
 };
+/**
+ * List organization members who have access to this board.
+
+Includes:
+- Members with all_boards_read or all_boards_write
+- Members with direct board access
+- Members with access to the board's group (if board is in a group)
+ * @summary List Board Members
+ */
+export type listBoardMembersApiV1BoardsBoardIdMembersGetResponse200 = {
+  data: LimitOffsetPageTypeVarCustomizedOrganizationMemberRead;
+  status: 200;
+};
+
+export type listBoardMembersApiV1BoardsBoardIdMembersGetResponse422 = {
+  data: HTTPValidationError;
+  status: 422;
+};
+
+export type listBoardMembersApiV1BoardsBoardIdMembersGetResponseSuccess =
+  listBoardMembersApiV1BoardsBoardIdMembersGetResponse200 & {
+    headers: Headers;
+  };
+export type listBoardMembersApiV1BoardsBoardIdMembersGetResponseError =
+  listBoardMembersApiV1BoardsBoardIdMembersGetResponse422 & {
+    headers: Headers;
+  };
+
+export type listBoardMembersApiV1BoardsBoardIdMembersGetResponse =
+  | listBoardMembersApiV1BoardsBoardIdMembersGetResponseSuccess
+  | listBoardMembersApiV1BoardsBoardIdMembersGetResponseError;
+
+export const getListBoardMembersApiV1BoardsBoardIdMembersGetUrl = (
+  boardId: string,
+  params?: ListBoardMembersApiV1BoardsBoardIdMembersGetParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/v1/boards/${boardId}/members?${stringifiedParams}`
+    : `/api/v1/boards/${boardId}/members`;
+};
+
+export const listBoardMembersApiV1BoardsBoardIdMembersGet = async (
+  boardId: string,
+  params?: ListBoardMembersApiV1BoardsBoardIdMembersGetParams,
+  options?: RequestInit,
+): Promise<listBoardMembersApiV1BoardsBoardIdMembersGetResponse> => {
+  return customFetch<listBoardMembersApiV1BoardsBoardIdMembersGetResponse>(
+    getListBoardMembersApiV1BoardsBoardIdMembersGetUrl(boardId, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListBoardMembersApiV1BoardsBoardIdMembersGetQueryKey = (
+  boardId: string,
+  params?: ListBoardMembersApiV1BoardsBoardIdMembersGetParams,
+) => {
+  return [
+    `/api/v1/boards/${boardId}/members`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getListBoardMembersApiV1BoardsBoardIdMembersGetQueryOptions = <
+  TData = Awaited<
+    ReturnType<typeof listBoardMembersApiV1BoardsBoardIdMembersGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  params?: ListBoardMembersApiV1BoardsBoardIdMembersGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof listBoardMembersApiV1BoardsBoardIdMembersGet>
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getListBoardMembersApiV1BoardsBoardIdMembersGetQueryKey(boardId, params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listBoardMembersApiV1BoardsBoardIdMembersGet>>
+  > = ({ signal }) =>
+    listBoardMembersApiV1BoardsBoardIdMembersGet(boardId, params, {
+      signal,
+      ...requestOptions,
+    });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!boardId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listBoardMembersApiV1BoardsBoardIdMembersGet>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListBoardMembersApiV1BoardsBoardIdMembersGetQueryResult =
+  NonNullable<
+    Awaited<ReturnType<typeof listBoardMembersApiV1BoardsBoardIdMembersGet>>
+  >;
+export type ListBoardMembersApiV1BoardsBoardIdMembersGetQueryError =
+  HTTPValidationError;
+
+export function useListBoardMembersApiV1BoardsBoardIdMembersGet<
+  TData = Awaited<
+    ReturnType<typeof listBoardMembersApiV1BoardsBoardIdMembersGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  params: undefined | ListBoardMembersApiV1BoardsBoardIdMembersGetParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof listBoardMembersApiV1BoardsBoardIdMembersGet>
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<
+            ReturnType<typeof listBoardMembersApiV1BoardsBoardIdMembersGet>
+          >,
+          TError,
+          Awaited<
+            ReturnType<typeof listBoardMembersApiV1BoardsBoardIdMembersGet>
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useListBoardMembersApiV1BoardsBoardIdMembersGet<
+  TData = Awaited<
+    ReturnType<typeof listBoardMembersApiV1BoardsBoardIdMembersGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  params?: ListBoardMembersApiV1BoardsBoardIdMembersGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof listBoardMembersApiV1BoardsBoardIdMembersGet>
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<
+            ReturnType<typeof listBoardMembersApiV1BoardsBoardIdMembersGet>
+          >,
+          TError,
+          Awaited<
+            ReturnType<typeof listBoardMembersApiV1BoardsBoardIdMembersGet>
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useListBoardMembersApiV1BoardsBoardIdMembersGet<
+  TData = Awaited<
+    ReturnType<typeof listBoardMembersApiV1BoardsBoardIdMembersGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  params?: ListBoardMembersApiV1BoardsBoardIdMembersGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof listBoardMembersApiV1BoardsBoardIdMembersGet>
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary List Board Members
+ */
+
+export function useListBoardMembersApiV1BoardsBoardIdMembersGet<
+  TData = Awaited<
+    ReturnType<typeof listBoardMembersApiV1BoardsBoardIdMembersGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  params?: ListBoardMembersApiV1BoardsBoardIdMembersGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof listBoardMembersApiV1BoardsBoardIdMembersGet>
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions =
+    getListBoardMembersApiV1BoardsBoardIdMembersGetQueryOptions(
+      boardId,
+      params,
+      options,
+    );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
 /**
  * Get a board snapshot view model.
  * @summary Get Board Snapshot

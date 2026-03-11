@@ -25,6 +25,7 @@ import type {
   BoardDocumentRead,
   BoardDocumentUpdate,
   HTTPValidationError,
+  LimitOffsetPageTypeVarCustomizedBoardDocumentRead,
   ListBoardDocumentsApiV1BoardsBoardIdDocumentsGetParams,
 } from ".././model";
 
@@ -37,7 +38,7 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
  * @summary List Board Documents
  */
 export type listBoardDocumentsApiV1BoardsBoardIdDocumentsGetResponse200 = {
-  data: BoardDocumentRead[];
+  data: LimitOffsetPageTypeVarCustomizedBoardDocumentRead;
   status: 200;
 };
 

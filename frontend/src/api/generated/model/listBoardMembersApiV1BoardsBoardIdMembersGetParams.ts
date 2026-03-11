@@ -5,7 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ListBoardDocumentsApiV1BoardsBoardIdDocumentsGetParams = {
+export type ListBoardMembersApiV1BoardsBoardIdMembersGetParams = {
   /**
    * @minimum 1
    * @maximum 200

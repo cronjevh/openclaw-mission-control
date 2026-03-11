@@ -622,14 +622,19 @@ async def list_board_members(
     from app.schemas.organizations import OrganizationMemberRead
     
     # Build subquery for members with specific board/group access
-    access_member_ids = (
-        select(OrganizationBoardAccess.organization_member_id)
-        .where(
+    if board.board_group_id:
+        # Board is in a group - check direct board access OR group access
+        access_condition = (
             (col(OrganizationBoardAccess.board_id) == board.id) |
             (col(OrganizationBoardAccess.board_group_id) == board.board_group_id)
-            if board.board_group_id else
-            (col(OrganizationBoardAccess.board_id) == board.id)
         )
+    else:
+        # Board not in a group - only check direct board access
+        access_condition = (col(OrganizationBoardAccess.board_id) == board.id)
+    
+    access_member_ids = (
+        select(OrganizationBoardAccess.organization_member_id)
+        .where(access_condition)
     )
     
     # Members with org-wide access OR specific board/group access

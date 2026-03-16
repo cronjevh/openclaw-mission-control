@@ -682,23 +682,32 @@ async def _wake_assigned_agent(session: AsyncSession, *, task: Task) -> None:
     base_url = settings.base_url or "http://localhost:8000"
     group_id = task.board_group_id
     msg = (
-        f"TASK ASSIGNED\n"
+        f"TASK ASSIGNED — ACT NOW\n"
         f"Task: {task.title}\n"
         f"Task ID: {task.id}\n"
         f"Group ID: {group_id}\n"
         f"Status: {task.status}\n"
         f"Priority: {task.priority or 'medium'}\n\n"
         f"{task.description or ''}\n\n"
-        f"This is a GROUP TASK (not a board task). Use the group task endpoints:\n"
-        f"Move to in_progress:\n"
-        f"  PATCH {base_url}/api/v1/board-groups/{group_id}/tasks/{task.id}\n"
-        f'  Body: {{"status":"in_progress"}}\n'
-        f"Post a comment when done:\n"
-        f"  POST {base_url}/api/v1/board-groups/{group_id}/tasks/{task.id}/comments\n"
-        f'  Body: {{"message":"...evidence..."}}\n'
-        f"Mark done:\n"
-        f"  PATCH {base_url}/api/v1/board-groups/{group_id}/tasks/{task.id}\n"
-        f'  Body: {{"status":"done"}}'
+        f"This is a GROUP TASK. Follow these steps IN ORDER:\n\n"
+        f"STEP 1 — Move to in_progress:\n"
+        f"  curl -s -X PATCH \"{base_url}/api/v1/board-groups/{group_id}/tasks/{task.id}\" "
+        f"-H \"X-Agent-Token: $AUTH_TOKEN\" -H \"Content-Type: application/json\" "
+        f"-d '{{\"status\":\"in_progress\"}}'\n\n"
+        f"STEP 2 — Do the work described above.\n\n"
+        f"STEP 3 — MANDATORY: Post your findings as a task comment (this is REQUIRED, do NOT skip):\n"
+        f"  curl -s -X POST \"{base_url}/api/v1/board-groups/{group_id}/tasks/{task.id}/comments\" "
+        f"-H \"X-Agent-Token: $AUTH_TOKEN\" -H \"Content-Type: application/json\" "
+        f"-d '{{\"message\":\"## Findings\\n\\n...your evidence and results here...\"}}'\n\n"
+        f"STEP 4 — Mark done:\n"
+        f"  curl -s -X PATCH \"{base_url}/api/v1/board-groups/{group_id}/tasks/{task.id}\" "
+        f"-H \"X-Agent-Token: $AUTH_TOKEN\" -H \"Content-Type: application/json\" "
+        f"-d '{{\"status\":\"done\"}}'\n\n"
+        f"IMPORTANT RULES:\n"
+        f"- Use /api/v1/board-groups/ endpoints, NOT /api/v1/agent/boards/\n"
+        f"- You MUST post a task comment with evidence BEFORE marking done\n"
+        f"- $AUTH_TOKEN is in your TOOLS.md file\n"
+        f"- Do NOT post findings to group chat — post them as a TASK COMMENT"
     ).strip()
     try:
         config = GatewayConfig(url=gateway.url, token=gateway.token)

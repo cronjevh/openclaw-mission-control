@@ -399,6 +399,9 @@ export default function ActivityPage() {
       const meta = event.task_id
         ? taskMetaByIdRef.current.get(event.task_id)
         : null;
+      // task_title is returned inline by the API (not yet in generated types)
+      const inlineTitle = (event as ActivityEventRead & { task_title?: string | null }).task_title;
+      const resolvedTitle = meta?.title ?? inlineTitle ?? null;
       const boardId = meta?.boardId ?? null;
       const author = resolveAuthor(
         event.agent_id,
@@ -415,9 +418,8 @@ export default function ActivityPage() {
         board_id: boardId,
         board_name: boardNameForId(boardId),
         task_id: event.task_id ?? null,
-        task_title: meta?.title ?? null,
-        title:
-          meta?.title ?? (event.task_id ? "Unknown task" : "Task activity"),
+        task_title: resolvedTitle,
+        title: resolvedTitle ?? (event.task_id ? "Loading…" : "Task activity"),
       };
     },
     [boardNameForId, resolveAuthor],

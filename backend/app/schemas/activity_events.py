@@ -18,6 +18,7 @@ class ActivityEventRead(SQLModel):
     message: str | None
     agent_id: UUID | None
     task_id: UUID | None
+    task_title: str | None = None   # denormalized for display, avoids client-side lookup
     board_id: UUID | None = None
     route_name: str | None = None
     route_params: dict[str, str] | None = None

@@ -183,33 +183,35 @@ def _coerce_task_comment_rows(
 
 def _coerce_activity_rows(
     items: Sequence[Any],
-) -> list[tuple[ActivityEvent, UUID | None, UUID | None]]:
-    rows: list[tuple[ActivityEvent, UUID | None, UUID | None]] = []
+) -> list[tuple[ActivityEvent, UUID | None, UUID | None, str | None]]:
+    rows: list[tuple[ActivityEvent, UUID | None, UUID | None, str | None]] = []
     for item in items:
         first: Any
         second: Any
         third: Any
+        fourth: Any = None
 
         if isinstance(item, tuple):
-            if len(item) != 3:
-                msg = "Expected (ActivityEvent, event_board_id, task_board_id) rows"
+            if len(item) == 4:
+                first, second, third, fourth = item
+            elif len(item) == 3:
+                first, second, third = item
+            else:
+                msg = "Expected (ActivityEvent, event_board_id, task_board_id[, task_title]) rows"
                 raise TypeError(msg)
-            first, second, third = item
         else:
             try:
                 row_len = len(item)
                 first = item[0]
                 second = item[1]
                 third = item[2]
+                fourth = item[3] if row_len >= 4 else None
             except (IndexError, KeyError, TypeError):
-                msg = "Expected (ActivityEvent, event_board_id, task_board_id) rows"
+                msg = "Expected (ActivityEvent, event_board_id, task_board_id[, task_title]) rows"
                 raise TypeError(msg) from None
-            if row_len != 3:
-                msg = "Expected (ActivityEvent, event_board_id, task_board_id) rows"
-                raise TypeError(msg)
 
         if not isinstance(first, ActivityEvent):
-            msg = "Expected (ActivityEvent, event_board_id, task_board_id) rows"
+            msg = "Expected (ActivityEvent, event_board_id, task_board_id[, task_title]) rows"
             raise TypeError(msg)
         if second is not None and not isinstance(second, UUID):
             msg = "Expected (ActivityEvent, event_board_id, task_board_id) rows"
@@ -217,7 +219,7 @@ def _coerce_activity_rows(
         if third is not None and not isinstance(third, UUID):
             msg = "Expected (ActivityEvent, event_board_id, task_board_id) rows"
             raise TypeError(msg)
-        rows.append((first, second, third))
+        rows.append((first, second, third, fourth if isinstance(fourth, str) else None))
     return rows
 
 
@@ -252,6 +254,7 @@ async def list_activity(
         ActivityEvent,
         col(ActivityEvent.board_id).label("event_board_id"),
         col(Task.board_id).label("task_board_id"),
+        col(Task.title).label("task_title"),
     ).outerjoin(Task, col(ActivityEvent.task_id) == col(Task.id))
     if actor.actor_type == "agent" and actor.agent:
         statement = statement.where(col(ActivityEvent.agent_id) == actor.agent.id)
@@ -277,10 +280,11 @@ async def list_activity(
     def _transform(items: Sequence[Any]) -> Sequence[Any]:
         rows = _coerce_activity_rows(items)
         events: list[ActivityEventRead] = []
-        for event, event_board_id, task_board_id in rows:
+        for event, event_board_id, task_board_id, task_title in rows:
             payload = ActivityEventRead.model_validate(event, from_attributes=True)
             resolved_board_id = event_board_id or task_board_id
             payload.board_id = resolved_board_id
+            payload.task_title = task_title
             route_name, route_params = _build_activity_route(
                 event=event,
                 board_id=resolved_board_id,

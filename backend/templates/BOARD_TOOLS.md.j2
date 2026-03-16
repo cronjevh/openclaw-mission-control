@@ -6,8 +6,11 @@
 - `AUTH_TOKEN={{ auth_token }}`
 - `AGENT_NAME={{ agent_name }}`
 - `AGENT_ID={{ agent_id }}`
-{% if board_id is defined %}
+{% if board_id is defined and board_id %}
 - `BOARD_ID={{ board_id }}`
+{% endif %}
+{% if group_id is defined and group_id %}
+- `GROUP_ID={{ group_id }}`
 {% endif %}
 - `WORKSPACE_ROOT={{ workspace_root }}`
 {% if workspace_path is defined %}

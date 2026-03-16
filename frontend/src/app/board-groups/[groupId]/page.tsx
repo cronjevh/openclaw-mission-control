@@ -1496,7 +1496,7 @@ export default function BoardGroupDetailPage() {
                 <p className="text-sm text-quiet">No comments yet.</p>
               ) : (
                 <div className="space-y-3">
-                  {taskComments.map((comment) => (
+                  {[...taskComments].reverse().map((comment) => (
                     <div key={comment.id} className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] p-3">
                       <div className="flex items-center justify-between text-xs text-quiet">
                         <span>{comment.author_name ?? comment.agent_name ?? (comment.agent_id ? "Agent" : "User")}</span>

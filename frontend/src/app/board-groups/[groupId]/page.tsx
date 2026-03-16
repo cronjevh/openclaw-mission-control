@@ -32,7 +32,13 @@ import {
 import {
   type getMyMembershipApiV1OrganizationsMeMemberGetResponse,
   useGetMyMembershipApiV1OrganizationsMeMemberGet,
+  useListOrgMembersApiV1OrganizationsMeMembersGet,
+  type listOrgMembersApiV1OrganizationsMeMembersGetResponse,
 } from "@/api/generated/organizations/organizations";
+import {
+  useListAgentsApiV1AgentsGet,
+  type listAgentsApiV1AgentsGetResponse,
+} from "@/api/generated/agents/agents";
 import type {
   BoardGroupMemoryRead,
   OrganizationMemberRead,
@@ -49,6 +55,7 @@ import {
   createGroupTaskComment,
 } from "@/lib/groupTasks";
 import { TaskBoard, type TaskStatus } from "@/components/organisms/TaskBoard";
+import { StatusDot } from "@/components/atoms/StatusDot";
 import { CollapsibleMarkdown, Markdown } from "@/components/atoms/Markdown";
 import { SignedOutPanel } from "@/components/auth/SignedOutPanel";
 import { DashboardSidebar } from "@/components/organisms/DashboardSidebar";
@@ -250,6 +257,54 @@ export default function BoardGroupDetailPage() {
     [boardIdSet, member],
   );
   const canManageHeartbeat = Boolean(isAdmin && canWriteGroup);
+
+  // Board agents query (for team sidebar)
+  const boardAgentsQuery = useListAgentsApiV1AgentsGet<listAgentsApiV1AgentsGetResponse, ApiError>(
+    undefined,
+    { query: { enabled: Boolean(isSignedIn) } },
+  );
+  const allAgents = useMemo(
+    () => (boardAgentsQuery.data?.status === 200 ? (boardAgentsQuery.data.data.items ?? []) : []),
+    [boardAgentsQuery.data],
+  );
+  // Agents belonging to boards in this group (deduped, excluding groupAgent itself)
+  const boardLeadAgents = useMemo(() => {
+    const seen = new Set<string>();
+    if (groupAgent?.id) seen.add(groupAgent.id);
+    const result: typeof allAgents = [];
+    for (const agent of allAgents) {
+      if (agent.board_id && boardIdSet.has(agent.board_id) && !seen.has(agent.id)) {
+        seen.add(agent.id);
+        result.push(agent);
+      }
+    }
+    return result;
+  }, [allAgents, boardIdSet, groupAgent]);
+
+  // Org members query (for team sidebar)
+  const orgMembersQuery = useListOrgMembersApiV1OrganizationsMeMembersGet<
+    listOrgMembersApiV1OrganizationsMeMembersGetResponse,
+    ApiError
+  >(undefined, { query: { enabled: Boolean(isSignedIn) } });
+  const orgMembers = useMemo(
+    () =>
+      orgMembersQuery.data?.status === 200
+        ? (orgMembersQuery.data.data.items ?? [])
+        : [],
+    [orgMembersQuery.data],
+  );
+
+  const agentAvatarLabel = (name: string) => {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return name.slice(0, 2).toUpperCase();
+  };
+
+  const agentRoleLabel = (agent: (typeof allAgents)[0]) => {
+    if (agent.is_board_lead && agent.group_id) return "Group Lead";
+    if (agent.is_board_lead) return "Board Lead";
+    return (agent.identity_profile as { role?: string } | null)?.role ?? "Worker";
+  };
 
   const chatHistoryQuery =
     useListBoardGroupMemoryApiV1BoardGroupsGroupIdMemoryGet<
@@ -968,27 +1023,134 @@ export default function BoardGroupDetailPage() {
             {/* Main toggleable content */}
             {!showInnerBoards ? (
               /* ── Kanban view (default) ── */
-              <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-                {/* Top bar: error + new task button */}
-                {groupTasksError && (
-                  <p className="shrink-0 mb-3 text-xs text-danger">{groupTasksError}</p>
-                )}
+              <div className="flex flex-1 min-h-0 gap-4 overflow-hidden">
+                {/* Team sidebar */}
+                <aside className="flex h-full w-60 flex-col rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] shadow-sm shrink-0">
+                  {/* Header */}
+                  <div className="flex items-center justify-between border-b border-[color:var(--border)] px-4 py-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-quiet">Team</p>
+                      <p className="text-xs text-quiet">
+                        {(groupAgent ? 1 : 0) + boardLeadAgents.length} agents · {orgMembers.length} humans
+                      </p>
+                    </div>
+                    <Link
+                      href="/organization"
+                      className="rounded-md border border-[color:var(--border)] px-2.5 py-1 text-xs font-semibold text-muted transition hover:border-[color:var(--border-strong)] hover:bg-[color:var(--surface-muted)]"
+                    >
+                      Add
+                    </Link>
+                  </div>
+                  {/* Body */}
+                  <div className="flex-1 overflow-y-auto p-3 space-y-1">
+                    {/* Agents */}
+                    <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-quiet">
+                      Agents
+                    </p>
 
-                {/* Kanban board — always render columns, even when empty */}
-                {isGroupTasksLoading ? (
-                  <div className="flex-1 flex items-center justify-center text-sm text-muted">
-                    Loading group tasks…
+                    {/* Group Agent first */}
+                    {groupAgent && (() => {
+                      const seenMs = groupAgent.last_seen_at ? new Date(groupAgent.last_seen_at).getTime() : 0;
+                      const agoMs = Date.now() - seenMs;
+                      const displayStatus = groupAgent.status === "working"
+                        ? "working"
+                        : agoMs < 30 * 60 * 1000
+                          ? "online"
+                          : groupAgent.status;
+                      return (
+                        <div className="flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-2">
+                          <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--surface)] text-xs font-semibold text-strong border border-[color:var(--border-strong)]">
+                            {agentAvatarLabel(groupAgent.name)}
+                            <StatusDot
+                              status={displayStatus}
+                              variant="agent"
+                              className="absolute -right-1 -bottom-1 h-3.5 w-3.5 rounded-full border-2 border-[color:var(--surface-muted)]"
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-strong">{groupAgent.name}</p>
+                            <p className="text-[11px] text-quiet">Group Lead</p>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Board lead agents */}
+                    {boardLeadAgents.map((agent) => (
+                      <div key={agent.id} className="flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-2">
+                        <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--surface)] text-xs font-semibold text-strong border border-[color:var(--border-strong)]">
+                          {agentAvatarLabel(agent.name)}
+                          <StatusDot
+                            status={agent.status}
+                            variant="agent"
+                            className="absolute -right-1 -bottom-1 h-3.5 w-3.5 rounded-full border-2 border-[color:var(--surface-muted)]"
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-strong">{agent.name}</p>
+                          <p className="text-[11px] text-quiet">{agentRoleLabel(agent)}</p>
+                        </div>
+                      </div>
+                    ))}
+
+                    {!groupAgent && boardLeadAgents.length === 0 && (
+                      <div className="rounded-lg border border-dashed border-[color:var(--border)] p-3 text-xs text-quiet">
+                        No agents in this group yet.
+                      </div>
+                    )}
+
+                    {/* Humans */}
+                    {orgMembers.length > 0 && (
+                      <>
+                        <div className="my-3 border-t border-[color:var(--border)]" />
+                        <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-quiet">
+                          Humans
+                        </p>
+                        {orgMembers.map((m: any) => {
+                          const name = m.user?.name ?? m.user?.email ?? "Unknown";
+                          const initials = name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
+                          const hasWrite = m.can_write ?? m.all_boards_write;
+                          const accessLabel = hasWrite ? "read-write" : "read-only";
+                          return (
+                            <div key={m.user_id} className="flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-2">
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[color:var(--accent)] to-[color:var(--accent-strong)] text-xs font-semibold text-white">
+                                {initials}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium text-strong">{name}</p>
+                                <p className="text-[11px] text-quiet">{accessLabel}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </>
+                    )}
                   </div>
-                ) : (
-                  <div className="flex-1 min-h-0 overflow-hidden">
-                    <TaskBoard
-                      tasks={taskBoardTasks}
-                      onTaskMove={canManageHeartbeat ? handleGroupTaskMove : undefined}
-                      onTaskSelect={openTaskDetail}
-                      readOnly={!canManageHeartbeat}
-                    />
-                  </div>
-                )}
+                </aside>
+
+                {/* Kanban board */}
+                <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+                  {/* Top bar: error */}
+                  {groupTasksError && (
+                    <p className="shrink-0 mb-3 text-xs text-danger">{groupTasksError}</p>
+                  )}
+
+                  {/* Kanban board — always render columns, even when empty */}
+                  {isGroupTasksLoading ? (
+                    <div className="flex-1 flex items-center justify-center text-sm text-muted">
+                      Loading group tasks…
+                    </div>
+                  ) : (
+                    <div className="flex-1 min-h-0 overflow-hidden">
+                      <TaskBoard
+                        tasks={taskBoardTasks}
+                        onTaskMove={canManageHeartbeat ? handleGroupTaskMove : undefined}
+                        onTaskSelect={openTaskDetail}
+                        readOnly={!canManageHeartbeat}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
               /* ── Inner Boards view ── */

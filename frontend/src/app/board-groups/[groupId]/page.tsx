@@ -876,24 +876,36 @@ export default function BoardGroupDetailPage() {
                   <>
                     <span className="text-xs text-quiet">Agent:</span>
                     <span className="text-xs font-semibold text-strong">{groupAgent.name}</span>
-                    <span
-                      className={cn(
-                        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold",
-                        groupAgent.status === "online"
-                          ? "border-emerald-200 bg-[color:var(--success-soft)] text-success"
-                          : groupAgent.status === "working"
-                            ? "border-blue-300 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700"
-                            : "border-[color:var(--warning-border)] bg-[color:var(--warning-soft)] text-warning",
-                      )}
-                    >
-                      {groupAgent.status === "working" && (
-                        <span className="relative flex h-1.5 w-1.5">
-                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
-                          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-blue-500" />
+                    {(() => {
+                      // Derive display status: if last_seen_at < 30min ago, treat as online
+                      const seenMs = groupAgent.last_seen_at ? new Date(groupAgent.last_seen_at).getTime() : 0;
+                      const agoMs = Date.now() - seenMs;
+                      const displayStatus = groupAgent.status === "working"
+                        ? "working"
+                        : agoMs < 30 * 60 * 1000
+                          ? "online"
+                          : groupAgent.status;
+                      return (
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+                            displayStatus === "online"
+                              ? "border-emerald-200 bg-[color:var(--success-soft)] text-success"
+                              : displayStatus === "working"
+                                ? "border-blue-300 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700"
+                                : "border-[color:var(--warning-border)] bg-[color:var(--warning-soft)] text-warning",
+                          )}
+                        >
+                          {displayStatus === "working" && (
+                            <span className="relative flex h-1.5 w-1.5">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
+                              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-blue-500" />
+                            </span>
+                          )}
+                          {displayStatus}
                         </span>
-                      )}
-                      {groupAgent.status}
-                    </span>
+                      );
+                    })()}
                     {isAdmin && (
                       <button
                         type="button"

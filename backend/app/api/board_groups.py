@@ -672,7 +672,6 @@ async def create_group_task(
     task = Task.model_validate(data)
     task.board_group_id = group_id
     task.board_id = None
-    task.organization_id = ctx.organization.id
     task.created_by_user_id = ctx.member.user_id
     session.add(task)
     await session.commit()

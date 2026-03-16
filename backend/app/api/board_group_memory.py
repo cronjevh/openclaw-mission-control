@@ -216,15 +216,19 @@ def _group_chat_targets(
     mentions: set[str],
 ) -> dict[str, Agent]:
     targets: dict[str, Agent] = {}
+    # In a group chat, "@lead" exclusively targets the group agent (handled
+    # separately by the caller).  Strip it from the mention set so that
+    # individual board leads are NOT auto-included when someone types "@lead".
+    agent_mentions = mentions - {"lead"}
     for agent in agents:
         if not agent.openclaw_session_id:
             continue
         if actor.actor_type == "agent" and actor.agent and agent.id == actor.agent.id:
             continue
-        if is_broadcast or agent.is_board_lead:
+        if is_broadcast:
             targets[str(agent.id)] = agent
             continue
-        if mentions and matches_agent_mention(agent, mentions):
+        if agent_mentions and matches_agent_mention(agent, agent_mentions):
             targets[str(agent.id)] = agent
     return targets
 
@@ -395,15 +399,25 @@ async def _notify_group_memory_targets(
             await _notify_group_target(context, agent)
 
     # Also notify the group lead agent if one is provisioned.
+    # The group agent is notified when:
+    #   - it's a broadcast (@all), OR
+    #   - "@lead" is explicitly mentioned, OR
+    #   - the group agent's own name is mentioned.
     if group.group_agent_id is not None:
         group_agent = await Agent.objects.by_id(group.group_agent_id).first(session)
         if group_agent is not None and group_agent.openclaw_session_id:
             # Skip if the actor IS the group agent (avoid self-delivery).
-            if not (
+            is_self = (
                 actor.actor_type == "agent"
                 and actor.agent is not None
                 and actor.agent.id == group_agent.id
-            ):
+            )
+            group_agent_mentioned = (
+                is_broadcast
+                or "lead" in mentions
+                or matches_agent_mention(group_agent, mentions)
+            )
+            if not is_self and group_agent_mentioned:
                 await _notify_group_agent_target(
                     session=session,
                     dispatch=dispatch,

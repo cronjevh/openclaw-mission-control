@@ -31,6 +31,7 @@ export function BoardSecretsPanel({ boardId }: BoardSecretsPanelProps) {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -124,67 +125,79 @@ export function BoardSecretsPanel({ boardId }: BoardSecretsPanelProps) {
 
       {/* Add new secret */}
       <div className="rounded-lg border border-[color:var(--border)] p-3 space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wider text-quiet">Add / Update Secret</p>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            placeholder="KEY_NAME"
-            value={newKey}
-            onChange={(e) => setNewKey(e.target.value.toUpperCase())}
-            className="font-mono w-40 shrink-0 rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-xs text-strong focus:outline-none focus:border-[color:var(--accent)]"
-          />
-          <input
-            type="text"
-            placeholder="Description (optional)"
-            value={newDesc}
-            onChange={(e) => setNewDesc(e.target.value)}
-            className="min-w-0 flex-1 rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-xs text-strong focus:outline-none focus:border-[color:var(--accent)]"
-          />
-        </div>
-        <div className="flex flex-col gap-2">
-          <div className="relative flex-1">
-            {showValue ? (
-              <textarea
-                placeholder="Secret value (paste multi-line keys here)"
-                value={newValue}
-                onChange={(e) => setNewValue(e.target.value)}
-                className="w-full h-32 rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 pr-8 text-xs text-strong font-mono focus:outline-none focus:border-[color:var(--accent)] resize-none"
-              />
-            ) : (
+        <button
+          type="button"
+          onClick={() => setShowAddForm((v) => !v)}
+          className="flex w-full items-center justify-between text-xs font-semibold uppercase tracking-wider text-quiet hover:text-strong transition"
+        >
+          <span>Add / Update Secret</span>
+          <span className="text-[10px]">{showAddForm ? "▲" : "▼"}</span>
+        </button>
+        {!showAddForm && <p className="text-xs text-quiet">Click to expand and add or update a secret.</p>}
+        {showAddForm && (
+          <>
+            <div className="flex gap-2">
               <input
-                type="password"
-                placeholder="Secret value (paste multi-line keys here)"
-                value={newValue}
-                onChange={(e) => setNewValue(e.target.value)}
-                className="w-full rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 pr-8 text-xs text-strong focus:outline-none focus:border-[color:var(--accent)]"
+                type="text"
+                placeholder="KEY_NAME"
+                value={newKey}
+                onChange={(e) => setNewKey(e.target.value.toUpperCase())}
+                className="font-mono w-40 shrink-0 rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-xs text-strong focus:outline-none focus:border-[color:var(--accent)]"
               />
-            )}
-            <button
-              type="button"
-              onClick={() => setShowValue((v) => !v)}
-              className="absolute right-2 top-2 text-quiet hover:text-muted"
-            >
-              {showValue ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving || !newKey.trim() || !newValue.trim()}
-            className={cn(
-              "flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition self-start",
-              "bg-[color:var(--accent)] text-white hover:bg-[color:var(--accent-strong)]",
-              "disabled:opacity-50 disabled:cursor-not-allowed",
-            )}
-          >
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-            {saving ? "Saving…" : "Save"}
-          </button>
-        </div>
-        {saveError && <p className="text-xs text-danger">{saveError}</p>}
-        <p className="text-xs text-quiet">
-          Secrets are encrypted and injected into agent workspaces at provisioning time. Agents never expose them in output.
-        </p>
+              <input
+                type="text"
+                placeholder="Description (optional)"
+                value={newDesc}
+                onChange={(e) => setNewDesc(e.target.value)}
+                className="min-w-0 flex-1 rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-xs text-strong focus:outline-none focus:border-[color:var(--accent)]"
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <div className="relative flex-1">
+                {showValue ? (
+                  <textarea
+                    placeholder="Secret value (paste multi-line keys here)"
+                    value={newValue}
+                    onChange={(e) => setNewValue(e.target.value)}
+                    className="w-full h-32 rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 pr-8 text-xs text-strong font-mono focus:outline-none focus:border-[color:var(--accent)] resize-none"
+                  />
+                ) : (
+                  <input
+                    type="password"
+                    placeholder="Secret value (paste multi-line keys here)"
+                    value={newValue}
+                    onChange={(e) => setNewValue(e.target.value)}
+                    className="w-full rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 pr-8 text-xs text-strong focus:outline-none focus:border-[color:var(--accent)]"
+                  />
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowValue((v) => !v)}
+                  className="absolute right-2 top-2 text-quiet hover:text-muted"
+                >
+                  {showValue ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving || !newKey.trim() || !newValue.trim()}
+                className={cn(
+                  "flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition self-start",
+                  "bg-[color:var(--accent)] text-white hover:bg-[color:var(--accent-strong)]",
+                  "disabled:opacity-50 disabled:cursor-not-allowed",
+                )}
+              >
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
+            {saveError && <p className="text-xs text-danger">{saveError}</p>}
+            <p className="text-xs text-quiet">
+              Secrets are encrypted and injected into agent workspaces at provisioning time. Agents never expose them in output.
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

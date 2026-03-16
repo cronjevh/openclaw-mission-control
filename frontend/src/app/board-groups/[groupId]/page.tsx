@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter, usePathname, useSearchParams } from "next/navigation";
 
 import { SignedIn, SignedOut, useAuth } from "@/auth/clerk";
 import {
@@ -152,6 +152,9 @@ export default function BoardGroupDetailPage() {
   const params = useParams();
   const groupIdParam = params?.groupId;
   const groupId = Array.isArray(groupIdParam) ? groupIdParam[0] : groupIdParam;
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const isPageActive = usePageActive();
 
   const [includeDone] = useState(true);
@@ -634,6 +637,8 @@ export default function BoardGroupDetailPage() {
 
   useEffect(() => { void fetchGroupTasks(); }, [fetchGroupTasks]);
 
+
+
   const handleCreateGroupTask = useCallback(async () => {
     if (!groupId || !isSignedIn || !newTaskTitle.trim()) return;
     setIsCreatingGroupTask(true);
@@ -724,7 +729,11 @@ export default function BoardGroupDetailPage() {
     setCommentError(null);
     setIsTaskDetailOpen(true);
     void fetchTaskComments(full.id);
-  }, [groupTasks, fetchTaskComments]);
+    // Update URL so the task can be shared
+    const p = new URLSearchParams(searchParams.toString());
+    p.set("taskId", full.id);
+    router.replace(`${pathname}?${p.toString()}`);
+  }, [groupTasks, fetchTaskComments, pathname, router, searchParams]);
 
   const closeTaskDetail = useCallback(() => {
     setIsTaskDetailOpen(false);
@@ -734,7 +743,24 @@ export default function BoardGroupDetailPage() {
     setTaskComments([]);
     setNewComment("");
     setCommentError(null);
-  }, []);
+    // Remove taskId from URL
+    const p = new URLSearchParams(searchParams.toString());
+    p.delete("taskId");
+    const qs = p.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname);
+  }, [pathname, router, searchParams]);
+
+  // Open task panel from URL ?taskId= on load
+  const openedTaskIdFromUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    const taskIdFromUrl = searchParams.get("taskId");
+    if (!taskIdFromUrl || groupTasks.length === 0) return;
+    if (openedTaskIdFromUrlRef.current === taskIdFromUrl) return;
+    const found = groupTasks.find((t) => t.id === taskIdFromUrl);
+    if (!found) return;
+    openedTaskIdFromUrlRef.current = taskIdFromUrl;
+    openTaskDetail({ id: found.id, title: found.title, status: found.status as TaskStatus, priority: found.priority });
+  }, [searchParams, groupTasks, openTaskDetail]);
 
   const handleSaveTask = useCallback(async () => {
     if (!groupId || !isSignedIn || !selectedGroupTask) return;

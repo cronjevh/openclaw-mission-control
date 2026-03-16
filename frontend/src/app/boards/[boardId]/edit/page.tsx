@@ -1310,111 +1310,6 @@ export default function EditBoardPage() {
               </Button>
             </div>
 
-            {/* Agent heartbeat — only shown when board is part of a group */}
-            {effectiveGroupId && isAdmin && (
-              <section className="space-y-4 border-t border-[color:var(--border)] pt-6">
-                <div>
-                  <h2 className="text-base font-semibold text-strong">Agent Check-in Rates</h2>
-                  <p className="mt-1 text-xs text-quiet">
-                    Configure how often agents in this board group wake up. Applies to all boards in the group.
-                  </p>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {/* Worker rate */}
-                  <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4 space-y-3">
-                    <div>
-                      <p className="text-sm font-semibold text-strong">⚙️ Worker check-in rate</p>
-                      <p className="mt-0.5 text-xs text-muted">How often worker agents wake up and pick tasks.</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min={1}
-                        value={hbWorkerAmount}
-                        onChange={(e) => setHbWorkerAmount(e.target.value)}
-                        className="w-16 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-sm text-strong focus:outline-none"
-                      />
-                      <select
-                        value={hbWorkerUnit}
-                        onChange={(e) => setHbWorkerUnit(e.target.value as "m" | "h")}
-                        className="rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-sm text-strong focus:outline-none"
-                      >
-                        <option value="m">minutes</option>
-                        <option value="h">hours</option>
-                      </select>
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={isHbWorkerApplying}
-                        onClick={async () => {
-                          setIsHbWorkerApplying(true); setHbWorkerError(null); setHbWorkerDone(false);
-                          try {
-                            await applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost(
-                              effectiveGroupId,
-                              { every: `${hbWorkerAmount}${hbWorkerUnit}`, include_board_leads: false },
-                            );
-                            setHbWorkerDone(true);
-                          } catch (e: any) {
-                            setHbWorkerError(e?.message ?? "Failed");
-                          } finally { setIsHbWorkerApplying(false); }
-                        }}
-                      >
-                        {isHbWorkerApplying ? "Applying…" : "Apply"}
-                      </Button>
-                    </div>
-                    {hbWorkerError && <p className="text-xs text-danger">{hbWorkerError}</p>}
-                    {hbWorkerDone && <p className="text-xs text-success">Applied ✓</p>}
-                  </div>
-
-                  {/* Lead rate */}
-                  <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4 space-y-3">
-                    <div>
-                      <p className="text-sm font-semibold text-strong">👑 Lead check-in rate</p>
-                      <p className="mt-0.5 text-xs text-muted">How often board leads review progress and coordinate.</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min={1}
-                        value={hbLeadAmount}
-                        onChange={(e) => setHbLeadAmount(e.target.value)}
-                        className="w-16 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-sm text-strong focus:outline-none"
-                      />
-                      <select
-                        value={hbLeadUnit}
-                        onChange={(e) => setHbLeadUnit(e.target.value as "m" | "h")}
-                        className="rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-sm text-strong focus:outline-none"
-                      >
-                        <option value="m">minutes</option>
-                        <option value="h">hours</option>
-                      </select>
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={isHbLeadApplying}
-                        onClick={async () => {
-                          setIsHbLeadApplying(true); setHbLeadError(null); setHbLeadDone(false);
-                          try {
-                            await applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost(
-                              effectiveGroupId,
-                              { every: `${hbLeadAmount}${hbLeadUnit}`, include_board_leads: true },
-                            );
-                            setHbLeadDone(true);
-                          } catch (e: any) {
-                            setHbLeadError(e?.message ?? "Failed");
-                          } finally { setIsHbLeadApplying(false); }
-                        }}
-                      >
-                        {isHbLeadApplying ? "Applying…" : "Apply"}
-                      </Button>
-                    </div>
-                    {hbLeadError && <p className="text-xs text-danger">{hbLeadError}</p>}
-                    {hbLeadDone && <p className="text-xs text-success">Applied ✓</p>}
-                  </div>
-                </div>
-              </section>
-            )}
-
             <section className="space-y-4 border-t border-[color:var(--border)] pt-4">
               <div>
                 <h2 className="text-base font-semibold text-strong">
@@ -1587,6 +1482,52 @@ export default function EditBoardPage() {
               </div>
               {boardId && <BoardSecretsPanel boardId={boardId} />}
             </section>
+
+            {/* Agent heartbeat — only shown when board is part of a group */}
+            {effectiveGroupId && isAdmin && (
+              <section className="space-y-4 border-t border-[color:var(--border)] pt-6">
+                <div>
+                  <h2 className="text-base font-semibold text-strong">Agent Check-in Rates</h2>
+                  <p className="mt-1 text-xs text-quiet">
+                    Configure how often agents in this board group wake up. Applies to all boards in the group.
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4 space-y-3">
+                    <div>
+                      <p className="text-sm font-semibold text-strong">⚙️ Worker check-in rate</p>
+                      <p className="mt-0.5 text-xs text-muted">How often worker agents wake up and pick tasks.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input type="number" min={1} value={hbWorkerAmount} onChange={(e) => setHbWorkerAmount(e.target.value)} className="w-16 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-sm text-strong focus:outline-none" />
+                      <select value={hbWorkerUnit} onChange={(e) => setHbWorkerUnit(e.target.value as "m" | "h")} className="rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-sm text-strong focus:outline-none">
+                        <option value="m">minutes</option>
+                        <option value="h">hours</option>
+                      </select>
+                      <Button type="button" size="sm" disabled={isHbWorkerApplying} onClick={async () => { setIsHbWorkerApplying(true); setHbWorkerError(null); setHbWorkerDone(false); try { await applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost(effectiveGroupId, { every: `${hbWorkerAmount}${hbWorkerUnit}`, include_board_leads: false }); setHbWorkerDone(true); } catch (e: any) { setHbWorkerError(e?.message ?? "Failed"); } finally { setIsHbWorkerApplying(false); } }}>{isHbWorkerApplying ? "Applying…" : "Apply"}</Button>
+                    </div>
+                    {hbWorkerError && <p className="text-xs text-danger">{hbWorkerError}</p>}
+                    {hbWorkerDone && <p className="text-xs text-success">Applied ✓</p>}
+                  </div>
+                  <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4 space-y-3">
+                    <div>
+                      <p className="text-sm font-semibold text-strong">👑 Lead check-in rate</p>
+                      <p className="mt-0.5 text-xs text-muted">How often board leads review progress and coordinate.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input type="number" min={1} value={hbLeadAmount} onChange={(e) => setHbLeadAmount(e.target.value)} className="w-16 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-sm text-strong focus:outline-none" />
+                      <select value={hbLeadUnit} onChange={(e) => setHbLeadUnit(e.target.value as "m" | "h")} className="rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-sm text-strong focus:outline-none">
+                        <option value="m">minutes</option>
+                        <option value="h">hours</option>
+                      </select>
+                      <Button type="button" size="sm" disabled={isHbLeadApplying} onClick={async () => { setIsHbLeadApplying(true); setHbLeadError(null); setHbLeadDone(false); try { await applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost(effectiveGroupId, { every: `${hbLeadAmount}${hbLeadUnit}`, include_board_leads: true }); setHbLeadDone(true); } catch (e: any) { setHbLeadError(e?.message ?? "Failed"); } finally { setIsHbLeadApplying(false); } }}>{isHbLeadApplying ? "Applying…" : "Apply"}</Button>
+                    </div>
+                    {hbLeadError && <p className="text-xs text-danger">{hbLeadError}</p>}
+                    {hbLeadDone && <p className="text-xs text-success">Applied ✓</p>}
+                  </div>
+                </div>
+              </section>
+            )}
           </form>
         </div>
       </DashboardPageLayout>

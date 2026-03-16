@@ -1337,48 +1337,29 @@ export default function BoardGroupDetailPage() {
         />
       ) : null}
 
-      {/* Task detail side panel */}
+      {/* Task detail side panel — matches board page design */}
       <aside
         className={cn(
-          "fixed right-0 top-0 z-50 h-full w-[max(620px,42vw)] max-w-[99vw] transform border-l border-[color:var(--border)] bg-[color:var(--surface)] shadow-2xl transition-transform",
+          "fixed right-0 top-0 z-50 h-full w-[max(760px,45vw)] max-w-[99vw] transform bg-[color:var(--surface)] shadow-2xl transition-transform",
           isTaskDetailOpen ? "transform-none" : "translate-x-full",
         )}
       >
         <div className="flex h-full flex-col">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-[color:var(--border)] px-6 py-4">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold uppercase tracking-wider text-quiet">Task Detail</p>
-              {isEditingTaskTitle ? (
-                <input
-                  type="text"
-                  value={editTaskTitle}
-                  onChange={(e) => setEditTaskTitle(e.target.value)}
-                  onBlur={() => void handleSaveTask()}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void handleSaveTask();
-                    if (e.key === "Escape") {
-                      setEditTaskTitle(selectedGroupTask?.title ?? "");
-                      setIsEditingTaskTitle(false);
-                    }
-                  }}
-                  className="mt-1 w-full rounded-md border border-[color:var(--border-strong)] bg-[color:var(--surface-muted)] px-2 py-1 text-sm font-medium text-strong focus:outline-none"
-                  // eslint-disable-next-line jsx-a11y/no-autofocus
-                  autoFocus
-                />
-              ) : (
-                <p className="mt-1 truncate text-sm font-medium text-strong">
-                  {selectedGroupTask?.title ?? "Task"}
-                </p>
-              )}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-quiet">Task detail</p>
+              <p className="mt-1 text-sm font-medium text-strong">
+                {selectedGroupTask?.title ?? "Task"}
+              </p>
             </div>
-            <div className="ml-3 flex shrink-0 items-center gap-2">
+            <div className="flex items-center gap-2">
               {canManageHeartbeat && (
                 <button
                   type="button"
                   onClick={() => setIsEditingTaskTitle((v) => !v)}
                   className="rounded-lg border border-[color:var(--border)] p-2 text-quiet transition hover:bg-[color:var(--surface-muted)]"
-                  title="Edit title"
+                  title="Edit task"
                 >
                   <Pencil className="h-4 w-4" />
                 </button>
@@ -1387,7 +1368,6 @@ export default function BoardGroupDetailPage() {
                 type="button"
                 onClick={closeTaskDetail}
                 className="rounded-lg border border-[color:var(--border)] p-2 text-quiet transition hover:bg-[color:var(--surface-muted)]"
-                aria-label="Close task detail"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1401,7 +1381,7 @@ export default function BoardGroupDetailPage() {
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wider text-quiet">Task ID</span>
                 <span
-                  className="cursor-pointer select-all rounded bg-[color:var(--surface-strong)] px-2 py-0.5 font-mono text-xs text-quiet"
+                  className="cursor-pointer select-all rounded bg-[color:var(--surface-strong)] px-2 py-0.5 font-mono text-xs text-quiet hover:bg-[color:var(--surface-strong)]"
                   title="Click to select"
                 >
                   {selectedGroupTask.id}
@@ -1409,86 +1389,107 @@ export default function BoardGroupDetailPage() {
               </div>
             )}
 
-            {/* Status + Priority */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-quiet">Status</p>
-                <select
-                  value={editTaskStatus}
-                  onChange={(e) => setEditTaskStatus(e.target.value as TaskStatus)}
-                  disabled={!canManageHeartbeat}
-                  className="h-9 w-full rounded-md border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-3 text-sm text-strong focus:outline-none disabled:opacity-60"
-                >
-                  {STATUS_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-quiet">Priority</p>
-                <select
-                  value={editTaskPriority}
-                  onChange={(e) => setEditTaskPriority(e.target.value)}
-                  disabled={!canManageHeartbeat}
-                  className="h-9 w-full rounded-md border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-3 text-sm text-strong focus:outline-none disabled:opacity-60"
-                >
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  <option value="critical">Critical</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Description */}
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wider text-quiet">Description</p>
-              {canManageHeartbeat ? (
-                <textarea
-                  value={editTaskDescription}
-                  onChange={(e) => setEditTaskDescription(e.target.value)}
-                  rows={5}
-                  placeholder="No description…"
-                  className="w-full rounded-md border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-3 py-2 text-sm text-strong placeholder:text-quiet focus:border-[color:var(--border-strong)] focus:outline-none resize-none"
-                />
-              ) : selectedGroupTask?.description ? (
-                <div className="prose prose-sm max-w-none dark:prose-invert text-[color:var(--text)]">
-                  <CollapsibleMarkdown content={selectedGroupTask.description} variant="description" />
+            {/* Edit form (title, status, priority, description) — shown when editing */}
+            {isEditingTaskTitle && canManageHeartbeat ? (
+              <div className="space-y-4 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4">
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-quiet">Title</label>
+                  <input
+                    type="text"
+                    value={editTaskTitle}
+                    onChange={(e) => setEditTaskTitle(e.target.value)}
+                    className="h-9 w-full rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-3 text-sm text-strong focus:outline-none"
+                    // eslint-disable-next-line jsx-a11y/no-autofocus
+                    autoFocus
+                  />
                 </div>
-              ) : (
-                <p className="text-sm text-quiet">No description provided.</p>
-              )}
-            </div>
-
-            {/* Save / Delete actions */}
-            {canManageHeartbeat && (
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => void handleDeleteTask()}
-                  disabled={isDeletingTask}
-                  className="rounded-lg border border-[color:var(--danger-border)] px-3 py-1.5 text-xs font-semibold text-danger transition hover:bg-[color:var(--danger-soft)] disabled:opacity-50"
-                >
-                  {isDeletingTask ? "Deleting…" : "Delete Task"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleSaveTask()}
-                  disabled={isSavingTask || !editTaskTitle.trim()}
-                  className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-                >
-                  {isSavingTask ? "Saving…" : "Save Changes"}
-                </button>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-quiet">Status</label>
+                    <select value={editTaskStatus} onChange={(e) => setEditTaskStatus(e.target.value as TaskStatus)} className="h-9 w-full rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-3 text-sm text-strong focus:outline-none">
+                      {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-quiet">Priority</label>
+                    <select value={editTaskPriority} onChange={(e) => setEditTaskPriority(e.target.value)} className="h-9 w-full rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-3 text-sm text-strong focus:outline-none">
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="critical">Critical</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-quiet">Description</label>
+                  <textarea value={editTaskDescription} onChange={(e) => setEditTaskDescription(e.target.value)} rows={4} className="w-full rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-sm text-strong focus:outline-none resize-none" />
+                </div>
+                {taskDetailError && <p className="text-xs text-danger">{taskDetailError}</p>}
+                <div className="flex items-center justify-between pt-1">
+                  <button type="button" onClick={() => void handleDeleteTask()} disabled={isDeletingTask} className="rounded-lg border border-[color:var(--danger-border)] px-3 py-1.5 text-xs font-semibold text-danger transition hover:bg-[color:var(--danger-soft)] disabled:opacity-50">
+                    {isDeletingTask ? "Deleting…" : "Delete Task"}
+                  </button>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setIsEditingTaskTitle(false)} className="rounded-lg border border-[color:var(--border)] px-3 py-1.5 text-xs font-semibold text-muted transition hover:bg-[color:var(--surface-muted)]">Cancel</button>
+                    <button type="button" onClick={() => void handleSaveTask()} disabled={isSavingTask || !editTaskTitle.trim()} className="rounded-lg bg-[color:var(--accent)] px-4 py-1.5 text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-50">
+                      {isSavingTask ? "Saving…" : "Save Changes"}
+                    </button>
+                  </div>
+                </div>
               </div>
+            ) : (
+              <>
+                {/* Description (read mode) */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-quiet">Description</p>
+                  {selectedGroupTask?.description ? (
+                    <div className="prose prose-sm max-w-none dark:prose-invert text-[color:var(--text)]">
+                      <CollapsibleMarkdown content={selectedGroupTask.description} variant="description" />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-quiet">No description provided.</p>
+                  )}
+                </div>
+
+                {/* Created by */}
+                {selectedGroupTask?.creator_name && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-quiet">Created by</p>
+                    <p className="text-sm text-muted">{selectedGroupTask.creator_name}</p>
+                  </div>
+                )}
+              </>
             )}
 
-            {taskDetailError && (
-              <p className="text-xs text-danger">{taskDetailError}</p>
-            )}
-
-            {/* Comments */}
+            {/* Comments section */}
             <div className="space-y-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-quiet">Comments</p>
+              {/* Composer first (above comments, like board page) */}
+              <div className="space-y-2 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-3">
+                <BoardChatComposer
+                  placeholder="Write a message for the assigned agent. Tag @lead or @name."
+                  isSending={isPostingComment}
+                  disabled={!isSignedIn || !selectedGroupTask}
+                  mentionSuggestions={groupMentionSuggestions}
+                  onSend={async (content) => {
+                    if (!groupId || !selectedGroupTask) return false;
+                    setIsPostingComment(true);
+                    setCommentError(null);
+                    try {
+                      await createGroupTaskComment(groupId, selectedGroupTask.id, content);
+                      await fetchTaskComments(selectedGroupTask.id);
+                      return true;
+                    } catch (err) {
+                      setCommentError(err instanceof Error ? err.message : "Failed to post comment.");
+                      return false;
+                    } finally {
+                      setIsPostingComment(false);
+                    }
+                  }}
+                />
+                {commentError && <p className="text-xs text-danger">{commentError}</p>}
+              </div>
+              {/* Comment list below */}
               {isCommentsLoading ? (
                 <p className="text-sm text-quiet">Loading comments…</p>
               ) : taskComments.length === 0 ? (
@@ -1496,19 +1497,12 @@ export default function BoardGroupDetailPage() {
               ) : (
                 <div className="space-y-3">
                   {taskComments.map((comment) => (
-                    <div
-                      key={comment.id}
-                      className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-3"
-                    >
-                      <div className="flex items-center justify-between gap-2 mb-1.5">
-                        <span className="text-xs font-semibold text-strong">
-                          {comment.author_name ?? comment.agent_name ?? (comment.agent_id ? "Agent" : "User")}
-                        </span>
-                        <span className="text-[10px] text-quiet">
-                          {new Date(comment.created_at).toLocaleString()}
-                        </span>
+                    <div key={comment.id} className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] p-3">
+                      <div className="flex items-center justify-between text-xs text-quiet">
+                        <span>{comment.author_name ?? comment.agent_name ?? (comment.agent_id ? "Agent" : "User")}</span>
+                        <span>{new Date(comment.created_at).toLocaleString()}</span>
                       </div>
-                      <div className="prose prose-sm max-w-none dark:prose-invert text-[color:var(--text)]">
+                      <div className="mt-2 select-text cursor-text text-sm leading-relaxed text-strong break-words">
                         <Markdown content={comment.message ?? ""} variant="comment" />
                       </div>
                     </div>
@@ -1517,34 +1511,6 @@ export default function BoardGroupDetailPage() {
                 </div>
               )}
             </div>
-          </div>
-
-          {/* Footer: comment composer with @mention support */}
-          <div className="shrink-0 border-t border-[color:var(--border)] px-6 py-4">
-            <BoardChatComposer
-              placeholder="Add a comment… Tag the agent with @lead"
-              isSending={isPostingComment}
-              disabled={!isSignedIn || !selectedGroupTask}
-              mentionSuggestions={groupMentionSuggestions}
-              onSend={async (content) => {
-                if (!groupId || !selectedGroupTask) return false;
-                setIsPostingComment(true);
-                setCommentError(null);
-                try {
-                  await createGroupTaskComment(groupId, selectedGroupTask.id, content);
-                  await fetchTaskComments(selectedGroupTask.id);
-                  return true;
-                } catch (err) {
-                  setCommentError(err instanceof Error ? err.message : "Failed to post comment.");
-                  return false;
-                } finally {
-                  setIsPostingComment(false);
-                }
-              }}
-            />
-            {commentError && (
-              <p className="mt-1 text-xs text-danger">{commentError}</p>
-            )}
           </div>
         </div>
       </aside>

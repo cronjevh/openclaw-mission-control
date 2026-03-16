@@ -716,6 +716,52 @@ async def _wake_assigned_agent(session: AsyncSession, *, task: Task) -> None:
         pass  # best-effort, don't fail the task operation
 
 
+async def _notify_group_agent_on_status_change(
+    session: AsyncSession,
+    *,
+    group_id: UUID,
+    task: Task,
+    old_status: str,
+    actor: "ActorContext",
+) -> None:
+    """Wake the group agent when a task's status changes so it can coordinate next steps."""
+    group = await BoardGroup.objects.by_id(group_id).first(session)
+    if group is None or group.group_agent_id is None:
+        return
+    group_agent = await Agent.objects.by_id(group.group_agent_id).first(session)
+    if group_agent is None or not group_agent.openclaw_session_id or not group_agent.gateway_id:
+        return
+    # Don't notify if the group agent itself made the change
+    if actor.actor_type == "agent" and actor.agent and actor.agent.id == group_agent.id:
+        return
+    gateway = await Gateway.objects.by_id(group_agent.gateway_id).first(session)
+    if gateway is None or not gateway.url or not gateway.token:
+        return
+    # Get the actor's name
+    actor_name = "User"
+    if actor.actor_type == "agent" and actor.agent:
+        actor_name = actor.agent.name
+    elif actor.user:
+        actor_name = actor.user.name or "User"
+    base_url = settings.base_url or "http://localhost:8000"
+    msg = (
+        f"TASK STATUS CHANGED\n"
+        f"Task: {task.title}\n"
+        f"Task ID: {task.id}\n"
+        f"Changed by: {actor_name}\n"
+        f"Status: {old_status} → {task.status}\n\n"
+        f"Check if there are follow-up actions needed.\n"
+        f"List all group tasks: GET {base_url}/api/v1/board-groups/{group_id}/tasks\n"
+        f"Read task comments: GET {base_url}/api/v1/board-groups/{group_id}/tasks/{task.id}/comments\n\n"
+        f"If all subtasks are done, proceed with the parent task or report completion."
+    ).strip()
+    try:
+        config = GatewayConfig(url=gateway.url, token=gateway.token)
+        await _gw_send_message(msg, session_key=group_agent.openclaw_session_id, config=config)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def _build_agent_name_map(session: AsyncSession, tasks: list[Task]) -> dict[UUID, str]:
     """Return {agent_id: agent_name} for all assigned agents in the task list."""
     ids = [t.assigned_agent_id for t in tasks if t.assigned_agent_id]
@@ -837,6 +883,7 @@ async def update_group_task(
     await _require_group_access_for_actor(session, group_id=group_id, actor=actor, write=True)
     task = await _get_group_task_or_404(session, task_id=task_id, group_id=group_id)
     old_assignee = task.assigned_agent_id
+    old_status = task.status
     updates = payload.model_dump(
         exclude={"depends_on_task_ids", "tag_ids", "custom_field_values"},
         exclude_unset=True,
@@ -850,6 +897,11 @@ async def update_group_task(
     # Wake newly assigned agent
     if task.assigned_agent_id and task.assigned_agent_id != old_assignee:
         await _wake_assigned_agent(session, task=task)
+    # Notify group agent when task status changes (especially done/review)
+    if task.status != old_status:
+        await _notify_group_agent_on_status_change(
+            session, group_id=group_id, task=task, old_status=old_status, actor=actor,
+        )
     return task
 
 

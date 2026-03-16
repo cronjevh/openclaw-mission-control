@@ -815,13 +815,7 @@ export default function BoardGroupDetailPage() {
                   <h1 className="text-2xl font-semibold tracking-tight text-strong">
                     {group?.name ?? "Group"}
                   </h1>
-                  {group?.description ? (
-                    <p className="mt-2 max-w-2xl text-sm text-muted">
-                      {group.description}
-                    </p>
-                  ) : (
-                    <p className="mt-2 text-sm text-quiet">No description</p>
-                  )}
+
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {group?.id ? (

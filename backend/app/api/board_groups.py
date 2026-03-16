@@ -68,6 +68,32 @@ def _slugify(value: str) -> str:
     return slug or uuid4().hex
 
 
+async def _require_group_access_for_actor(
+    session: AsyncSession,
+    *,
+    group_id: UUID,
+    actor: "ActorContext",
+    write: bool,
+) -> "BoardGroup":
+    """Accept both user (OrganizationMember) and agent (group agent) callers."""
+    if actor.actor_type == "agent" and actor.agent is not None:
+        # Agents are trusted if they belong to this group.
+        group = await BoardGroup.objects.by_id(group_id).first(session)
+        if group is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        if actor.agent.group_id != group_id and actor.agent.board_id is None:
+            # group agent for a different group
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+        return group
+    if actor.user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    from app.services.organizations import get_active_membership
+    member = await get_active_membership(session, actor.user)
+    if member is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+    return await _require_group_access(session, group_id=group_id, member=member, write=write)
+
+
 async def _require_group_access(
     session: AsyncSession,
     *,
@@ -642,7 +668,15 @@ async def _get_group_task_or_404(
     return task
 
 
-@router.get("/{group_id}/tasks", response_model=DefaultLimitOffsetPage[TaskRead])
+@router.get(
+    "/{group_id}/tasks",
+    response_model=DefaultLimitOffsetPage[TaskRead],
+    tags=["agent-lead"],
+    openapi_extra={
+        "x-llm-intent": "List all tasks owned by this board group (inbox, in_progress, review, done)",
+        "x-when-to-use": ["group lead heartbeat loop", "picking up unassigned inbox tasks"],
+    },
+)
 async def list_group_tasks(
     group_id: UUID,
     session: AsyncSession = SESSION_DEP,
@@ -659,20 +693,20 @@ async def list_group_tasks(
     return await paginate(session, statement)
 
 
-@router.post("/{group_id}/tasks", response_model=TaskRead)
+@router.post("/{group_id}/tasks", response_model=TaskRead, tags=["agent-lead"])
 async def create_group_task(
     group_id: UUID,
     payload: TaskCreate,
     session: AsyncSession = SESSION_DEP,
-    ctx: OrganizationContext = ORG_ADMIN_DEP,
+    actor: ActorContext = ACTOR_DEP,
 ) -> Task:
     """Create a task directly owned by a board group."""
-    await _require_group_access(session, group_id=group_id, member=ctx.member, write=True)
+    await _require_group_access_for_actor(session, group_id=group_id, actor=actor, write=True)
     data = payload.model_dump(exclude={"depends_on_task_ids", "tag_ids", "custom_field_values"})
     task = Task.model_validate(data)
     task.board_group_id = group_id
     task.board_id = None
-    task.created_by_user_id = ctx.member.user_id
+    task.created_by_user_id = actor.user.id if actor.user else None
     session.add(task)
     await session.commit()
     await session.refresh(task)
@@ -691,16 +725,24 @@ async def get_group_task(
     return await _get_group_task_or_404(session, task_id=task_id, group_id=group_id)
 
 
-@router.patch("/{group_id}/tasks/{task_id}", response_model=TaskRead)
+@router.patch(
+    "/{group_id}/tasks/{task_id}",
+    response_model=TaskRead,
+    tags=["agent-lead"],
+    openapi_extra={
+        "x-llm-intent": "Update status, title, description, or priority of a group task",
+        "x-when-to-use": ["moving task to in_progress", "marking task done", "updating task details"],
+    },
+)
 async def update_group_task(
     group_id: UUID,
     task_id: UUID,
     payload: TaskUpdate,
     session: AsyncSession = SESSION_DEP,
-    ctx: OrganizationContext = ORG_ADMIN_DEP,
+    actor: ActorContext = ACTOR_DEP,
 ) -> Task:
     """Update a group-level task."""
-    await _require_group_access(session, group_id=group_id, member=ctx.member, write=True)
+    await _require_group_access_for_actor(session, group_id=group_id, actor=actor, write=True)
     task = await _get_group_task_or_404(session, task_id=task_id, group_id=group_id)
     updates = payload.model_dump(
         exclude={"depends_on_task_ids", "tag_ids", "custom_field_values"},
@@ -715,15 +757,15 @@ async def update_group_task(
     return task
 
 
-@router.delete("/{group_id}/tasks/{task_id}", response_model=OkResponse)
+@router.delete("/{group_id}/tasks/{task_id}", response_model=OkResponse, tags=["agent-lead"])
 async def delete_group_task(
     group_id: UUID,
     task_id: UUID,
     session: AsyncSession = SESSION_DEP,
-    ctx: OrganizationContext = ORG_ADMIN_DEP,
+    actor: ActorContext = ACTOR_DEP,
 ) -> OkResponse:
     """Delete a group-level task."""
-    await _require_group_access(session, group_id=group_id, member=ctx.member, write=True)
+    await _require_group_access_for_actor(session, group_id=group_id, actor=actor, write=True)
     task = await _get_group_task_or_404(session, task_id=task_id, group_id=group_id)
     await session.delete(task)
     await session.commit()

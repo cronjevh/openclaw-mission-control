@@ -1053,6 +1053,7 @@ class GroupAgentLifecycleManager(BaseAgentLifecycleManager):
         return {
             "agent_name": agent.name,
             "agent_id": str(agent.id),
+            "group_id": str(agent.group_id) if agent.group_id else "",
             "board_id": "",
             "board_name": "",
             "board_type": "group_lead",
@@ -1067,6 +1068,7 @@ class GroupAgentLifecycleManager(BaseAgentLifecycleManager):
             "board_rule_only_lead_can_change_status": "false",
             "board_rule_max_agents": "0",
             "is_board_lead": "true",
+            "is_group_lead": "true",
             "is_main_agent": "false",
             "session_key": session_key,
             "workspace_path": workspace_path,
@@ -1081,6 +1083,7 @@ class GroupAgentLifecycleManager(BaseAgentLifecycleManager):
     def _template_overrides(self, agent: Agent) -> dict[str, str] | None:
         overrides = dict(BOARD_SHARED_TEMPLATE_MAP)
         overrides.update(LEAD_TEMPLATE_MAP)
+        overrides["HEARTBEAT.md"] = "GROUP_LEAD_HEARTBEAT.md.j2"
         return overrides
 
     def _file_names(self, agent: Agent) -> set[str]:

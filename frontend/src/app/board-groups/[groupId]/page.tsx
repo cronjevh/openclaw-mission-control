@@ -863,29 +863,17 @@ export default function BoardGroupDetailPage() {
                   </Button>
                 </div>
               </div>
-            </div>
-          </div>
-
-          {/* Content area */}
-          <div className="flex flex-col flex-1 min-h-0 overflow-hidden p-6 gap-4">
-            {/* Group Agent card — always visible */}
-            <div className="shrink-0 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] p-5 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-strong">🤖 Group Agent</p>
-                  <p className="mt-0.5 text-xs text-muted">
-                    A shared lead that has context across all boards in this group.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {isAgentLoading ? (
-                    <span className="inline-flex items-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-2.5 py-1 text-xs text-muted">
-                      Loading…
-                    </span>
-                  ) : groupAgent ? (
+              {/* Agent row — compact strip below the buttons */}
+              <div className="mt-3 flex items-center gap-3">
+                {isAgentLoading ? (
+                  <span className="text-xs text-muted">Loading agent…</span>
+                ) : groupAgent ? (
+                  <>
+                    <span className="text-xs text-quiet">Agent:</span>
+                    <span className="text-xs font-semibold text-strong">{groupAgent.name}</span>
                     <span
                       className={cn(
-                        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold",
+                        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold",
                         groupAgent.status === "online"
                           ? "border-emerald-200 bg-[color:var(--success-soft)] text-success"
                           : groupAgent.status === "working"
@@ -894,49 +882,46 @@ export default function BoardGroupDetailPage() {
                       )}
                     >
                       {groupAgent.status === "working" && (
-                        <span className="relative flex h-2 w-2">
+                        <span className="relative flex h-1.5 w-1.5">
                           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
-                          <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500" />
+                          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-blue-500" />
                         </span>
                       )}
                       {groupAgent.status}
                     </span>
-                  ) : (
-                    <span className="inline-flex items-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-muted)] px-2.5 py-1 text-xs text-muted">
-                      Not provisioned
-                    </span>
-                  )}
-                  {isAdmin && !groupAgent && !isAgentLoading && (
-                    <Button
-                      size="sm"
-                      onClick={() => void provisionGroupAgent()}
-                      disabled={isProvisioningAgent}
-                    >
-                      {isProvisioningAgent ? "Provisioning…" : "Provision"}
-                    </Button>
-                  )}
-                  {isAdmin && groupAgent && (
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => void deprovisionGroupAgent()}
-                      disabled={isDeprovisioningAgent}
-                    >
-                      {isDeprovisioningAgent ? "Removing…" : "Deprovision"}
-                    </Button>
-                  )}
-                </div>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => void deprovisionGroupAgent()}
+                        disabled={isDeprovisioningAgent}
+                        className="text-[11px] text-danger hover:underline disabled:opacity-50"
+                      >
+                        {isDeprovisioningAgent ? "Removing…" : "Deprovision"}
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span className="text-xs text-quiet">No group agent</span>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => void provisionGroupAgent()}
+                        disabled={isProvisioningAgent}
+                        className="text-[11px] text-[color:var(--accent)] hover:underline disabled:opacity-50"
+                      >
+                        {isProvisioningAgent ? "Provisioning…" : "Provision agent"}
+                      </button>
+                    )}
+                  </>
+                )}
+                {agentError && <span className="text-[11px] text-danger">{agentError}</span>}
               </div>
-              {groupAgent?.name && (
-                <p className="mt-2 text-xs text-muted">
-                  Agent: <span className="font-medium text-strong">{groupAgent.name}</span>
-                </p>
-              )}
-              {agentError && (
-                <p className="mt-2 text-xs text-danger">{agentError}</p>
-              )}
             </div>
+          </div>
 
+          {/* Content area */}
+          <div className="flex flex-col flex-1 min-h-0 overflow-hidden p-6 gap-4">
             {/* Main toggleable content */}
             {!showInnerBoards ? (
               /* ── Kanban view (default) ── */

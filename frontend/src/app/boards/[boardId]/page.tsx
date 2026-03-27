@@ -3884,14 +3884,12 @@ export default function BoardDetailPage() {
               )}
             </div>
             <div className="grid grid-cols-2 gap-4">
-              {selectedTask?.creator_name && (
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
-                    Created by
-                  </p>
-                  <p className="text-sm text-muted">{selectedTask.creator_name}</p>
-                </div>
-              )}
+              <div className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
+                  Created by
+                </p>
+                <p className="text-sm text-muted">{selectedTask?.creator_name ?? "—"}</p>
+              </div>
               <div className="space-y-1">
                 <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
                   Assigned

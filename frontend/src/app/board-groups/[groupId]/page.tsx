@@ -1527,12 +1527,10 @@ export default function BoardGroupDetailPage() {
 
                 {/* Created by + Assigned */}
                 <div className="grid grid-cols-2 gap-4">
-                  {selectedGroupTask?.creator_name && (
-                    <div className="space-y-1">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-quiet">Created by</p>
-                      <p className="text-sm text-muted">{selectedGroupTask.creator_name}</p>
-                    </div>
-                  )}
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-quiet">Created by</p>
+                    <p className="text-sm text-muted">{selectedGroupTask?.creator_name ?? "—"}</p>
+                  </div>
                   <div className="space-y-1">
                     <p className="text-xs font-semibold uppercase tracking-wider text-quiet">Assigned</p>
                     <p className="text-sm text-muted">{selectedGroupTask?.assignee ?? "Unassigned"}</p>

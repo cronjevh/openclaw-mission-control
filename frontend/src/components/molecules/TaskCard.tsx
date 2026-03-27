@@ -150,9 +150,17 @@ export function TaskCard({
         </div>
       </div>
       <div className="mt-3 flex items-center justify-between text-xs text-muted">
-        <div className="flex items-center gap-2">
-          <UserCircle className="h-4 w-4 text-quiet" />
-          <span>{assignee ?? "Unassigned"}</span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <UserCircle className="h-3.5 w-3.5 text-quiet shrink-0" />
+            <span className="text-[11px] truncate max-w-[90px]">{assignee ?? "Unassigned"}</span>
+          </div>
+          {createdBy ? (
+            <div className="flex items-center gap-1 text-[11px] text-quiet">
+              <span className="text-quiet/50">·</span>
+              <span className="truncate max-w-[90px]">by {createdBy}</span>
+            </div>
+          ) : null}
         </div>
         {due ? (
           <div
@@ -171,9 +179,6 @@ export function TaskCard({
           </div>
         ) : null}
       </div>
-      {createdBy ? (
-        <p className="mt-1.5 text-[10px] text-quiet">by {createdBy}</p>
-      ) : null}
     </div>
   );
 }

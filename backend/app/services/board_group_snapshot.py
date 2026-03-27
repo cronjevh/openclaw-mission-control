@@ -123,6 +123,7 @@ def _task_summaries_by_board(
     boards_by_id: dict[UUID, Board],
     tasks: list[Task],
     agent_name_by_id: dict[UUID, str],
+    creator_name_by_user_id: dict[UUID, str],
     tag_state_by_task_id: dict[UUID, TagState],
     per_board_task_limit: int,
 ) -> dict[UUID, list[BoardGroupTaskSummary]]:
@@ -152,6 +153,11 @@ def _task_summaries_by_board(
                 assignee=(
                     agent_name_by_id.get(task.assigned_agent_id)
                     if task.assigned_agent_id is not None
+                    else None
+                ),
+                creator_name=(
+                    creator_name_by_user_id.get(task.created_by_user_id)
+                    if task.created_by_user_id is not None
                     else None
                 ),
                 due_at=task.due_at,
@@ -195,10 +201,21 @@ async def build_group_snapshot(
         session,
         task_ids=[task.id for task in tasks],
     )
+    from app.models.users import User as UserModel
+    from sqlmodel import col as sqlcol
+    creator_user_ids = list({t.created_by_user_id for t in tasks if t.created_by_user_id})
+    creator_name_by_user_id: dict[UUID, str] = {}
+    if creator_user_ids:
+        user_rows = list(await session.exec(
+            select(UserModel.id, UserModel.name).where(sqlcol(UserModel.id).in_(creator_user_ids))
+        ))
+        for user_id, name in user_rows:
+            creator_name_by_user_id[user_id] = (name or "").strip() or "User"
     tasks_by_board = _task_summaries_by_board(
         boards_by_id=boards_by_id,
         tasks=tasks,
         agent_name_by_id=agent_name_by_id,
+        creator_name_by_user_id=creator_name_by_user_id,
         tag_state_by_task_id=tag_state_by_task_id,
         per_board_task_limit=per_board_task_limit,
     )

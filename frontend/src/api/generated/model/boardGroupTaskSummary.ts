@@ -18,6 +18,7 @@ export interface BoardGroupTaskSummary {
   priority: string;
   assigned_agent_id?: string | null;
   assignee?: string | null;
+  creator_name?: string | null;
   due_at?: string | null;
   in_progress_at?: string | null;
   tags?: TagRef[];

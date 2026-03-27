@@ -57,6 +57,7 @@ class BoardGroupTaskSummary(SQLModel):
     priority: str
     assigned_agent_id: UUID | None = None
     assignee: str | None = None
+    creator_name: str | None = None
     due_at: datetime | None = None
     in_progress_at: datetime | None = None
     tags: list[TagRef] = Field(default_factory=list)

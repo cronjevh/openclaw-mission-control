@@ -1284,11 +1284,21 @@ export default function BoardGroupDetailPage() {
                                   <span className="min-w-0 flex-1 truncate text-xs text-strong">
                                     {task.title}
                                   </span>
-                                  {task.assignee && (
-                                    <span className="shrink-0 text-[10px] text-quiet truncate max-w-[80px]">
-                                      {task.assignee}
-                                    </span>
-                                  )}
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    {task.assignee && (
+                                      <span className="text-[10px] text-quiet truncate max-w-[70px]">
+                                        {task.assignee}
+                                      </span>
+                                    )}
+                                    {task.creator_name && (
+                                      <>
+                                        <span className="text-[10px] text-quiet/40">·</span>
+                                        <span className="text-[10px] text-quiet/70 truncate max-w-[70px]">
+                                          by {task.creator_name}
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
                                 </div>
                               ))
                             )}

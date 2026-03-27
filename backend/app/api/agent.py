@@ -1085,17 +1085,20 @@ async def create_task_comment(
 )
 async def list_board_memory(
     is_chat: bool | None = IS_CHAT_QUERY,
+    task_id: UUID | None = Query(default=None),
     board: Board = BOARD_DEP,
     session: AsyncSession = SESSION_DEP,
     agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
 ) -> LimitOffsetPage[BoardMemoryRead]:
-    """List board memory with optional chat filtering.
+    """List board memory with optional chat or task filtering.
 
     Use `is_chat=false` for durable context and `is_chat=true` for board chat.
+    Pass `task_id` to retrieve only memory entries linked to a specific task.
     """
     _guard_board_access(agent_ctx, board)
     return await board_memory_api.list_board_memory(
         is_chat=is_chat,
+        task_id=task_id,
         board=board,
         session=session,
         _actor=_actor(agent_ctx),
@@ -1111,6 +1114,7 @@ async def list_board_memory(
         when_to_use=[
             "Persist board-level context, decision, or handoff notes.",
             "Archive chat-like coordination context for cross-agent continuity.",
+            "Save a full report or artifact. Pass `task_id` to link it to the originating task so it surfaces in the task detail view.",
         ],
         routing_examples=[
             {
@@ -1133,7 +1137,9 @@ async def create_board_memory(
 ) -> BoardMemory:
     """Create a board memory entry.
 
-    Use tags to indicate purpose (e.g. `chat`, `decision`, `plan`, `handoff`).
+    Use tags to indicate purpose (e.g. `chat`, `decision`, `plan`, `handoff`, `report`).
+    Pass `task_id` to associate the entry with a specific task — it will then surface
+    in the task detail view alongside approvals and comments.
     """
     _guard_board_access(agent_ctx, board)
     return await board_memory_api.create_board_memory(

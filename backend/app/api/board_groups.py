@@ -22,6 +22,8 @@ from app.models.board_group_memory import BoardGroupMemory
 from app.models.board_groups import BoardGroup
 from app.models.boards import Board
 from app.models.gateways import Gateway
+from app.models.organization_board_access import OrganizationBoardAccess
+from app.models.organization_invite_board_access import OrganizationInviteBoardAccess
 from app.models.tasks import Task
 from app.schemas.board_group_heartbeat import (
     BoardGroupHeartbeatApply,
@@ -121,6 +123,25 @@ async def _require_group_access(
     if not write and member_all_boards_read(member):
         return group
 
+    # Check direct board_group_id access row first
+    from sqlalchemy import or_ as _or
+    from app.models.organization_board_access import OrganizationBoardAccess
+    from sqlmodel import col as _col
+    direct_access = (
+        await session.exec(
+            select(OrganizationBoardAccess).where(
+                _col(OrganizationBoardAccess.organization_member_id) == member.id,
+                _col(OrganizationBoardAccess.board_group_id) == group_id,
+                _or(
+                    _col(OrganizationBoardAccess.can_read).is_(True),
+                    _col(OrganizationBoardAccess.can_write).is_(True),
+                ) if not write else _col(OrganizationBoardAccess.can_write).is_(True),
+            )
+        )
+    ).first()
+    if direct_access is not None:
+        return group
+
     board_ids = [
         board.id for board in await Board.objects.filter_by(board_group_id=group_id).all(session)
     ]
@@ -146,12 +167,31 @@ async def list_board_groups(
             col(BoardGroup.organization_id) == ctx.organization.id,
         )
     else:
+        from sqlalchemy import or_ as _or
+        from app.models.organization_board_access import OrganizationBoardAccess
+
+        # Groups accessible via a direct board_group_id access row
+        direct_group_access = select(OrganizationBoardAccess.board_group_id).where(
+            col(OrganizationBoardAccess.organization_member_id) == ctx.member.id,
+            col(OrganizationBoardAccess.board_group_id).isnot(None),
+            _or(
+                col(OrganizationBoardAccess.can_read).is_(True),
+                col(OrganizationBoardAccess.can_write).is_(True),
+            ),
+        )
+
+        # Groups accessible because the member has access to at least one board inside
         accessible_boards = select(Board.board_group_id).where(
             board_access_filter(ctx.member, write=False),
+            col(Board.board_group_id).isnot(None),
         )
+
         statement = select(BoardGroup).where(
             col(BoardGroup.organization_id) == ctx.organization.id,
-            col(BoardGroup.id).in_(accessible_boards),
+            _or(
+                col(BoardGroup.id).in_(direct_group_access),
+                col(BoardGroup.id).in_(accessible_boards),
+            ),
         )
     statement = statement.order_by(func.lower(col(BoardGroup.name)).asc())
     return await paginate(session, statement)
@@ -722,7 +762,8 @@ async def delete_board_group(
         write=True,
     )
 
-    # Boards reference groups, so clear the FK first to keep deletes simple.
+    # Clear all FK references before deleting the group.
+    # 1. Boards
     await crud.update_where(
         session,
         Board,
@@ -730,12 +771,44 @@ async def delete_board_group(
         board_group_id=None,
         commit=False,
     )
+    # 2. Agents (group-level agents)
+    await crud.update_where(
+        session,
+        Agent,
+        col(Agent.group_id) == group_id,
+        group_id=None,
+        commit=False,
+    )
+    # 3. Tasks (group-level tasks)
+    await crud.update_where(
+        session,
+        Task,
+        col(Task.board_group_id) == group_id,
+        board_group_id=None,
+        commit=False,
+    )
+    # 4. Organization board access entries
+    await crud.delete_where(
+        session,
+        OrganizationBoardAccess,
+        col(OrganizationBoardAccess.board_group_id) == group_id,
+        commit=False,
+    )
+    # 5. Organization invite board access entries
+    await crud.delete_where(
+        session,
+        OrganizationInviteBoardAccess,
+        col(OrganizationInviteBoardAccess.board_group_id) == group_id,
+        commit=False,
+    )
+    # 6. Board group memory
     await crud.delete_where(
         session,
         BoardGroupMemory,
         col(BoardGroupMemory.board_group_id) == group_id,
         commit=False,
     )
+    # 7. Finally delete the group itself
     await crud.delete_where(
         session,
         BoardGroup,

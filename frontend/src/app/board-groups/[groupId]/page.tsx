@@ -8,6 +8,9 @@ import { useParams, useRouter, usePathname, useSearchParams } from "next/navigat
 
 import { SignedIn, SignedOut, useAuth } from "@/auth/clerk";
 import {
+  Check,
+  Copy,
+  Download,
   LayoutGrid,
   MessageSquare,
   NotebookText,
@@ -17,6 +20,9 @@ import {
   Settings,
   X,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
 
 import { ApiError, customFetch } from "@/api/mutator";
 import {
@@ -756,6 +762,15 @@ export default function BoardGroupDetailPage() {
   const [commentError, setCommentError] = useState<string | null>(null);
   const commentsEndRef = useRef<HTMLDivElement | null>(null);
 
+  // Workspace deliverables state
+  const [workspaceFiles, setWorkspaceFiles] = useState<{ name: string; path: string; is_dir: boolean; size: number | null; modified_at: string | null }[]>([]);
+  const [isWorkspaceFilesOpen, setIsWorkspaceFilesOpen] = useState(true);
+  const [workspaceFileContent, setWorkspaceFileContent] = useState<string | null>(null);
+  const [workspaceFileViewPath, setWorkspaceFileViewPath] = useState<string | null>(null);
+  const [isWorkspaceFileLoading, setIsWorkspaceFileLoading] = useState(false);
+  const [fileViewRichText, setFileViewRichText] = useState(true);
+  const [fileViewCopied, setFileViewCopied] = useState(false);
+
   const fetchTaskComments = useCallback(async (taskId: string) => {
     if (!groupId) return;
     setIsCommentsLoading(true);
@@ -767,6 +782,60 @@ export default function BoardGroupDetailPage() {
       // Silently fail; comments are supplementary
     } finally {
       setIsCommentsLoading(false);
+    }
+  }, [groupId]);
+
+  const fetchGroupWorkspaceFiles = useCallback(async (taskId?: string) => {
+    if (!groupId || !isSignedIn) return;
+    try {
+      const qs = taskId ? `?task_id=${encodeURIComponent(taskId)}` : "";
+      const res = await customFetch<{ data: { name: string; path: string; is_dir: boolean; size: number | null; modified_at: string | null }[] }>(
+        `/api/v1/board-groups/${groupId}/workspace/files${qs}`,
+        { method: "GET" },
+      );
+      const typed = res as { data: { name: string; path: string; is_dir: boolean; size: number | null; modified_at: string | null }[] };
+      setWorkspaceFiles(typed.data ?? []);
+    } catch {
+      setWorkspaceFiles([]);
+    }
+  }, [groupId, isSignedIn]);
+
+  const loadGroupWorkspaceFileContent = useCallback(async (filePath: string) => {
+    if (!groupId || !isSignedIn) return;
+    setIsWorkspaceFileLoading(true);
+    setWorkspaceFileViewPath(filePath);
+    try {
+      const res = await customFetch<{ data: { path: string; content: string; size: number } }>(
+        `/api/v1/board-groups/${groupId}/workspace/file?path=${encodeURIComponent(filePath)}`,
+        { method: "GET" },
+      );
+      setWorkspaceFileContent((res as { data: { content: string } }).data?.content ?? "");
+    } catch {
+      setWorkspaceFileContent("Failed to load file content.");
+    } finally {
+      setIsWorkspaceFileLoading(false);
+    }
+  }, [groupId, isSignedIn]);
+
+  const downloadGroupWorkspaceFile = useCallback(async (filePath: string) => {
+    if (!groupId) return;
+    try {
+      const res = await customFetch<{ data: string }>(
+        `/api/v1/board-groups/${groupId}/workspace/download?path=${encodeURIComponent(filePath)}`,
+        { method: "GET" },
+      );
+      const content = typeof res === "string" ? res : (res as { data?: string }).data ?? "";
+      const blob = new Blob([content], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filePath.split("/").pop() ?? "file.md";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      // silent fail
     }
   }, [groupId]);
 
@@ -783,8 +852,12 @@ export default function BoardGroupDetailPage() {
     setTaskComments([]);
     setNewComment("");
     setCommentError(null);
+    setWorkspaceFiles([]);
+    setWorkspaceFileContent(null);
+    setWorkspaceFileViewPath(null);
     setIsTaskDetailOpen(true);
     void fetchTaskComments(full.id);
+    void fetchGroupWorkspaceFiles(); // load all deliverables, no task filter
     // Update URL so the task can be shared
     const p = new URLSearchParams(searchParams.toString());
     p.set("taskId", full.id);
@@ -879,6 +952,7 @@ export default function BoardGroupDetailPage() {
   );
 
   return (
+    <>
     <DashboardShell>
       <SignedOut>
         <SignedOutPanel
@@ -1461,6 +1535,67 @@ export default function BoardGroupDetailPage() {
               </>
             )}
 
+            {/* Deliverables section */}
+            {workspaceFiles.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-quiet">Deliverables</p>
+                  <button
+                    type="button"
+                    onClick={() => setIsWorkspaceFilesOpen((v) => !v)}
+                    className="text-xs text-quiet hover:text-muted"
+                  >
+                    {isWorkspaceFilesOpen ? "Hide" : "Show"}
+                  </button>
+                </div>
+                {isWorkspaceFilesOpen && (
+                  <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-2 space-y-1">
+                    {workspaceFiles
+                      .filter((f) => !f.is_dir)
+                      .sort((a, b) => {
+                        const aT = a.modified_at ? new Date(a.modified_at).getTime() : 0;
+                        const bT = b.modified_at ? new Date(b.modified_at).getTime() : 0;
+                        return bT - aT;
+                      })
+                      .map((file, idx) => (
+                        <div key={file.path} className="flex w-full items-start gap-1 rounded px-2 py-1.5 hover:bg-[color:var(--surface-strong)]">
+                          <button
+                            type="button"
+                            onClick={() => void loadGroupWorkspaceFileContent(file.path)}
+                            className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
+                          >
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              {idx === 0 && (
+                                <span className="shrink-0 rounded bg-[color:var(--success-soft)] px-1 py-px text-[10px] font-medium text-success">latest</span>
+                              )}
+                              <span className="font-mono text-xs truncate text-muted" title={file.path}>{file.path}</span>
+                            </div>
+                            <div className="flex items-center gap-2 pl-0.5">
+                              {file.modified_at && (
+                                <span className="text-[10px] text-quiet">{new Date(file.modified_at).toLocaleDateString()}</span>
+                              )}
+                              {file.size != null && (
+                                <span className="text-[10px] text-quiet">{Math.ceil(file.size / 1024)}KB</span>
+                              )}
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            title="Download"
+                            onClick={() => void downloadGroupWorkspaceFile(file.path)}
+                            className="mt-0.5 shrink-0 rounded p-1 text-quiet hover:bg-[color:var(--surface-strong)] hover:text-muted dark:hover:bg-[color:var(--surface-strong)] dark:hover:text-quiet"
+                          >
+                            <Download size={12} />
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+{/* File content is shown in modal below, not inline */}
+
             {/* Comments section */}
             <div className="space-y-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-quiet">Comments</p>
@@ -1682,5 +1817,75 @@ export default function BoardGroupDetailPage() {
         </div>
       </aside>
     </DashboardShell>
+
+    {/* Workspace file viewer modal */}
+    {workspaceFileViewPath && (
+      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
+        <div className="relative flex h-[88vh] w-[90vw] max-w-4xl flex-col rounded-xl bg-[color:var(--surface)] shadow-2xl">
+          {/* Header */}
+          <div className="flex shrink-0 items-center justify-between border-b border-[color:var(--border)] px-5 py-3">
+            <p className="min-w-0 flex-1 truncate font-mono text-sm font-semibold text-[color:var(--text-muted)]">
+              {workspaceFileViewPath}
+            </p>
+            <div className="ml-3 flex shrink-0 items-center gap-1">
+              {/* Rich / Raw toggle */}
+              <div className="flex items-center rounded-lg border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setFileViewRichText(true)}
+                  className={`rounded-md px-2.5 py-1 transition ${fileViewRichText ? "bg-[color:var(--surface)] text-[color:var(--text)] shadow-sm" : "text-[color:var(--text-quiet)] hover:text-[color:var(--text-muted)]"}`}
+                >
+                  Preview
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFileViewRichText(false)}
+                  className={`rounded-md px-2.5 py-1 transition ${!fileViewRichText ? "bg-[color:var(--surface)] text-[color:var(--text)] shadow-sm" : "text-[color:var(--text-quiet)] hover:text-[color:var(--text-muted)]"}`}
+                >
+                  Raw
+                </button>
+              </div>
+              {/* Copy */}
+              <button
+                type="button"
+                title="Copy raw markdown"
+                onClick={() => {
+                  if (!workspaceFileContent) return;
+                  void navigator.clipboard.writeText(workspaceFileContent).then(() => {
+                    setFileViewCopied(true);
+                    setTimeout(() => setFileViewCopied(false), 2000);
+                  });
+                }}
+                className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs text-[color:var(--text-muted)] hover:bg-[color:var(--surface-strong)]"
+              >
+                {fileViewCopied ? <Check size={13} className="text-[color:var(--success)]" /> : <Copy size={13} />}
+                <span>{fileViewCopied ? "Copied!" : "Copy"}</span>
+              </button>
+              {/* Close */}
+              <button
+                type="button"
+                onClick={() => { setWorkspaceFileViewPath(null); setWorkspaceFileContent(null); setFileViewRichText(true); }}
+                className="rounded-lg px-2 py-1 text-[color:var(--text-quiet)] hover:bg-[color:var(--surface-strong)] hover:text-[color:var(--text)]"
+              >✕</button>
+            </div>
+          </div>
+          {/* Content */}
+          <div className="flex-1 overflow-auto">
+            {isWorkspaceFileLoading ? (
+              <p className="p-5 text-sm text-[color:var(--text-muted)]">Loading…</p>
+            ) : fileViewRichText ? (
+              <div className="prose prose-sm max-w-none p-6 dark:prose-invert text-[color:var(--text)]">
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                  {workspaceFileContent ?? ""}
+                </ReactMarkdown>
+              </div>
+            ) : (
+              <pre className="p-5 font-mono text-xs leading-relaxed text-[color:var(--text)] whitespace-pre-wrap">{workspaceFileContent}</pre>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+  </>
   );
 }

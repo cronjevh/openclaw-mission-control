@@ -24,23 +24,12 @@ logger = logging.getLogger(__name__)
 
 _QUESTIONS: list[dict[str, Any]] = [
     {
-        "key": "goal",
-        "question": "What is the primary goal for this board — what should the lead agent focus on?",
+        "key": "autonomy",
+        "question": "How autonomous should the lead agent be?",
         "options": [
-            {"id": "1", "label": "Analyse and report on user, order, and product data"},
-            {"id": "2", "label": "Monitor and summarise key business metrics (revenue, signups, churn)"},
-            {"id": "3", "label": "Investigate specific data on demand (ad-hoc queries and lookups)"},
-            {"id": "4", "label": "Other (I'll type it)"},
-        ],
-    },
-    {
-        "key": "data_priority",
-        "question": "Which data area should the lead agent prioritise first?",
-        "options": [
-            {"id": "1", "label": "Orders & revenue (sales performance, paid vs free)"},
-            {"id": "2", "label": "Users & signups (growth, country breakdown, personas)"},
-            {"id": "3", "label": "Products & downloads (catalogue performance, reviews)"},
-            {"id": "4", "label": "All equally — rotate through them"},
+            {"id": "1", "label": "Ask first — confirm with me before taking action"},
+            {"id": "2", "label": "Balanced — act independently, flag blockers"},
+            {"id": "3", "label": "Autonomous — run fully on its own, update me on results"},
         ],
     },
     {
@@ -50,16 +39,6 @@ _QUESTIONS: list[dict[str, Any]] = [
             {"id": "1", "label": "Bullet-point summaries — quick, scannable"},
             {"id": "2", "label": "Narrative paragraphs — context and interpretation included"},
             {"id": "3", "label": "Mixed — bullets for data, prose for insights"},
-            {"id": "4", "label": "Raw data tables — I will interpret myself"},
-        ],
-    },
-    {
-        "key": "autonomy",
-        "question": "How autonomous should the lead agent be?",
-        "options": [
-            {"id": "1", "label": "Ask first — confirm with me before taking action"},
-            {"id": "2", "label": "Balanced — act independently, flag blockers"},
-            {"id": "3", "label": "Autonomous — run fully on its own, update me on results"},
         ],
     },
     {
@@ -139,13 +118,11 @@ def _extract_agent_name(answer: str) -> str:
 
 def _build_completion(answers: list[str], board_name: str) -> dict[str, Any]:
     """Construct the BoardOnboardingAgentComplete payload from collected answers."""
-    goal_ans = answers[0] if len(answers) > 0 else ""
-    priority_ans = answers[1] if len(answers) > 1 else ""
-    format_ans = answers[2] if len(answers) > 2 else ""
-    autonomy_ans = answers[3] if len(answers) > 3 else ""
-    cadence_ans = answers[4] if len(answers) > 4 else ""
-    name_ans = answers[5] if len(answers) > 5 else "Rex"
-    extra_ans = answers[6] if len(answers) > 6 else ""
+    autonomy_ans = answers[0] if len(answers) > 0 else ""
+    format_ans = answers[1] if len(answers) > 1 else ""
+    cadence_ans = answers[2] if len(answers) > 2 else ""
+    name_ans = answers[3] if len(answers) > 3 else "Rex"
+    extra_ans = answers[4] if len(answers) > 4 else ""
 
     agent_name = _extract_agent_name(name_ans)
     autonomy = _map(autonomy_ans, _AUTONOMY_MAP, "balanced")
@@ -153,28 +130,15 @@ def _build_completion(answers: list[str], board_name: str) -> dict[str, Any]:
     output_fmt = _map(format_ans, _FORMAT_MAP, "mixed")
     verbosity = "balanced"
 
-    # Build objective from goal + priority answers
-    objective = (
-        f"{board_name}: {goal_ans.rstrip('.')}. "
-        f"Priority focus: {priority_ans.rstrip('.')}."
-    )
-
-    # Success metrics derived from priority
-    if "order" in priority_ans.lower() or "revenue" in priority_ans.lower():
-        metric = "Revenue and order performance tracked weekly"
-        target = "Consistent reporting with trend analysis"
-    elif "user" in priority_ans.lower() or "signup" in priority_ans.lower():
-        metric = "User growth and engagement tracked weekly"
-        target = "Consistent reporting with country and persona breakdown"
-    else:
-        metric = "Key business metrics tracked and reported"
-        target = "Consistent coverage across users, orders, and products"
+    objective = f"{board_name}: Managed by lead agent per board description."
+    metric = "Board tasks completed on time with quality"
+    target = "Consistent execution and clear reporting"
 
     custom_instructions = extra_ans if extra_ans and "no" not in extra_ans.lower() else ""
 
     return {
         "status": "complete",
-        "board_type": "goal",
+        "board_type": "general",
         "objective": objective,
         "success_metrics": {"metric": metric, "target": target},
         "user_profile": {
@@ -186,9 +150,9 @@ def _build_completion(answers: list[str], board_name: str) -> dict[str, Any]:
         "lead_agent": {
             "name": agent_name,
             "identity_profile": {
-                "role": "Data Intelligence Lead",
-                "communication_style": f"{output_fmt.replace('bullets','direct, bullet-driven').replace('mixed','direct, mixed').replace('narrative','detailed narrative')}, analytical",
-                "emoji": "📊",
+                "role": "Board Lead",
+                "communication_style": f"{output_fmt.replace('bullets','direct, bullet-driven').replace('mixed','direct, mixed').replace('narrative','detailed narrative')}, practical",
+                "emoji": ":crown:",
             },
             "autonomy_level": autonomy,
             "verbosity": verbosity,

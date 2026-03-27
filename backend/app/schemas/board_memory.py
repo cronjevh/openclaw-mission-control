@@ -19,6 +19,7 @@ class BoardMemoryCreate(SQLModel):
     content: NonEmptyStr
     tags: list[str] | None = None
     source: str | None = None
+    task_id: UUID | None = None
 
 
 class BoardMemoryRead(SQLModel):
@@ -26,6 +27,7 @@ class BoardMemoryRead(SQLModel):
 
     id: UUID
     board_id: UUID
+    task_id: UUID | None = None
     # For reads, allow legacy rows that may have empty content
     # (avoid response validation 500s).
     content: str

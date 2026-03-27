@@ -33,7 +33,7 @@ from app.api.tags import router as tags_router
 from app.api.task_custom_fields import router as task_custom_fields_router
 from app.api.tasks import router as tasks_router
 from app.api.users import router as users_router
-from app.api.workspace_files import router as workspace_files_router
+from app.api.workspace_files import router as workspace_files_router, group_router as group_workspace_files_router
 from app.api.board_secrets import router as board_secrets_router
 from app.api.notifications import router as notifications_router
 from app.api.search import router as search_router
@@ -577,6 +577,7 @@ api_v1.include_router(task_custom_fields_router)
 api_v1.include_router(tags_router)
 api_v1.include_router(users_router)
 api_v1.include_router(workspace_files_router)
+api_v1.include_router(group_workspace_files_router)
 api_v1.include_router(board_secrets_router)
 api_v1.include_router(notifications_router)
 api_v1.include_router(search_router)

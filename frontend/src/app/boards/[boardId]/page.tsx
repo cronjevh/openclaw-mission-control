@@ -869,6 +869,11 @@ export default function BoardDetailPage() {
   const [approvalsUpdatingId, setApprovalsUpdatingId] = useState<string | null>(
     null,
   );
+  const [taskMemoryEntries, setTaskMemoryEntries] = useState<{ id: string; content: string; tags: string[] | null; created_at: string }[]>([]);
+  const [isTaskMemoryLoading, setIsTaskMemoryLoading] = useState(false);
+  const [memoryViewEntry, setMemoryViewEntry] = useState<{ id: string; content: string; tags: string[] | null; created_at: string } | null>(null);
+  const [memoryViewCopied, setMemoryViewCopied] = useState(false);
+  const [memoryViewRichText, setMemoryViewRichText] = useState(true);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<BoardChatMessage[]>([]);
   const [isChatSending, setIsChatSending] = useState(false);
@@ -1994,15 +1999,10 @@ export default function BoardDetailPage() {
       );
       if (result.status !== 200) throw new Error("Unable to create task.");
 
-      const created = normalizeTask({
-        ...result.data,
-        assignee: result.data.assigned_agent_id
-          ? (assigneeById.get(result.data.assigned_agent_id) ?? null)
-          : null,
-        approvals_count: 0,
-        approvals_pending_count: 0,
-      } as TaskCardRead);
-      setTasks((prev) => [created, ...prev]);
+      // Don't add optimistically — let the SSE stream handle it.
+      // This prevents duplicate tasks when the stream event arrives.
+      // The backend broadcasts the new task immediately, so it will appear
+      // via the stream listener within milliseconds.
       setIsDialogOpen(false);
       resetForm();
     } catch (err) {
@@ -2370,6 +2370,22 @@ export default function BoardDetailPage() {
     [boardId, isSignedIn],
   );
 
+  const loadTaskMemory = useCallback(async (taskId: string) => {
+    if (!isSignedIn || !boardId) return;
+    setIsTaskMemoryLoading(true);
+    try {
+      const res = await customFetch<{ data: { items?: { id: string; content: string; tags: string[] | null; created_at: string }[] } }>(
+        `/api/v1/boards/${boardId}/memory?task_id=${encodeURIComponent(taskId)}&is_chat=false&limit=50`,
+        { method: "GET" },
+      );
+      setTaskMemoryEntries(res.data?.items ?? []);
+    } catch {
+      setTaskMemoryEntries([]);
+    } finally {
+      setIsTaskMemoryLoading(false);
+    }
+  }, [boardId, isSignedIn]);
+
   const loadWorkspaceFiles = useCallback(async (taskId?: string) => {
     if (!isSignedIn || !boardId) return;
     try {
@@ -2443,8 +2459,9 @@ export default function BoardDetailPage() {
       setIsDetailOpen(true);
       void loadComments(task.id);
       void loadWorkspaceFiles(task.id);
+      void loadTaskMemory(task.id);
     },
-    [loadComments, loadWorkspaceFiles, pathname, router, searchParams],
+    [loadComments, loadTaskMemory, loadWorkspaceFiles, pathname, router, searchParams],
   );
 
   const selectedTaskDependencies = useMemo<DependencyBannerDependency[]>(() => {
@@ -2537,6 +2554,7 @@ export default function BoardDetailPage() {
     setCommentsError(null);
     setPostCommentError(null);
     setIsEditDialogOpen(false);
+    setTaskMemoryEntries([]);
   };
 
   const openBoardChat = () => {
@@ -2924,7 +2942,6 @@ export default function BoardDetailPage() {
   };
 
   const agentAvatarLabel = (agent: Agent) => {
-    if (agent.is_board_lead) return "⚙️";
     let emojiValue: string | null = null;
     if (agent.identity_profile && typeof agent.identity_profile === "object") {
       const rawEmoji = (agent.identity_profile as Record<string, unknown>)
@@ -4080,6 +4097,82 @@ export default function BoardDetailPage() {
                 </div>
               )}
             </div>
+            {/* Linked Memory Reports — between Approvals and Deliverables */}
+            {(isTaskMemoryLoading || taskMemoryEntries.length > 0) && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
+                  Linked Reports
+                </p>
+                {isTaskMemoryLoading ? (
+                  <p className="text-sm text-quiet">Loading reports…</p>
+                ) : (
+                  <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-2 space-y-1/50">
+                    {taskMemoryEntries.map((entry, idx) => {
+                      // Derive a label from the first non-empty line of content
+                      const firstLine = entry.content.split("\n").find((l) => l.trim().replace(/^#+\s*/, "").trim().length > 0) ?? "";
+                      const label = firstLine.replace(/^#+\s*/, "").trim() || entry.id.slice(0, 8);
+                      const sizeKb = Math.ceil(new Blob([entry.content]).size / 1024);
+                      return (
+                        <div key={entry.id} className="flex w-full items-start gap-1 rounded px-2 py-1.5 hover:bg-[color:var(--surface-strong)] dark:hover:bg-[color:var(--surface-strong)]">
+                          <button
+                            type="button"
+                            onClick={() => { setMemoryViewEntry(entry); setMemoryViewRichText(true); setMemoryViewCopied(false); }}
+                            className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
+                          >
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              {idx === 0 && (
+                                <span className="shrink-0 rounded bg-[color:var(--success-soft)] px-1 py-px text-[10px] font-medium text-success">
+                                  latest
+                                </span>
+                              )}
+                              <span className="font-mono text-xs truncate text-muted" title={label}>{label}</span>
+                            </div>
+                            <div className="flex items-center gap-2 pl-0.5">
+                              <span className="text-[10px] text-quiet">{formatShortTimestamp(entry.created_at)}</span>
+                              <span className="text-[10px] text-quiet">{sizeKb}KB</span>
+                              {(entry.tags ?? []).map((tag) => (
+                                <span key={tag} className="rounded bg-[color:var(--surface-strong)] px-1 py-px text-[10px] text-quiet">{tag}</span>
+                              ))}
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            title="Copy to clipboard"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(entry.content).then(() => {
+                                setMemoryViewCopied(true);
+                                setTimeout(() => setMemoryViewCopied(false), 2000);
+                              });
+                            }}
+                            className="mt-0.5 shrink-0 rounded p-1 text-quiet hover:bg-[color:var(--surface-strong)] hover:text-muted dark:hover:bg-[color:var(--surface-strong)] dark:hover:text-quiet"
+                          >
+                            <Copy size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            title="Download as markdown"
+                            onClick={() => {
+                              const blob = new Blob([entry.content], { type: "text/markdown" });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = `report-${entry.id.slice(0, 8)}.md`;
+                              document.body.appendChild(a);
+                              a.click();
+                              document.body.removeChild(a);
+                              URL.revokeObjectURL(url);
+                            }}
+                            className="mt-0.5 shrink-0 rounded p-1 text-quiet hover:bg-[color:var(--surface-strong)] hover:text-muted dark:hover:bg-[color:var(--surface-strong)] dark:hover:text-quiet"
+                          >
+                            <Download size={12} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
             {/* Workspace Files — between Approvals and Comments */}
             {workspaceFiles.length > 0 && (
               <div className="space-y-2">
@@ -4200,6 +4293,85 @@ export default function BoardDetailPage() {
 
       {/* File content viewer — must live OUTSIDE the aside so fixed inset-0 covers the full viewport
           (aside has CSS transform which creates a new containing block for fixed children) */}
+      {memoryViewEntry && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
+          <div className="relative flex h-[88vh] w-[90vw] max-w-4xl flex-col rounded-xl bg-[color:var(--surface)] shadow-2xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-[color:var(--border)] px-5 py-3">
+              <p className="min-w-0 flex-1 truncate font-mono text-sm font-semibold text-[color:var(--text-muted)]">
+                {(memoryViewEntry.content.split("\n").find((l) => l.trim().replace(/^#+\s*/, "").trim().length > 0) ?? "").replace(/^#+\s*/, "").trim() || memoryViewEntry.id.slice(0, 8)}
+              </p>
+              <div className="ml-3 flex shrink-0 items-center gap-1">
+                <div className="flex items-center rounded-lg border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-0.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setMemoryViewRichText(true)}
+                    className={`rounded-md px-2.5 py-1 transition ${memoryViewRichText ? "bg-[color:var(--surface)] text-[color:var(--text)] shadow-sm" : "text-[color:var(--text-quiet)] hover:text-[color:var(--text-muted)]"}`}
+                  >
+                    Preview
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMemoryViewRichText(false)}
+                    className={`rounded-md px-2.5 py-1 transition ${!memoryViewRichText ? "bg-[color:var(--surface)] text-[color:var(--text)] shadow-sm" : "text-[color:var(--text-quiet)] hover:text-[color:var(--text-muted)]"}`}
+                  >
+                    Raw
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  title="Copy raw markdown"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(memoryViewEntry.content).then(() => {
+                      setMemoryViewCopied(true);
+                      setTimeout(() => setMemoryViewCopied(false), 2000);
+                    });
+                  }}
+                  className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs text-[color:var(--text-muted)] hover:bg-[color:var(--surface-strong)]"
+                >
+                  {memoryViewCopied ? <Check size={13} className="text-[color:var(--success)]" /> : <Copy size={13} />}
+                  <span>{memoryViewCopied ? "Copied!" : "Copy"}</span>
+                </button>
+                <button
+                  type="button"
+                  title="Download as markdown"
+                  onClick={() => {
+                    const blob = new Blob([memoryViewEntry.content], { type: "text/markdown" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `report-${memoryViewEntry.id.slice(0, 8)}.md`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs text-[color:var(--text-muted)] hover:bg-[color:var(--surface-strong)]"
+                >
+                  <Download size={13} />
+                  <span>Download</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMemoryViewEntry(null); setMemoryViewCopied(false); setMemoryViewRichText(true); }}
+                  className="rounded-lg px-2 py-1 text-[color:var(--text-quiet)] hover:bg-[color:var(--surface-strong)] hover:text-[color:var(--text)]"
+                >✕</button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto">
+              {memoryViewRichText ? (
+                <div className="prose prose-sm max-w-none p-6 dark:prose-invert text-[color:var(--text)]">
+                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                    {memoryViewEntry.content}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                <pre className="p-5 font-mono text-xs leading-relaxed text-[color:var(--text)] whitespace-pre-wrap">{memoryViewEntry.content}</pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {workspaceFileViewPath && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
           <div className="relative flex h-[88vh] w-[90vw] max-w-4xl flex-col rounded-xl bg-[color:var(--surface)] shadow-2xl">

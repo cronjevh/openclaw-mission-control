@@ -460,28 +460,30 @@ def board_access_filter(
             ),
         )
 
-    # Board group access - boards that belong to a group the member has access to
-    group_access_stmt = select(Board.id).join(
-        BoardGroup, col(Board.board_group_id) == col(BoardGroup.id)
-    ).where(
-        col(BoardGroup.id).in_(
-            select(OrganizationBoardAccess.board_group_id).where(
-                col(OrganizationBoardAccess.organization_member_id) == member.id,
-                col(OrganizationBoardAccess.board_group_id).isnot(None),
-            )
-        ),
+    # Board group access - boards that belong to a group the member has access to.
+    # Build the accessible group id subquery with the permission filter INSIDE it
+    # so that OrganizationBoardAccess columns are in scope.
+    group_id_subquery = select(OrganizationBoardAccess.board_group_id).where(
+        col(OrganizationBoardAccess.organization_member_id) == member.id,
+        col(OrganizationBoardAccess.board_group_id).isnot(None),
     )
     if write:
-        group_access_stmt = group_access_stmt.where(
+        group_id_subquery = group_id_subquery.where(
             col(OrganizationBoardAccess.can_write).is_(True),
         )
     else:
-        group_access_stmt = group_access_stmt.where(
+        group_id_subquery = group_id_subquery.where(
             or_(
                 col(OrganizationBoardAccess.can_read).is_(True),
                 col(OrganizationBoardAccess.can_write).is_(True),
             ),
         )
+
+    group_access_stmt = select(Board.id).join(
+        BoardGroup, col(Board.board_group_id) == col(BoardGroup.id)
+    ).where(
+        col(BoardGroup.id).in_(group_id_subquery),
+    )
 
     return or_(
         col(Board.id).in_(access_stmt),
@@ -526,16 +528,28 @@ async def list_accessible_board_ids(
         )
     direct_board_ids = await session.exec(access_stmt)
 
-    # Board group access - boards that belong to a group the member has access to
+    # Board group access - boards that belong to a group the member has access to.
+    # Keep the permission filter inside the group-id subquery so the columns are in scope.
+    group_id_subquery2 = select(OrganizationBoardAccess.board_group_id).where(
+        col(OrganizationBoardAccess.organization_member_id) == member.id,
+        col(OrganizationBoardAccess.board_group_id).isnot(None),
+    )
+    if write:
+        group_id_subquery2 = group_id_subquery2.where(
+            col(OrganizationBoardAccess.can_write).is_(True),
+        )
+    else:
+        group_id_subquery2 = group_id_subquery2.where(
+            or_(
+                col(OrganizationBoardAccess.can_read).is_(True),
+                col(OrganizationBoardAccess.can_write).is_(True),
+            ),
+        )
+
     group_access_stmt = select(Board.id).join(
         BoardGroup, col(Board.board_group_id) == col(BoardGroup.id)
     ).where(
-        col(BoardGroup.id).in_(
-            select(OrganizationBoardAccess.board_group_id).where(
-                col(OrganizationBoardAccess.organization_member_id) == member.id,
-                col(OrganizationBoardAccess.board_group_id).isnot(None),
-            )
-        ),
+        col(BoardGroup.id).in_(group_id_subquery2),
     )
     group_board_ids = await session.exec(group_access_stmt)
 

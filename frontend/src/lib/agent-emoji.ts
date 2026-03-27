@@ -12,6 +12,8 @@ export const AGENT_EMOJI_OPTIONS: readonly AgentEmojiOption[] = [
   { value: ":wrench:", label: "Builder", glyph: "🔧" },
   { value: ":dart:", label: "Bullseye", glyph: "🎯" },
   { value: ":computer:", label: "Computer", glyph: "💻" },
+  { value: ":crown:", label: "Crown", glyph: "👑" },
+  { value: ":globe_with_meridians:", label: "Globe", glyph: "🌐" },
   { value: ":chart_with_upwards_trend:", label: "Growth", glyph: "📈" },
   { value: ":bulb:", label: "Idea", glyph: "💡" },
   { value: ":zap:", label: "Lightning", glyph: "⚡" },
@@ -20,11 +22,13 @@ export const AGENT_EMOJI_OPTIONS: readonly AgentEmojiOption[] = [
   { value: ":megaphone:", label: "Megaphone", glyph: "📣" },
   { value: ":memo:", label: "Notes", glyph: "📝" },
   { value: ":owl:", label: "Owl", glyph: "🦉" },
+  { value: ":pencil2:", label: "Pencil", glyph: "✏️" },
   { value: ":robot:", label: "Robot", glyph: "🤖" },
   { value: ":rocket:", label: "Rocket", glyph: "🚀" },
   { value: ":mag:", label: "Search", glyph: "🔍" },
   { value: ":shield:", label: "Shield", glyph: "🛡️" },
   { value: ":sparkles:", label: "Sparkles", glyph: "✨" },
+  { value: ":writing_hand:", label: "Writing", glyph: "✍️" },
 ];
 
 export const AGENT_EMOJI_GLYPHS: Record<string, string> = Object.fromEntries(

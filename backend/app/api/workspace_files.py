@@ -372,3 +372,202 @@ async def _require_board_read_access(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
     else:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+
+
+# ---------------------------------------------------------------------------
+# Board-group workspace endpoints (group lead agent workspace)
+# ---------------------------------------------------------------------------
+
+group_router = APIRouter(prefix="/board-groups/{group_id}/workspace", tags=["workspace-files"])
+
+
+async def _workspace_roots_for_group(
+    session: AsyncSession,
+    group_id: UUID,
+) -> list[tuple[str, Path]]:
+    """Return workspace paths for the group lead agent.
+
+    Uses the session key to derive config_id (same as _config_id_from_session_id) but
+    reads the workspace root directly from the remapped openclaw config without relying
+    on the container's /etc/openclaw/config.json (which may be permission-restricted).
+    Falls back to deriving the path from the session key pattern when config is unreadable.
+    """
+    from app.models.agents import Agent as AgentModel
+    from app.models.board_groups import BoardGroup
+
+    group = await BoardGroup.objects.by_id(group_id).first(session)
+    if group is None or group.group_agent_id is None:
+        return []
+    agent = await AgentModel.objects.by_id(group.group_agent_id).first(session)
+    if agent is None or not agent.openclaw_session_id:
+        return []
+
+    config_id = _config_id_from_session_id(agent.openclaw_session_id)
+    if not config_id:
+        return []
+
+    # Try reading config (may fail inside container due to permissions)
+    root: Path | None = None
+    try:
+        root = _workspace_root_for_config_id(config_id)
+    except (PermissionError, OSError):
+        root = None
+
+    # Fallback: derive workspace path from remapped workspace root + config_id convention
+    if root is None or not root.exists():
+        # Standard convention: workspace-{config_id} under the remapped workspace base
+        if _WORKSPACE_REMAP is not None:
+            _, dst = _WORKSPACE_REMAP
+            candidate = Path(dst) / f"workspace-{config_id}"
+            if candidate.exists():
+                root = candidate
+        # Also try without remap (direct host path)
+        if root is None or not root.exists():
+            candidate2 = Path("/root/.openclaw/workspace") / f"workspace-{config_id}"
+            if candidate2.exists():
+                root = candidate2
+
+    if root and root.exists():
+        return [(agent.name, root)]
+    return []
+
+
+async def _require_group_read_access(
+    session: AsyncSession,
+    *,
+    actor: ActorContext,
+    group_id: UUID,
+) -> None:
+    from app.models.board_groups import BoardGroup
+    from app.services.organizations import get_active_membership
+    from sqlalchemy import or_
+    from sqlmodel import select, col
+    from app.models.organization_board_access import OrganizationBoardAccess
+
+    group = await BoardGroup.objects.by_id(group_id).first(session)
+    if group is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    if actor.actor_type == "agent" and actor.agent is not None:
+        # Group agent or board agent within this group is allowed
+        if actor.agent.group_id == group_id:
+            return
+        if actor.agent.board_id is not None:
+            from app.models.boards import Board
+            board = await Board.objects.by_id(actor.agent.board_id).first(session)
+            if board and board.board_group_id == group_id:
+                return
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+
+    if actor.user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+
+    member = await get_active_membership(session, actor.user)
+    if member is None or member.organization_id != group.organization_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+
+    if member.all_boards_read or member.all_boards_write:
+        return
+
+    access = (await session.exec(
+        select(OrganizationBoardAccess).where(
+            col(OrganizationBoardAccess.organization_member_id) == member.id,
+            col(OrganizationBoardAccess.board_group_id) == group_id,
+            or_(
+                col(OrganizationBoardAccess.can_read).is_(True),
+                col(OrganizationBoardAccess.can_write).is_(True),
+            ),
+        )
+    )).first()
+    if access is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+
+
+@group_router.get("/files", response_model=list[WorkspaceFileEntry])
+async def list_group_workspace_files(
+    group_id: str,
+    task_id: str | None = Query(default=None, description="Filter to files mentioned in this task's comments"),
+    actor: ActorContext = ACTOR_DEP,
+    session: AsyncSession = SESSION_DEP,
+) -> list[WorkspaceFileEntry]:
+    """List deliverable files from the group lead agent workspace."""
+    group_uuid = _parse_uuid(group_id)
+    await _require_group_read_access(session, actor=actor, group_id=group_uuid)
+
+    task_file_paths: set[str] | None = None
+    if task_id:
+        task_uuid = _parse_uuid(task_id)
+        task_file_paths = await _file_paths_from_task(session, task_uuid)
+
+    all_entries: list[WorkspaceFileEntry] = []
+    seen: set[str] = set()
+    for name, root in await _workspace_roots_for_group(session, group_uuid):
+        for entry in _list_deliverables(root, name):
+            if entry.path not in seen:
+                seen.add(entry.path)
+                all_entries.append(entry)
+
+    if task_file_paths is not None:
+        all_entries = [
+            e for e in all_entries
+            if any(tp in e.path for tp in task_file_paths)
+        ]
+
+    return all_entries
+
+
+@group_router.get("/file", response_model=WorkspaceFileContent)
+async def get_group_workspace_file(
+    group_id: str,
+    path: str = Query(..., description="File path (agent_name/relative/path)"),
+    actor: ActorContext = ACTOR_DEP,
+    session: AsyncSession = SESSION_DEP,
+) -> WorkspaceFileContent:
+    """Read a single workspace file from the group lead agent workspace."""
+    group_uuid = _parse_uuid(group_id)
+    await _require_group_read_access(session, actor=actor, group_id=group_uuid)
+
+    parts = path.split("/", 1)
+    rel_path = parts[1] if len(parts) == 2 else path
+
+    for _name, root in await _workspace_roots_for_group(session, group_uuid):
+        target = _safe_path(root, rel_path)
+        if target and target.exists() and target.is_file():
+            suffix = target.suffix.lower()
+            if suffix not in _TEXT_EXTENSIONS:
+                raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
+            return WorkspaceFileContent(path=path, content=target.read_text(errors="replace"), size=target.stat().st_size)
+
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found.")
+
+
+@group_router.get("/download")
+async def download_group_workspace_file(
+    group_id: str,
+    path: str = Query(..., description="File path (agent_name/relative/path)"),
+    actor: ActorContext = ACTOR_DEP,
+    session: AsyncSession = SESSION_DEP,
+) -> Response:
+    """Download a workspace file from the group lead agent workspace."""
+    from fastapi.responses import Response as FastAPIResponse
+
+    group_uuid = _parse_uuid(group_id)
+    await _require_group_read_access(session, actor=actor, group_id=group_uuid)
+
+    parts = path.split("/", 1)
+    rel_path = parts[1] if len(parts) == 2 else path
+    filename = Path(rel_path).name
+
+    for _name, root in await _workspace_roots_for_group(session, group_uuid):
+        target = _safe_path(root, rel_path)
+        if target and target.exists() and target.is_file():
+            content = target.read_bytes()
+            suffix = target.suffix.lower()
+            mime = "text/markdown" if suffix == ".md" else "text/plain"
+            return FastAPIResponse(
+                content=content,
+                media_type=mime,
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found.")

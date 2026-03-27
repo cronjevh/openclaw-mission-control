@@ -8,8 +8,13 @@ from app.models.boards import Board
 from app.services.openclaw.coordination_service import AbstractGatewayMessagingService
 from app.services.openclaw.exceptions import GatewayOperation, map_gateway_error_to_http_exception
 from app.services.openclaw.gateway_dispatch import GatewayDispatchService
-from app.services.openclaw.gateway_rpc import OpenClawGatewayError
+from app.services.openclaw.gateway_rpc import OpenClawGatewayError, openclaw_call
 from app.services.openclaw.shared import GatewayAgentIdentity
+
+
+def _onboarding_session_key(gateway_id: str, board_id: str) -> str:
+    """Generate an isolated session key for a board onboarding conversation."""
+    return f"agent:mc-gateway-{gateway_id}:onboarding:{board_id}"
 
 
 class BoardOnboardingMessagingService(AbstractGatewayMessagingService):
@@ -34,12 +39,20 @@ class BoardOnboardingMessagingService(AbstractGatewayMessagingService):
         gateway, config = await GatewayDispatchService(
             self.session
         ).require_gateway_config_for_board(board)
-        session_key = GatewayAgentIdentity.session_key(gateway)
+        # Use an isolated session per board to prevent context bleed across onboarding flows
+        session_key = _onboarding_session_key(str(gateway.id), str(board.id))
         try:
+            # Reset the session first to clear any prior conversation context.
+            # This prevents old onboarding answers from bleeding into new sessions.
+            try:
+                await openclaw_call("sessions.reset", {"key": session_key}, config=config)
+            except Exception:
+                pass  # Session may not exist yet; that's fine
+
             await self._dispatch_gateway_message(
                 session_key=session_key,
                 config=config,
-                agent_name="Gateway Agent",
+                agent_name=f"Gateway Agent (onboarding:{str(board.id)[:8]})",
                 message=prompt,
                 deliver=False,
             )
@@ -97,7 +110,7 @@ class BoardOnboardingMessagingService(AbstractGatewayMessagingService):
             await self._dispatch_gateway_message(
                 session_key=onboarding.session_key,
                 config=config,
-                agent_name="Gateway Agent",
+                agent_name=f"Gateway Agent (onboarding:{str(board.id)[:8]})",
                 message=answer_text,
                 deliver=False,
             )

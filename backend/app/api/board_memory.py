@@ -44,6 +44,7 @@ MAX_SNIPPET_LENGTH = 800
 STREAM_POLL_SECONDS = 2
 IS_CHAT_QUERY = Query(default=None)
 SINCE_QUERY = Query(default=None)
+TASK_ID_QUERY = Query(default=None)
 BOARD_READ_DEP = Depends(get_board_for_actor_read)
 BOARD_WRITE_DEP = Depends(get_board_for_actor_write)
 SESSION_DEP = Depends(get_session)
@@ -224,11 +225,12 @@ async def _notify_chat_targets(
 async def list_board_memory(
     *,
     is_chat: bool | None = IS_CHAT_QUERY,
+    task_id: UUID | None = TASK_ID_QUERY,
     board: Board = BOARD_READ_DEP,
     session: AsyncSession = SESSION_DEP,
     _actor: ActorContext = ACTOR_DEP,
 ) -> LimitOffsetPage[BoardMemoryRead]:
-    """List board memory entries, optionally filtering chat entries."""
+    """List board memory entries, optionally filtering by chat flag or task."""
     statement = (
         BoardMemory.objects.filter_by(board_id=board.id)
         # Old/invalid rows (empty/whitespace-only content) can exist; exclude them to
@@ -237,6 +239,8 @@ async def list_board_memory(
     )
     if is_chat is not None:
         statement = statement.filter(col(BoardMemory.is_chat) == is_chat)
+    if task_id is not None:
+        statement = statement.filter(col(BoardMemory.task_id) == task_id)
     statement = statement.order_by(col(BoardMemory.created_at).desc())
     return await paginate(session, statement.statement)
 

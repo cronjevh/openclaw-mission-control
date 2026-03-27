@@ -66,7 +66,7 @@ export function DashboardPageLayout({
         <DashboardSidebar />
         <main
           ref={mainRef}
-          className={cn("flex-1 overflow-y-auto bg-[color:var(--surface-muted)]", mainClassName)}
+          className={cn("h-full min-h-0 overflow-y-auto bg-[color:var(--surface-muted)]", mainClassName)}
         >
           <div
             className={cn(

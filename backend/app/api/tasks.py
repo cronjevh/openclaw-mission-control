@@ -1391,12 +1391,13 @@ async def _stream_task_state(
     dict[UUID, str],
     dict[UUID, TagState],
     dict[UUID, TaskCustomFieldValues],
+    dict[UUID, str],
 ]:
     task_ids = [
         task.id for event, task in rows if task is not None and event.event_type != "task.comment"
     ]
     if not task_ids:
-        return {}, {}, {}, {}
+        return {}, {}, {}, {}, {}
 
     tag_state_by_task_id = await load_tag_state(
         session,
@@ -1415,15 +1416,22 @@ async def _stream_task_state(
         board_id=board_id,
         task_ids=list({*task_ids}),
     )
+    creator_user_ids = list({
+        task.created_by_user_id
+        for _, task in rows
+        if task is not None and task.created_by_user_id is not None
+    })
+    creator_name_by_user_id = await _creator_names_by_user_id(session, creator_user_ids)
+
     if not dep_ids:
-        return deps_map, {}, tag_state_by_task_id, custom_field_values_by_task_id
+        return deps_map, {}, tag_state_by_task_id, custom_field_values_by_task_id, creator_name_by_user_id
 
     dep_status = await dependency_status_by_id(
         session,
         board_id=board_id,
         dependency_ids=list({*dep_ids}),
     )
-    return deps_map, dep_status, tag_state_by_task_id, custom_field_values_by_task_id
+    return deps_map, dep_status, tag_state_by_task_id, custom_field_values_by_task_id, creator_name_by_user_id
 
 
 def _task_event_payload(
@@ -1434,8 +1442,10 @@ def _task_event_payload(
     dep_status: dict[UUID, str],
     tag_state_by_task_id: dict[UUID, TagState],
     custom_field_values_by_task_id: dict[UUID, TaskCustomFieldValues] | None = None,
+    creator_name_by_user_id: dict[UUID, str] | None = None,
 ) -> dict[str, object]:
     resolved_custom_field_values_by_task_id = custom_field_values_by_task_id or {}
+    resolved_creator_name_by_user_id = creator_name_by_user_id or {}
     payload: dict[str, object] = {
         "type": event.event_type,
         "activity": ActivityEventRead.model_validate(event).model_dump(
@@ -1471,6 +1481,7 @@ def _task_event_payload(
                     task.id,
                     {},
                 ),
+                "creator_name": resolved_creator_name_by_user_id.get(task.created_by_user_id) if task.created_by_user_id else None,
             },
         )
         .model_dump(mode="json")
@@ -1494,7 +1505,7 @@ async def _task_event_generator(
 
         async with async_session_maker() as session:
             rows = await _fetch_task_events(session, board_id, last_seen)
-            deps_map, dep_status, tag_state_by_task_id, custom_field_values_by_task_id = (
+            deps_map, dep_status, tag_state_by_task_id, custom_field_values_by_task_id, creator_name_by_user_id = (
                 await _stream_task_state(
                     session,
                     board_id=board_id,
@@ -1519,6 +1530,7 @@ async def _task_event_generator(
                 dep_status=dep_status,
                 tag_state_by_task_id=tag_state_by_task_id,
                 custom_field_values_by_task_id=custom_field_values_by_task_id,
+                creator_name_by_user_id=creator_name_by_user_id,
             )
             yield {"event": "task", "data": json.dumps(payload)}
         await asyncio.sleep(2)

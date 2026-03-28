@@ -1747,20 +1747,15 @@ export default function BoardGroupDetailPage() {
       {/* Temp Chat Panel */}
       <aside
         className={cn(
-          "fixed right-0 top-0 z-50 h-full w-[560px] max-w-[96vw] transform border-l border-dashed border-[color:var(--border)] bg-[color:var(--surface)] shadow-2xl transition-transform",
+          "fixed right-0 top-0 z-50 h-full w-[560px] max-w-[96vw] transform border-l border-[color:var(--border)] bg-[color:var(--surface)] shadow-2xl transition-transform",
           isTempChatOpen ? "transform-none" : "translate-x-full",
         )}
       >
         <div className="flex h-full flex-col">
-          <div className="flex items-center justify-between border-b border-dashed border-[color:var(--border)] px-6 py-4">
-            <div className="flex items-center gap-3">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted shrink-0">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" strokeDasharray="4 2.5" />
-              </svg>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-quiet">Temp Chat</p>
-                <p className="mt-0.5 text-sm font-medium text-strong">Ask anything about this group. Not stored.</p>
-              </div>
+          <div className="flex items-center justify-between border-b border-[color:var(--border)] px-6 py-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-quiet">Temp Chat</p>
+              <p className="mt-1 text-sm font-medium text-strong">Talk to the group lead. Messages are not stored.</p>
             </div>
             <div className="flex items-center gap-2">
               {tempChatMessages.length > 0 && (
@@ -1784,44 +1779,37 @@ export default function BoardGroupDetailPage() {
             </div>
           </div>
           <div className="flex flex-1 flex-col overflow-hidden px-6 py-4">
-            <div className="flex-1 space-y-4 overflow-y-auto rounded-2xl border border-dashed border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+            <div className="flex-1 space-y-4 overflow-y-auto rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
               {tempChatError && (
                 <div className="rounded-xl border border-[color:var(--danger-border)] bg-[color:var(--danger-soft)] px-3 py-2 text-sm text-danger">
                   {tempChatError}
                 </div>
               )}
               {tempChatMessages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-quiet">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" strokeDasharray="4 2.5" />
-                  </svg>
-                  <p className="text-sm text-quiet">Ask anything about this group — tasks, boards, agent status, blockers.</p>
-                  <p className="text-xs text-quiet opacity-60">Not stored · Not visible to agents</p>
-                </div>
+                <p className="text-sm text-quiet">
+                  Ask anything about this group. Messages are not stored.
+                </p>
               ) : (
                 tempChatMessages.map((msg, idx) => (
-                  <div key={idx} className={cn("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
-                    <div className={cn(
-                      "max-w-[85%] rounded-2xl px-4 py-2.5 text-sm",
-                      msg.role === "user"
-                        ? "bg-[color:var(--brand)] text-white"
-                        : "border border-dashed border-[color:var(--border)] bg-[color:var(--surface-muted)] text-strong",
-                    )}>
-                      {msg.role === "assistant" ? (
-                        <Markdown content={msg.text} variant="basic" />
-                      ) : msg.text}
+                  <div key={idx} className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-strong">
+                        {msg.role === "user" ? "You" : (group?.name ? `${group.name} Lead` : "Group Lead")}
+                      </p>
+                    </div>
+                    <div className="mt-2 select-text cursor-text text-sm leading-relaxed text-strong break-words">
+                      <Markdown content={msg.text} variant="basic" />
                     </div>
                   </div>
                 ))
               )}
               {isTempChatSending && (
-                <div className="flex justify-start">
-                  <div className="rounded-2xl border border-dashed border-[color:var(--border)] bg-[color:var(--surface-muted)] px-4 py-2.5">
-                    <span className="flex gap-1 text-quiet">
-                      <span className="animate-bounce" style={{ animationDelay: "0ms" }}>·</span>
-                      <span className="animate-bounce" style={{ animationDelay: "150ms" }}>·</span>
-                      <span className="animate-bounce" style={{ animationDelay: "300ms" }}>·</span>
-                    </span>
+                <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4">
+                  <p className="text-sm font-semibold text-strong">{group?.name ? `${group.name} Lead` : "Group Lead"}</p>
+                  <div className="mt-2 flex gap-1 text-quiet">
+                    <span className="animate-bounce" style={{ animationDelay: "0ms" }}>·</span>
+                    <span className="animate-bounce" style={{ animationDelay: "150ms" }}>·</span>
+                    <span className="animate-bounce" style={{ animationDelay: "300ms" }}>·</span>
                   </div>
                 </div>
               )}

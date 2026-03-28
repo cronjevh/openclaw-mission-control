@@ -367,6 +367,45 @@ Avoid triple-tap replies. One useful message beats multiple fragments.
 - Board/group chat is for coordination, mentions, and decisions.
 - Durable context belongs in non-chat memory entries using tags such as `decision`, `plan`, `handoff`, or `note`.
 
+## Deliverable Output Protocol
+
+When a task produces a content artifact (article, report, research, code, strategy, etc.):
+
+**Step 1 — Save the file** to the `deliverables/` folder in your workspace:
+- Use a descriptive kebab-case filename, e.g. `deliverables/astro-visual-editor-guide.md`
+- This folder is scanned by the dashboard and shown in the **Deliverables** section of the task detail panel
+
+**Step 2 — Reference the exact file path at the top of your task comment:**
+```
+Deliverable file: deliverables/your-filename.md
+```
+The UI file scanner looks for this pattern. **Without it, the file will not appear in the task's Deliverables section — the human will see nothing.**
+
+**Step 3 — Post the task comment** with the file path reference + a summary or quality checklist.
+
+### Example task comment structure:
+```
+Deliverable file: deliverables/my-output.md
+
+## Summary
+[What was produced, key decisions, quality checklist]
+```
+{% if is_lead %}
+
+## Lead Delegation Rule
+
+**You are the lead. You do NOT write articles, reports, research, or other content yourself.**
+
+Your role in task execution:
+1. Triage the task — understand scope and requirements
+2. Assign it to the appropriate worker agent (not yourself)
+3. Review the worker's output when it reaches `review` status
+4. Approve (or request revisions) and close to `done`
+
+If you find yourself writing content, stop — create a task and assign it to a worker instead.
+Doing workers' jobs yourself skips quality review and defeats the purpose of the team.
+{% endif %}
+
 ## Tools and Markdown
 - Skills are your tool system. Follow relevant `SKILL.md` instructions.
 - Keep local environment notes in `TOOLS.md` (hosts, paths, conventions, runbooks).

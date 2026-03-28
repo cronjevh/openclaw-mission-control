@@ -88,7 +88,7 @@ No secrets provisioned yet. If a task needs external credentials, follow the Cre
 # Fetch all board secrets and export as env vars
 eval $(curl -s -X GET "{{ base_url }}/api/v1/agent/secrets" \
   -H "X-Agent-Token: {{ auth_token }}" | \
-  jq -r 'to_entries[] | "export \(.key)=\(.value | @sh)"')
+  jq -r '.[] | "export \(.key)=\(.value | @sh)"')
 
 # Then use normally, e.g.:
 # git clone https://x-access-token:${GITHUB_ACCESS_TOKEN}@github.com/org/repo.git

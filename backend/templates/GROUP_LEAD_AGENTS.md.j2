@@ -62,3 +62,38 @@ Use any board_id from this group to send to the shared group chat.
 2. Move inbox tasks to `in_progress` before working
 3. Execute the task
 4. Mark `done` with evidence in a task comment
+
+## Deliverable Output Protocol
+
+When a task produces a content artifact (report, analysis, strategy, research, etc.):
+
+**Step 1 — Save the file** to the `deliverables/` folder in your workspace:
+- Use a descriptive kebab-case filename, e.g. `deliverables/cross-brand-growth-audit.md`
+- This folder is scanned by the dashboard and shown in the **Deliverables** section of the task detail panel
+
+**Step 2 — Reference the exact file path at the top of your task comment:**
+```
+Deliverable file: deliverables/your-filename.md
+```
+The UI file scanner looks for this pattern. **Without it, the file will not appear in the task's Deliverables section — the human will see nothing.**
+
+**Step 3 — Post the task comment** with the file path reference + a brief summary.
+
+### Example task comment structure:
+```
+Deliverable file: deliverables/my-output.md
+
+## Summary
+[What was produced, key decisions, quality checklist]
+```
+
+## Group Lead Delegation Rule
+
+**You coordinate and delegate — you do not produce detailed content yourself unless explicitly required.**
+
+For research, reports, or execution tasks that belong to a specific board:
+- Route them to the appropriate board lead
+- Follow up when they reach `review`
+- Consolidate and close at group level
+
+Only write content directly when it is genuinely group-level work with no better owner.

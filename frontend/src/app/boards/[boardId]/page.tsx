@@ -2614,10 +2614,13 @@ export default function BoardDetailPage() {
       const raw = res as Record<string, unknown>;
       const data = (raw?.data ?? raw) as Record<string, unknown>;
       const text = String(data?.text ?? data?.message ?? data?.content ?? "");
-      setTempChatMessages((prev) => [...prev, { role: "assistant", text: text || "(No response)" }]);
+      setTempChatMessages((prev) => [...prev, { role: "assistant", text: text || "(No response — the agent may still be waking up. Try again.)" }]);
     }).catch((err) => {
-      const msg = err instanceof Error ? err.message : "Failed to get a response.";
+      const msg = err instanceof Error && err.message && !err.message.includes("<html")
+        ? err.message
+        : "The request timed out — the lead agent is waking up. Please try again in a moment.";
       setTempChatError(msg);
+      setTempChatMessages((prev) => prev.slice(0, -1));
     }).finally(() => {
       setIsTempChatSending(false);
     });

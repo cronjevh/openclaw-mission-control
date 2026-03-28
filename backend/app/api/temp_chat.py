@@ -160,7 +160,7 @@ async def _ensure_agent_ready(
             stable_count = 0
             agent_seen = False
 
-            for _ in range(16):  # up to 80s
+            for _ in range(10):  # up to 50s
                 await asyncio.sleep(5)
                 try:
                     post_hist = await openclaw_call(

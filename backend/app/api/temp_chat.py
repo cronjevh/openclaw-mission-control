@@ -222,4 +222,180 @@ def _parse_uuid(value: str) -> UUID:
     try:
         return UUID(value)
     except ValueError:
-        raise HTTPException(status_code=422, detail="Invalid board_id.")
+        raise HTTPException(status_code=422, detail="Invalid id.")
+
+
+# ---------------------------------------------------------------------------
+# Board-group temp chat
+# ---------------------------------------------------------------------------
+
+group_router = APIRouter(prefix="/board-groups/{group_id}/temp-chat", tags=["temp-chat"])
+
+
+def _group_session_key(group_id: str, user_id: str) -> str:
+    return f"temp-chat:group:{group_id}:{user_id}"
+
+
+async def _get_group_and_gateway(
+    session: AsyncSession, group_id: UUID, actor: ActorContext
+) -> tuple[object, Gateway, GatewayConfig]:
+    from app.models.board_groups import BoardGroup
+    from app.services.organizations import get_active_membership
+
+    group = await BoardGroup.objects.by_id(group_id).first(session)
+    if group is None:
+        raise HTTPException(status_code=404, detail="Board group not found.")
+
+    if actor.actor_type != "user" or actor.user is None:
+        raise HTTPException(status_code=403)
+
+    member = await get_active_membership(session, actor.user)
+    if member is None or member.organization_id != group.organization_id:
+        raise HTTPException(status_code=403)
+
+    # Resolve gateway via group agent
+    if group.group_agent_id is None:
+        raise HTTPException(status_code=503, detail="Group has no agent configured.")
+
+    group_agent = await Agent.objects.by_id(group.group_agent_id).first(session)
+    if group_agent is None or group_agent.gateway_id is None:
+        raise HTTPException(status_code=503, detail="Group agent has no gateway.")
+
+    gateway = await Gateway.objects.by_id(group_agent.gateway_id).first(session)
+    if gateway is None:
+        raise HTTPException(status_code=503, detail="Gateway not found.")
+
+    return group, gateway, GatewayConfig(url=gateway.url, token=gateway.token)
+
+
+async def _build_group_context_block(
+    session: AsyncSession,
+    group: object,
+    group_id: UUID,
+) -> str:
+    from app.models.board_groups import BoardGroup
+    from app.models.boards import Board as BoardModel
+
+    boards_result = await session.exec(
+        select(BoardModel).where(BoardModel.board_group_id == group_id)
+    )
+    boards = list(boards_result.all())
+
+    tasks_result = await session.exec(
+        select(Task)
+        .where(Task.board_group_id == group_id)
+        .order_by(Task.updated_at.desc())  # type: ignore[attr-defined]
+        .limit(40)
+    )
+    group_tasks = list(tasks_result.all())
+
+    def fmt(lst: list[Task], limit: int = 5) -> str:
+        if not lst:
+            return "  (none)"
+        lines = [f"  • [{t.id[:8]}] {t.title}" for t in lst[:limit]]
+        if len(lst) > limit:
+            lines.append(f"  … +{len(lst) - limit} more")
+        return "\n".join(lines)
+
+    by_status = {s: [t for t in group_tasks if t.status == s]
+                 for s in ("in_progress", "review", "inbox", "blocked")}
+
+    board_lines = "\n".join(f"  • {b.name} ({b.id})" for b in boards) or "  (none)"
+    group_name = getattr(group, "name", str(group_id))
+
+    return f"""<group_context>
+Group: {group_name}
+
+Linked boards ({len(boards)}):
+{board_lines}
+
+Group Tasks — In Progress ({len(by_status["in_progress"])}):
+{fmt(by_status["in_progress"])}
+
+Group Tasks — In Review ({len(by_status["review"])}):
+{fmt(by_status["review"])}
+
+Group Tasks — Inbox ({len(by_status["inbox"])}):
+{fmt(by_status["inbox"])}
+
+Group Tasks — Blocked ({len(by_status["blocked"])}):
+{fmt(by_status["blocked"])}
+</group_context>
+
+You are a helpful assistant embedded in Mission Control. Answer questions about this board group using the context above.
+This is a temporary private chat — not stored, not visible to agents.
+Be concise and direct. Now answer the user's question:"""
+
+
+@group_router.post("")
+async def send_group_temp_chat(
+    group_id: str,
+    request: Request,
+    actor: ActorContext = ACTOR_DEP,
+    session: AsyncSession = SESSION_DEP,
+) -> StreamingResponse:
+    group_uuid = _parse_uuid(group_id)
+    group, gateway, config = await _get_group_and_gateway(session, group_uuid, actor)
+
+    body = await request.json()
+    message: str = (body.get("message") or "").strip()
+    is_first: bool = bool(body.get("is_first", False))
+    if not message:
+        raise HTTPException(status_code=422, detail="message is required.")
+
+    user_id = str(actor.user.id) if actor.user else "anon"
+    session_key = _group_session_key(group_id, user_id)
+
+    if is_first:
+        context = await _build_group_context_block(session, group, group_uuid)
+        full_message = f"{context}\n\n{message}"
+        try:
+            await gw_delete_session(session_key, config=config)
+        except OpenClawGatewayError:
+            pass
+    else:
+        full_message = message
+
+    async def event_stream():
+        try:
+            result = await openclaw_call(
+                "chat.send",
+                {
+                    "sessionKey": session_key,
+                    "message": full_message,
+                    "deliver": False,
+                    "idempotencyKey": str(uuid4()),
+                },
+                config=config,
+            )
+            if isinstance(result, dict):
+                text = result.get("text") or result.get("content") or result.get("message") or str(result)
+            else:
+                text = str(result) if result else ""
+            yield f"data: {json.dumps({'text': text, 'done': True})}\n\n"
+        except OpenClawGatewayError as exc:
+            yield f"data: {json.dumps({'error': str(exc), 'done': True})}\n\n"
+        except Exception:  # noqa: BLE001
+            yield f"data: {json.dumps({'error': 'Unexpected error. Please try again.', 'done': True})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@group_router.delete("")
+async def clear_group_temp_chat(
+    group_id: str,
+    actor: ActorContext = ACTOR_DEP,
+    session: AsyncSession = SESSION_DEP,
+) -> dict:
+    group_uuid = _parse_uuid(group_id)
+    group, gateway, config = await _get_group_and_gateway(session, group_uuid, actor)
+    user_id = str(actor.user.id) if actor.user else "anon"
+    try:
+        await gw_delete_session(_group_session_key(group_id, user_id), config=config)
+    except OpenClawGatewayError:
+        pass
+    return {"ok": True}

@@ -37,7 +37,7 @@ from app.api.workspace_files import router as workspace_files_router, group_rout
 from app.api.board_secrets import router as board_secrets_router
 from app.api.notifications import router as notifications_router
 from app.api.search import router as search_router
-from app.api.temp_chat import router as temp_chat_router
+from app.api.temp_chat import router as temp_chat_router, group_router as temp_chat_group_router
 from app.core.config import settings
 from app.core.error_handling import install_error_handling
 from app.core.logging import configure_logging, get_logger
@@ -583,6 +583,7 @@ api_v1.include_router(board_secrets_router)
 api_v1.include_router(notifications_router)
 api_v1.include_router(search_router)
 api_v1.include_router(temp_chat_router)
+api_v1.include_router(temp_chat_group_router)
 app.include_router(api_v1)
 
 add_pagination(app)

@@ -18,6 +18,7 @@ import {
   Plus,
   Send,
   Settings,
+  Trash2,
   X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -198,6 +199,14 @@ export default function BoardGroupDetailPage() {
   const [notesBroadcast, setNotesBroadcast] = useState(true);
   const [isNoteSending, setIsNoteSending] = useState(false);
   const [noteSendError, setNoteSendError] = useState<string | null>(null);
+
+  // Temp chat state
+  const [isTempChatOpen, setIsTempChatOpen] = useState(false);
+  const [tempChatMessages, setTempChatMessages] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+  const [isTempChatSending, setIsTempChatSending] = useState(false);
+  const [tempChatError, setTempChatError] = useState<string | null>(null);
+  const tempChatEndRef = useRef<HTMLDivElement | null>(null);
+  const isTempChatFirstRef = useRef(true);
 
   const snapshotQuery =
     useGetBoardGroupSnapshotApiV1BoardGroupsGroupIdSnapshotGet<
@@ -403,6 +412,14 @@ export default function BoardGroupDetailPage() {
     }, 50);
     return () => window.clearTimeout(timeout);
   }, [chatMessages, isChatOpen]);
+
+  useEffect(() => {
+    if (!isTempChatOpen) return;
+    const t = window.setTimeout(() => {
+      tempChatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [tempChatMessages, isTempChatOpen]);
 
   useEffect(() => {
     if (!isPageActive) return;
@@ -616,6 +633,48 @@ export default function BoardGroupDetailPage() {
     },
     [canWriteGroup, groupId, isSignedIn, mergeNotesMessages, notesBroadcast],
   );
+
+  // Temp chat handlers
+  const handleSendTempChat = useCallback(async (message: string): Promise<boolean> => {
+    const trimmed = message.trim();
+    if (!trimmed || !groupId) return false;
+    setIsTempChatSending(true);
+    setTempChatError(null);
+    setTempChatMessages((prev) => [...prev, { role: "user", text: trimmed }]);
+    const isFirst = isTempChatFirstRef.current;
+    if (isFirst) isTempChatFirstRef.current = false;
+    try {
+      const res = await customFetch<{ text?: string; error?: string }>(
+        `/api/v1/board-groups/${groupId}/temp-chat`,
+        { method: "POST", body: JSON.stringify({ message: trimmed, is_first: isFirst }) },
+      );
+      const text = (res as { text?: string }).text ?? "";
+      const error = (res as { error?: string }).error;
+      if (error) {
+        setTempChatError(error);
+        setTempChatMessages((prev) => prev.slice(0, -1));
+        return false;
+      }
+      setTempChatMessages((prev) => [...prev, { role: "assistant", text }]);
+      return true;
+    } catch {
+      setTempChatError("Failed to get a response. Please try again.");
+      setTempChatMessages((prev) => prev.slice(0, -1));
+      return false;
+    } finally {
+      setIsTempChatSending(false);
+    }
+  }, [groupId]);
+
+  const handleClearTempChat = useCallback(async () => {
+    if (!groupId) return;
+    setTempChatMessages([]);
+    isTempChatFirstRef.current = true;
+    setTempChatError(null);
+    try {
+      await customFetch(`/api/v1/board-groups/${groupId}/temp-chat`, { method: "DELETE" });
+    } catch { /* ignore */ }
+  }, [groupId]);
 
   // Group Agent callbacks
   const fetchGroupAgent = useCallback(async () => {
@@ -992,12 +1051,30 @@ export default function BoardGroupDetailPage() {
                       setNoteSendError(null);
                       setChatError(null);
                       setIsChatOpen(true);
+                      setIsTempChatOpen(false);
                     }}
                     disabled={!groupId}
                     title="Group chat"
                   >
                     <MessageSquare className="mr-2 h-4 w-4" />
                     Chat
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setIsChatOpen(false);
+                      setIsNotesOpen(false);
+                      setIsTempChatOpen(true);
+                    }}
+                    disabled={!groupId}
+                    title="Temporary chat (not stored)"
+                    className={cn(isTempChatOpen && "border-[color:var(--brand)] text-[color:var(--brand)]")}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" strokeDasharray="4 2.5" />
+                    </svg>
+                    Temp
                   </Button>
                   {canManageHeartbeat && !showInnerBoards && (
                     <Button
@@ -1665,7 +1742,7 @@ export default function BoardGroupDetailPage() {
       </aside>
 
       {/* Panel backdrops */}
-      {isChatOpen || isNotesOpen ? (
+      {isChatOpen || isNotesOpen || isTempChatOpen ? (
         <div
           className="fixed inset-0 z-40 bg-black/30"
           onClick={() => {
@@ -1673,9 +1750,104 @@ export default function BoardGroupDetailPage() {
             setChatError(null);
             setIsNotesOpen(false);
             setNoteSendError(null);
+            setIsTempChatOpen(false);
+            setTempChatError(null);
           }}
         />
       ) : null}
+
+      {/* Temp Chat Panel */}
+      <aside
+        className={cn(
+          "fixed right-0 top-0 z-50 h-full w-[560px] max-w-[96vw] transform border-l border-dashed border-[color:var(--border)] bg-[color:var(--surface)] shadow-2xl transition-transform",
+          isTempChatOpen ? "transform-none" : "translate-x-full",
+        )}
+      >
+        <div className="flex h-full flex-col">
+          <div className="flex items-center justify-between border-b border-dashed border-[color:var(--border)] px-6 py-4">
+            <div className="flex items-center gap-3">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted shrink-0">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" strokeDasharray="4 2.5" />
+              </svg>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-quiet">Temp Chat</p>
+                <p className="mt-0.5 text-sm font-medium text-strong">Ask anything about this group. Not stored.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {tempChatMessages.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void handleClearTempChat()}
+                  className="rounded-lg border border-[color:var(--border)] p-2 text-quiet transition hover:bg-[color:var(--surface-muted)]"
+                  title="Clear conversation"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => { setIsTempChatOpen(false); setTempChatError(null); }}
+                className="rounded-lg border border-[color:var(--border)] p-2 text-quiet transition hover:bg-[color:var(--surface-muted)]"
+                aria-label="Close temp chat"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          <div className="flex flex-1 flex-col overflow-hidden px-6 py-4">
+            <div className="flex-1 space-y-4 overflow-y-auto rounded-2xl border border-dashed border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+              {tempChatError && (
+                <div className="rounded-xl border border-[color:var(--danger-border)] bg-[color:var(--danger-soft)] px-3 py-2 text-sm text-danger">
+                  {tempChatError}
+                </div>
+              )}
+              {tempChatMessages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-quiet">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" strokeDasharray="4 2.5" />
+                  </svg>
+                  <p className="text-sm text-quiet">Ask anything about this group — tasks, boards, agent status, blockers.</p>
+                  <p className="text-xs text-quiet opacity-60">Not stored · Not visible to agents</p>
+                </div>
+              ) : (
+                tempChatMessages.map((msg, idx) => (
+                  <div key={idx} className={cn("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
+                    <div className={cn(
+                      "max-w-[85%] rounded-2xl px-4 py-2.5 text-sm",
+                      msg.role === "user"
+                        ? "bg-[color:var(--brand)] text-white"
+                        : "border border-dashed border-[color:var(--border)] bg-[color:var(--surface-muted)] text-strong",
+                    )}>
+                      {msg.role === "assistant" ? (
+                        <Markdown content={msg.text} variant="basic" />
+                      ) : msg.text}
+                    </div>
+                  </div>
+                ))
+              )}
+              {isTempChatSending && (
+                <div className="flex justify-start">
+                  <div className="rounded-2xl border border-dashed border-[color:var(--border)] bg-[color:var(--surface-muted)] px-4 py-2.5">
+                    <span className="flex gap-1 text-quiet">
+                      <span className="animate-bounce" style={{ animationDelay: "0ms" }}>·</span>
+                      <span className="animate-bounce" style={{ animationDelay: "150ms" }}>·</span>
+                      <span className="animate-bounce" style={{ animationDelay: "300ms" }}>·</span>
+                    </span>
+                  </div>
+                </div>
+              )}
+              <div ref={tempChatEndRef} />
+            </div>
+            <BoardChatComposer
+              isSending={isTempChatSending}
+              onSend={handleSendTempChat}
+              disabled={isTempChatSending}
+              placeholder="Ask about this group…"
+            />
+          </div>
+        </div>
+      </aside>
 
       {/* Chat panel */}
       <aside

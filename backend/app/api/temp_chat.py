@@ -161,29 +161,35 @@ async def send_temp_chat(
         full_message = message
 
     try:
-        result = await openclaw_call(
+        run_id = str(uuid4())
+        send_result = await openclaw_call(
             "chat.send",
             {
                 "sessionKey": session_key,
                 "message": full_message,
                 "deliver": False,
-                "idempotencyKey": str(uuid4()),
+                "idempotencyKey": run_id,
             },
             config=config,
         )
-        if isinstance(result, dict):
-            text = (
-                result.get("text")
-                or result.get("content")
-                or result.get("message")
-                or str(result)
-            )
-        else:
-            text = str(result) if result else ""
+        # chat.send is async — returns {runId, status: "started"}
+        # Poll agent.wait to block until the turn completes (max 60s)
+        await openclaw_call(
+            "agent.wait",
+            {"runId": run_id, "timeoutMs": 60000},
+            config=config,
+        )
+        # Fetch the last assistant message from chat history
+        history = await openclaw_call(
+            "chat.history",
+            {"sessionKey": session_key, "limit": 3},
+            config=config,
+        )
+        text = _extract_last_assistant_text(history)
         return {"text": text}
     except OpenClawGatewayError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         raise HTTPException(status_code=500, detail="Unexpected error. Please try again.")
 
 
@@ -203,6 +209,29 @@ async def clear_temp_chat(
     except OpenClawGatewayError:
         pass
     return {"ok": True}
+
+
+def _extract_last_assistant_text(history: object) -> str:
+    """Pull the last assistant message text out of a chat.history response."""
+    if not isinstance(history, dict):
+        return ""
+    messages = history.get("messages") or history.get("items") or history.get("history") or []
+    if not isinstance(messages, list):
+        return ""
+    # Walk in reverse to find the last assistant/agent message
+    for msg in reversed(messages):
+        if not isinstance(msg, dict):
+            continue
+        role = msg.get("role") or msg.get("type") or ""
+        if role in ("assistant", "agent", "model"):
+            # Try various content shapes
+            content = msg.get("content") or msg.get("text") or msg.get("message") or ""
+            if isinstance(content, list):
+                # Anthropic-style content blocks
+                parts = [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"]
+                content = "\n".join(parts)
+            return str(content).strip()
+    return ""
 
 
 def _parse_uuid(value: str) -> UUID:
@@ -344,20 +373,28 @@ async def send_group_temp_chat(
         full_message = message
 
     try:
-        result = await openclaw_call(
+        run_id = str(uuid4())
+        await openclaw_call(
             "chat.send",
             {
                 "sessionKey": session_key,
                 "message": full_message,
                 "deliver": False,
-                "idempotencyKey": str(uuid4()),
+                "idempotencyKey": run_id,
             },
             config=config,
         )
-        if isinstance(result, dict):
-            text = result.get("text") or result.get("content") or result.get("message") or str(result)
-        else:
-            text = str(result) if result else ""
+        await openclaw_call(
+            "agent.wait",
+            {"runId": run_id, "timeoutMs": 60000},
+            config=config,
+        )
+        history = await openclaw_call(
+            "chat.history",
+            {"sessionKey": session_key, "limit": 3},
+            config=config,
+        )
+        text = _extract_last_assistant_text(history)
         return {"text": text}
     except OpenClawGatewayError as exc:
         raise HTTPException(status_code=502, detail=str(exc))

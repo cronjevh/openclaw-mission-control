@@ -6,11 +6,9 @@ DELETE /api/v1/boards/{board_id}/temp-chat         — clear session history
 
 from __future__ import annotations
 
-import json
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -89,7 +87,8 @@ async def _build_context_block(
                 (a.name for a in agents if str(a.id) == str(t.assigned_agent_id)),
                 "unassigned",
             )
-            lines.append(f"  • [{t.id[:8]}] {t.title} → {assignee}")
+            task_id_short = str(t.id)[:8]
+            lines.append(f"  • [{task_id_short}] {t.title} → {assignee}")
         if len(lst) > limit:
             lines.append(f"  … +{len(lst) - limit} more")
         return "\n".join(lines)
@@ -137,8 +136,8 @@ async def send_temp_chat(
     request: Request,
     actor: ActorContext = ACTOR_DEP,
     session: AsyncSession = SESSION_DEP,
-) -> StreamingResponse:
-    """Send a message and stream the AI reply as SSE."""
+) -> dict:
+    """Send a message and return the AI reply as JSON."""
     board_uuid = _parse_uuid(board_id)
     board, gateway, config = await _get_board_and_gateway(session, board_uuid, actor)
 
@@ -151,11 +150,9 @@ async def send_temp_chat(
     user_id = str(actor.user.id) if actor.user else "anon"
     session_key = _session_key(board_id, user_id)
 
-    # On first message, prepend board context so the model knows the board state
     if is_first:
         context = await _build_context_block(session, board, board_uuid)
         full_message = f"{context}\n\n{message}"
-        # Reset session so history doesn't bleed across reloads
         try:
             await gw_delete_session(session_key, config=config)
         except OpenClawGatewayError:
@@ -163,41 +160,31 @@ async def send_temp_chat(
     else:
         full_message = message
 
-    async def event_stream():
-        try:
-            result = await openclaw_call(
-                "chat.send",
-                {
-                    "sessionKey": session_key,
-                    "message": full_message,
-                    "deliver": False,
-                    "idempotencyKey": str(uuid4()),
-                },
-                config=config,
+    try:
+        result = await openclaw_call(
+            "chat.send",
+            {
+                "sessionKey": session_key,
+                "message": full_message,
+                "deliver": False,
+                "idempotencyKey": str(uuid4()),
+            },
+            config=config,
+        )
+        if isinstance(result, dict):
+            text = (
+                result.get("text")
+                or result.get("content")
+                or result.get("message")
+                or str(result)
             )
-
-            if isinstance(result, dict):
-                text = (
-                    result.get("text")
-                    or result.get("content")
-                    or result.get("message")
-                    or str(result)
-                )
-            else:
-                text = str(result) if result else ""
-
-            yield f"data: {json.dumps({'text': text, 'done': True})}\n\n"
-
-        except OpenClawGatewayError as exc:
-            yield f"data: {json.dumps({'error': str(exc), 'done': True})}\n\n"
-        except Exception:  # noqa: BLE001
-            yield f"data: {json.dumps({'error': 'Unexpected error. Please try again.', 'done': True})}\n\n"
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+        else:
+            text = str(result) if result else ""
+        return {"text": text}
+    except OpenClawGatewayError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail="Unexpected error. Please try again.")
 
 
 @router.delete("")
@@ -292,7 +279,7 @@ async def _build_group_context_block(
     def fmt(lst: list[Task], limit: int = 5) -> str:
         if not lst:
             return "  (none)"
-        lines = [f"  • [{t.id[:8]}] {t.title}" for t in lst[:limit]]
+        lines = [f"  • [{str(t.id)[:8]}] {t.title}" for t in lst[:limit]]
         if len(lst) > limit:
             lines.append(f"  … +{len(lst) - limit} more")
         return "\n".join(lines)
@@ -333,7 +320,7 @@ async def send_group_temp_chat(
     request: Request,
     actor: ActorContext = ACTOR_DEP,
     session: AsyncSession = SESSION_DEP,
-) -> StreamingResponse:
+) -> dict:
     group_uuid = _parse_uuid(group_id)
     group, gateway, config = await _get_group_and_gateway(session, group_uuid, actor)
 
@@ -356,33 +343,26 @@ async def send_group_temp_chat(
     else:
         full_message = message
 
-    async def event_stream():
-        try:
-            result = await openclaw_call(
-                "chat.send",
-                {
-                    "sessionKey": session_key,
-                    "message": full_message,
-                    "deliver": False,
-                    "idempotencyKey": str(uuid4()),
-                },
-                config=config,
-            )
-            if isinstance(result, dict):
-                text = result.get("text") or result.get("content") or result.get("message") or str(result)
-            else:
-                text = str(result) if result else ""
-            yield f"data: {json.dumps({'text': text, 'done': True})}\n\n"
-        except OpenClawGatewayError as exc:
-            yield f"data: {json.dumps({'error': str(exc), 'done': True})}\n\n"
-        except Exception:  # noqa: BLE001
-            yield f"data: {json.dumps({'error': 'Unexpected error. Please try again.', 'done': True})}\n\n"
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    try:
+        result = await openclaw_call(
+            "chat.send",
+            {
+                "sessionKey": session_key,
+                "message": full_message,
+                "deliver": False,
+                "idempotencyKey": str(uuid4()),
+            },
+            config=config,
+        )
+        if isinstance(result, dict):
+            text = result.get("text") or result.get("content") or result.get("message") or str(result)
+        else:
+            text = str(result) if result else ""
+        return {"text": text}
+    except OpenClawGatewayError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail="Unexpected error. Please try again.")
 
 
 @group_router.delete("")

@@ -231,12 +231,16 @@ async def send_board_temp_chat(
     )
 
     try:
+        # Wake the lead if offline (same as regular board chat)
+        dispatch = GatewayDispatchService(session)
+        await dispatch.wake_agent_if_offline(agent=lead, board=board)
+
         reply = await _send_and_wait(
             session_key=lead.openclaw_session_id,
             message=formatted,
             config=config,
         )
-        return {"text": reply}
+        return {"text": reply or "(No response from the lead agent. The agent may be busy — try again.)"}
     except OpenClawGatewayError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception:  # noqa: BLE001
@@ -308,12 +312,15 @@ async def send_group_temp_chat(
     )
 
     try:
+        dispatch = GatewayDispatchService(session)
+        await dispatch.wake_agent_if_offline(agent=group_agent, board=None)
+
         reply = await _send_and_wait(
             session_key=group_agent.openclaw_session_id,
             message=formatted,
             config=config,
         )
-        return {"text": reply}
+        return {"text": reply or "(No response from the group agent. The agent may be busy — try again.)"}
     except OpenClawGatewayError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception:  # noqa: BLE001

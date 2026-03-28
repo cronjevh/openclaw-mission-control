@@ -256,33 +256,45 @@ def _extract_text_from_msg(msg: dict) -> str:
 
 
 
+async def _get_max_seq(session_key: str, config: GatewayConfig) -> int:
+    """Snapshot the current max seq number in the session history."""
+    try:
+        pre_history = await openclaw_call(
+            "chat.history",
+            {"sessionKey": session_key, "limit": 3},
+            config=config,
+        )
+        messages = pre_history.get("messages") or [] if isinstance(pre_history, dict) else []
+        max_seq = 0
+        for m in messages:
+            seq = (m.get("__openclaw") or {}).get("seq", 0)
+            if isinstance(seq, (int, float)) and seq > max_seq:
+                max_seq = seq
+        return max_seq
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 async def _send_and_wait(
     *,
     session_key: str,
     message: str,
     config: GatewayConfig,
+    pre_seq: int = 0,
 ) -> str:
     """Send a message to the lead agent and wait for the reply.
 
-    Strategy: snapshot the message count before sending, then after agent.wait
-    completes, look for assistant messages with seq > our user message's seq.
-    This avoids false-matching stale replies from prior conversations.
+    pre_seq: snapshot taken BEFORE any wake/ping activity, so we don't
+    mistake ping responses for the actual reply to the user's question.
     """
     import asyncio
     import time
 
-    # Snapshot history to find the current max seq number
-    pre_history = await openclaw_call(
-        "chat.history",
-        {"sessionKey": session_key, "limit": 3},
-        config=config,
-    )
-    pre_messages = pre_history.get("messages") or [] if isinstance(pre_history, dict) else []
-    max_pre_seq = 0
-    for m in pre_messages:
-        seq = (m.get("__openclaw") or {}).get("seq", 0)
-        if isinstance(seq, (int, float)) and seq > max_pre_seq:
-            max_pre_seq = seq
+    # If no pre_seq supplied, snapshot now (single-turn path, no waking needed)
+    if pre_seq == 0:
+        pre_seq = await _get_max_seq(session_key, config)
+
+    max_pre_seq = pre_seq
 
     run_id = str(uuid4())
     sent_at = time.monotonic()
@@ -403,6 +415,9 @@ async def send_board_temp_chat(
     )
 
     try:
+        # Snapshot seq BEFORE waking so ping messages don't shift our baseline
+        pre_seq = await _get_max_seq(lead.openclaw_session_id, config)
+
         # Ensure the lead is alive and has a valid token before sending
         await _ensure_agent_ready(session, agent=lead, board=board)
 
@@ -410,6 +425,7 @@ async def send_board_temp_chat(
             session_key=lead.openclaw_session_id,
             message=formatted,
             config=config,
+            pre_seq=pre_seq,
         )
         return {"text": reply or "(No response from the lead agent. The agent may be busy — try again.)"}
     except OpenClawGatewayError as exc:
@@ -483,12 +499,15 @@ async def send_group_temp_chat(
     )
 
     try:
+        pre_seq = await _get_max_seq(group_agent.openclaw_session_id, config)
+
         await _ensure_agent_ready(session, agent=group_agent, board=None)
 
         reply = await _send_and_wait(
             session_key=group_agent.openclaw_session_id,
             message=formatted,
             config=config,
+            pre_seq=pre_seq,
         )
         return {"text": reply or "(No response from the group agent. The agent may be busy — try again.)"}
     except OpenClawGatewayError as exc:

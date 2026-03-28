@@ -44,6 +44,19 @@ def _actor_name(actor: ActorContext) -> str:
     return "User"
 
 
+def _extract_text_from_msg(msg: dict) -> str:
+    """Extract plain text from an assistant message dict."""
+    content = msg.get("content", "")
+    if isinstance(content, list):
+        parts = [
+            b.get("text", "")
+            for b in content
+            if isinstance(b, dict) and b.get("type") == "text"
+        ]
+        return "\n".join(parts).strip()
+    return str(content).strip()
+
+
 def _extract_reply(history: object) -> str:
     """Pull the last assistant text from a chat.history response."""
     if not isinstance(history, dict):
@@ -56,15 +69,31 @@ def _extract_reply(history: object) -> str:
             continue
         if msg.get("role") != "assistant":
             continue
-        content = msg.get("content", "")
-        if isinstance(content, list):
-            parts = [
-                b.get("text", "")
-                for b in content
-                if isinstance(b, dict) and b.get("type") == "text"
-            ]
-            return "\n".join(parts).strip()
-        return str(content).strip()
+        text = _extract_text_from_msg(msg)
+        if text:
+            return text
+    return ""
+
+
+def _extract_reply_after(history: object, after_ts_ms: int) -> str:
+    """Pull the last assistant text that arrived after `after_ts_ms`."""
+    if not isinstance(history, dict):
+        return ""
+    messages = history.get("messages") or []
+    if not isinstance(messages, list):
+        return ""
+    for msg in reversed(messages):
+        if not isinstance(msg, dict):
+            continue
+        if msg.get("role") != "assistant":
+            continue
+        ts = msg.get("timestamp", 0)
+        if isinstance(ts, (int, float)) and ts < after_ts_ms:
+            # This message is older than our send — stop looking
+            break
+        text = _extract_text_from_msg(msg)
+        if text:
+            return text
     return ""
 
 
@@ -74,8 +103,19 @@ async def _send_and_wait(
     message: str,
     config: GatewayConfig,
 ) -> str:
-    """Send a message to an agent session and wait for the reply."""
+    """Send a message to an agent session and wait for the reply.
+
+    agent.wait only signals when the *current* run finishes, but the lead
+    may do multiple tool-use turns before giving a final text reply. We poll
+    chat.history until we see a new assistant text message that appeared after
+    our user message, or until we hit the overall timeout.
+    """
+    import asyncio
+    import time
+
     run_id = str(uuid4())
+    sent_at = time.monotonic()
+
     await openclaw_call(
         "chat.send",
         {
@@ -86,17 +126,55 @@ async def _send_and_wait(
         },
         config=config,
     )
-    await openclaw_call(
-        "agent.wait",
-        {"runId": run_id, "timeoutMs": _WAIT_TIMEOUT_MS},
-        config=config,
-    )
+
+    # Record the timestamp of the user message we just sent so we only
+    # accept assistant replies that come *after* it.
+    sent_ts = int(time.time() * 1000)
+
+    deadline = sent_at + _WAIT_TIMEOUT_MS / 1000
+
+    while time.monotonic() < deadline:
+        # Wait for the current agent run to finish
+        remaining_ms = max(1000, int((deadline - time.monotonic()) * 1000))
+        wait_result = await openclaw_call(
+            "agent.wait",
+            {"runId": run_id, "timeoutMs": min(remaining_ms, 30_000)},
+            config=config,
+        )
+
+        # Fetch history and look for a final text reply after our message
+        history = await openclaw_call(
+            "chat.history",
+            {"sessionKey": session_key, "limit": 10},
+            config=config,
+        )
+        text = _extract_reply_after(history, sent_ts)
+        if text:
+            return text
+
+        # If the agent is still running more tool-use turns, wait a bit
+        # and get the next run's completion signal
+        if wait_result.get("status") in ("ok", "timeout"):
+            # Try once more with a fresh wait for any follow-up turns
+            await asyncio.sleep(1)
+            history = await openclaw_call(
+                "chat.history",
+                {"sessionKey": session_key, "limit": 10},
+                config=config,
+            )
+            text = _extract_reply_after(history, sent_ts)
+            if text:
+                return text
+            # No more turns expected - break out
+            break
+
+    # Last attempt
     history = await openclaw_call(
         "chat.history",
-        {"sessionKey": session_key, "limit": 4},
+        {"sessionKey": session_key, "limit": 10},
         config=config,
     )
-    return _extract_reply(history)
+    return _extract_reply_after(history, sent_ts) or _extract_reply(history)
 
 
 # ---------------------------------------------------------------------------

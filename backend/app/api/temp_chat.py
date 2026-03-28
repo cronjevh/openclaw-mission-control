@@ -133,46 +133,54 @@ async def _ensure_agent_ready(
         # We need to wait for the agent session to actually be ready.
         config = GatewayConfig(url=gateway.url, token=gateway.token)
 
+        # Wait for the reconcile job to run (it has ~30s delay).
+        # Poll by checking if any new message appears in the session after the wakeup.
         if agent.openclaw_session_id:
             import asyncio
 
-            # Poll until the agent session exists and responds, up to 40s
-            for attempt in range(8):
+            # Get seq before wakeup delivery so we can detect when agent responds
+            try:
+                pre_wake_hist = await openclaw_call(
+                    "chat.history",
+                    {"sessionKey": agent.openclaw_session_id, "limit": 2},
+                    config=config,
+                )
+                pre_wake_msgs = pre_wake_hist.get("messages") or [] if isinstance(pre_wake_hist, dict) else []
+                pre_wake_seq = max(
+                    ((m.get("__openclaw") or {}).get("seq", 0) for m in pre_wake_msgs),
+                    default=0,
+                )
+            except Exception:  # noqa: BLE001
+                pre_wake_seq = 0
+
+            # Poll for up to 40s until the agent has processed the wakeup
+            for _ in range(8):
                 await asyncio.sleep(5)
                 try:
-                    # Send a lightweight ping — if the session is alive it'll process it
-                    run_id = str(uuid4())
-                    await openclaw_call(
-                        "chat.send",
-                        {
-                            "sessionKey": agent.openclaw_session_id,
-                            "message": (
-                                "SYSTEM: Your AUTH_TOKEN was just refreshed. "
-                                "Re-read your TOOLS.md file NOW to pick up the new token. "
-                                "The old token is invalid (401). Do this before any API calls."
-                            ),
-                            "deliver": False,
-                            "idempotencyKey": run_id,
-                        },
+                    post_hist = await openclaw_call(
+                        "chat.history",
+                        {"sessionKey": agent.openclaw_session_id, "limit": 3},
                         config=config,
                     )
-                    # Wait for it to actually process
-                    wait_result = await openclaw_call(
-                        "agent.wait",
-                        {"runId": run_id, "timeoutMs": 15000},
-                        config=config,
+                    post_msgs = post_hist.get("messages") or [] if isinstance(post_hist, dict) else []
+                    post_seq = max(
+                        ((m.get("__openclaw") or {}).get("seq", 0) for m in post_msgs),
+                        default=0,
                     )
-                    if wait_result.get("status") == "ok":
+                    # Agent has responded to wakeup if a new assistant message appeared
+                    new_assistant = any(
+                        m.get("role") == "assistant"
+                        and (m.get("__openclaw") or {}).get("seq", 0) > pre_wake_seq
+                        for m in post_msgs
+                        if isinstance(m, dict)
+                    )
+                    if new_assistant or post_seq > pre_wake_seq + 2:
                         logger.info("temp_chat.ensure_agent_ready.agent_alive", extra={
-                            "agent_name": agent.name, "attempts": attempt + 1
+                            "agent_name": agent.name, "pre_wake_seq": pre_wake_seq, "post_seq": post_seq,
                         })
                         break
                 except Exception:  # noqa: BLE001
                     continue
-            else:
-                logger.warning("temp_chat.ensure_agent_ready.agent_not_responding", extra={
-                    "agent_name": agent.name
-                })
 
     except Exception as exc:  # noqa: BLE001
         logger.warning("temp_chat.ensure_agent_ready.failed", extra={"error": str(exc)})
@@ -405,11 +413,10 @@ async def send_board_temp_chat(
     )
 
     try:
-        # Snapshot seq BEFORE waking so ping messages don't shift our baseline
-        pre_seq = await _get_max_seq(lead.openclaw_session_id, config)
-
-        # Ensure the lead is alive and has a valid token before sending
+        # Wake the agent first, then snapshot seq AFTER so the ping exchange
+        # is included in the baseline — our question lands after all ping seqs
         await _ensure_agent_ready(session, agent=lead, board=board)
+        pre_seq = await _get_max_seq(lead.openclaw_session_id, config)
 
         reply = await _send_and_wait(
             session_key=lead.openclaw_session_id,
@@ -489,9 +496,8 @@ async def send_group_temp_chat(
     )
 
     try:
-        pre_seq = await _get_max_seq(group_agent.openclaw_session_id, config)
-
         await _ensure_agent_ready(session, agent=group_agent, board=None)
+        pre_seq = await _get_max_seq(group_agent.openclaw_session_id, config)
 
         reply = await _send_and_wait(
             session_key=group_agent.openclaw_session_id,

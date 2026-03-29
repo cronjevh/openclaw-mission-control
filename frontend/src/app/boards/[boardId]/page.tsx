@@ -3926,15 +3926,27 @@ export default function BoardDetailPage() {
       >
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between border-b border-[color:var(--border)] px-6 py-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
-                Task detail
-              </p>
+            <div className="min-w-0 flex-1 pr-4">
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
+                  Task detail
+                </p>
+                {selectedTask && (
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(selectedTask.id)}
+                    className="cursor-pointer rounded bg-[color:var(--surface-strong)] px-2 py-0.5 font-mono text-xs text-quiet transition hover:bg-[color:var(--surface-muted)]"
+                    title="Click to copy task ID"
+                  >
+                    {selectedTask.id}
+                  </button>
+                )}
+              </div>
               <p className="mt-1 text-sm font-medium text-strong">
                 {selectedTask?.title ?? "Task"}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               <button
                 type="button"
                 onClick={() => setIsEditDialogOpen(true)}
@@ -3954,19 +3966,6 @@ export default function BoardDetailPage() {
             </div>
           </div>
           <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
-            {selectedTask && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-quiet">
-                  Task ID
-                </span>
-                <span
-                  className="cursor-pointer select-all rounded bg-[color:var(--surface-strong)] px-2 py-0.5 font-mono text-xs text-quiet hover:bg-[color:var(--surface-strong)] dark:hover:bg-[color:var(--surface-strong)]"
-                  title="Click to select"
-                >
-                  {selectedTask.id}
-                </span>
-              </div>
-            )}
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
                 Description

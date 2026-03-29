@@ -3965,7 +3965,7 @@ export default function BoardDetailPage() {
               </button>
             </div>
           </div>
-          <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
+          <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
                 Description

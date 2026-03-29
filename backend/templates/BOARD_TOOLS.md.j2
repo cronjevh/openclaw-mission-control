@@ -165,3 +165,34 @@ git config --global user.email "agent@teamosis.com"
 - Every agent uses the same identity: name `agent`, email `agent@teamosis.com`.
 - Never use your own agent name or any other identity.
 - Set this at the start of any session involving git operations.
+
+## Browser Access
+
+You have access to a shared Chromium browser via the `browser` tool. Use it when a task requires visiting a website, filling a form, taking screenshots, scraping dynamic content, or interacting with web UIs.
+
+### How to use
+
+The browser connects to a shared headless Chromium instance (port 18800). Always use `target="host"`:
+
+```
+browser(action="open", url="https://example.com", target="host")
+browser(action="snapshot", target="host", targetId="<id from open>")
+browser(action="screenshot", target="host", targetId="<id>")
+browser(action="act", target="host", targetId="<id>", request={"kind": "click", "ref": "<ref>"})
+browser(action="navigate", target="host", targetId="<id>", url="https://...")
+```
+
+### Typical workflow
+
+1. `browser(action="open", url="...", target="host")` — get `targetId`
+2. `browser(action="snapshot", ...)` — read the page structure and get element refs
+3. `browser(action="act", ..., request={"kind": "click", "ref": "eXX"})` — interact
+4. `browser(action="screenshot", ...)` — capture for visual confirmation
+
+### Rules
+
+- Always pass `target="host"` — never omit it
+- Use refs from `snapshot` for clicking/typing (e.g. `ref="e12"`)
+- After navigation, take a fresh snapshot to get updated refs
+- If the page requires login and you don't have credentials, ask before proceeding
+- Do NOT use the browser for tasks that can be done with `web_fetch` or `exec/curl` — reserve it for JS-heavy sites and interactive flows

@@ -124,6 +124,7 @@ async def _ensure_agent_ready(
             board=resolved_board,
             user=None,
             action="update",
+            auth_token=new_token,
             wake=True,
             deliver_wakeup=True,
             raise_gateway_errors=False,

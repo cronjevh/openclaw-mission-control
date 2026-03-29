@@ -2,6 +2,21 @@
 {% set is_lead = (is_board_lead | default(false) | string | lower) in ["true", "1", "yes"] %}
 # TOOLS.md
 
+BASE_URL={{ base_url }}
+AUTH_TOKEN={{ auth_token }}
+AGENT_NAME={{ agent_name }}
+AGENT_ID={{ agent_id }}
+{% if board_id is defined and board_id %}
+BOARD_ID={{ board_id }}
+{% endif %}
+{% if group_id is defined and group_id %}
+GROUP_ID={{ group_id }}
+{% endif %}
+WORKSPACE_ROOT={{ workspace_root }}
+{% if workspace_path is defined %}
+WORKSPACE_PATH={{ workspace_path }}
+{% endif %}
+
 - `BASE_URL={{ base_url }}`
 - `AUTH_TOKEN={{ auth_token }}`
 - `AGENT_NAME={{ agent_name }}`
@@ -85,9 +100,11 @@ No secrets provisioned yet. If a task needs external credentials, follow the Cre
 **Always fetch secrets at runtime via API — never hardcode values:**
 
 ```bash
+AUTH_TOKEN=$(grep '^AUTH_TOKEN=' TOOLS.md | head -n1 | cut -d= -f2 | tr -d '`')
+
 # Fetch all board secrets and export as env vars
 eval $(curl -s -X GET "{{ base_url }}/api/v1/agent/secrets" \
-  -H "X-Agent-Token: {{ auth_token }}" | \
+  -H "X-Agent-Token: $AUTH_TOKEN" | \
   jq -r '.[] | "export \(.key)=\(.value | @sh)"')
 
 # Then use normally, e.g.:

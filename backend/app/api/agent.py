@@ -53,7 +53,9 @@ from app.schemas.health import AgentHealthStatusResponse
 from app.schemas.pagination import DefaultLimitOffsetPage
 from app.schemas.tags import TagRef
 from app.schemas.tasks import TaskCommentCreate, TaskCommentRead, TaskCreate, TaskRead, TaskUpdate
+from app.schemas.view_models import BoardSnapshot
 from app.services.activity_log import record_activity
+from app.services.board_snapshot import build_board_snapshot
 from app.services.openclaw.coordination_service import GatewayCoordinationService
 from app.services.openclaw.policies import OpenClawAuthorizationPolicy
 from app.services.openclaw.provisioning_db import AgentLifecycleService
@@ -589,6 +591,37 @@ async def list_tasks(
 
 
 @router.get(
+    "/boards/{board_id}/snapshot",
+    response_model=BoardSnapshot,
+    tags=AGENT_BOARD_TAGS,
+    openapi_extra=_agent_board_openapi_hints(
+        intent="agent_board_snapshot",
+        when_to_use=[
+            "Agent needs a denormalized board snapshot for planning and context rebuild.",
+            "Existing clients still request the board snapshot via the agent API namespace.",
+        ],
+        routing_examples=[
+            {
+                "input": {
+                    "intent": "rebuild board context from a single snapshot payload",
+                    "required_privilege": "any_agent",
+                },
+                "decision": "agent_board_snapshot",
+            }
+        ],
+    ),
+)
+async def get_board_snapshot(
+    board: Board = BOARD_DEP,
+    session: AsyncSession = SESSION_DEP,
+    agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
+) -> BoardSnapshot:
+    """Return a board snapshot visible to the authenticated board agent."""
+    _guard_board_access(agent_ctx, board)
+    return await build_board_snapshot(session, board)
+
+
+@router.get(
     "/boards/{board_id}/tags",
     response_model=list[TagRef],
     tags=AGENT_BOARD_TAGS,
@@ -938,6 +971,49 @@ async def update_task(
         task=task,
         session=session,
         actor=_actor(agent_ctx),
+    )
+
+
+@router.get(
+    "/boards/{board_id}/tasks/{task_id}",
+    response_model=TaskRead,
+    tags=AGENT_BOARD_TAGS,
+    openapi_extra=_agent_board_openapi_hints(
+        intent="agent_task_read",
+        when_to_use=[
+            "Agent needs the latest task details before working, reviewing, or updating it.",
+            "Existing clients still request single-task reads with optional comment compatibility flags.",
+        ],
+        routing_examples=[
+            {
+                "input": {
+                    "intent": "load a single task before continuing work",
+                    "required_privilege": "any_agent",
+                },
+                "decision": "agent_task_read",
+            }
+        ],
+    ),
+)
+async def get_task(
+    task: Task = TASK_DEP,
+    session: AsyncSession = SESSION_DEP,
+    agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
+    include_comments: bool = Query(default=False, alias="includeComments"),
+) -> TaskRead:
+    """Read a single task visible to the authenticated board agent.
+
+    `includeComments` is accepted for compatibility with existing agent clients.
+    Comments remain available from the dedicated task-comments endpoint.
+    """
+    _ = include_comments
+    _guard_task_access(agent_ctx, task)
+    if task.board_id is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT)
+    return await tasks_api._task_read_response(
+        session,
+        task=task,
+        board_id=task.board_id,
     )
 
 

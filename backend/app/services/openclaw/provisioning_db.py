@@ -527,36 +527,12 @@ async def _resolve_agent_auth_token(
         return None, True
 
     if not auth_token:
-        if not ctx.options.rotate_tokens:
-            result.agents_skipped += 1
-            _append_sync_error(
-                result,
-                agent=agent,
-                board=board,
-                message=(
-                    "Skipping agent: unable to read AUTH_TOKEN from TOOLS.md "
-                    "(run with rotate_tokens=true to re-key)."
-                ),
-            )
-            return None, False
         auth_token = await _rotate_agent_token(ctx.session, agent)
-
-    if agent.agent_token_hash and not verify_agent_token(
+    elif agent.agent_token_hash and not verify_agent_token(
         auth_token,
         agent.agent_token_hash,
     ):
-        if ctx.options.rotate_tokens:
-            auth_token = await _rotate_agent_token(ctx.session, agent)
-        else:
-            _append_sync_error(
-                result,
-                agent=agent,
-                board=board,
-                message=(
-                    "Warning: AUTH_TOKEN in TOOLS.md does not match backend "
-                    "token hash (agent auth may be broken)."
-                ),
-            )
+        auth_token = await _rotate_agent_token(ctx.session, agent)
     return auth_token, False
 
 

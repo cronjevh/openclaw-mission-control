@@ -3971,7 +3971,7 @@ export default function BoardDetailPage() {
                 Description
               </p>
               {selectedTask?.description ? (
-                <div className="prose prose-sm max-w-none dark:prose-invert text-[color:var(--text)]">
+                <div className="prose prose-sm max-w-none dark:prose-invert text-[color:var(--text)] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
                   <CollapsibleMarkdown
                     content={selectedTask.description}
                     variant="description"

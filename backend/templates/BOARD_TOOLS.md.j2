@@ -152,3 +152,16 @@ eval $(curl -s -X GET "{{ base_url }}/api/v1/agent/secrets" \
 - Fetch once per session/task, not on every command.
 - Never log, print, or store the fetched values anywhere.
 - If a needed key is missing from the API response, follow the Credentials Protocol in `AGENTS.md`.
+
+## Git Identity
+
+**Always set before any git commit:**
+
+```bash
+git config --global user.name "agent"
+git config --global user.email "agent@teamosis.com"
+```
+
+- Every agent uses the same identity: name `agent`, email `agent@teamosis.com`.
+- Never use your own agent name or any other identity.
+- Set this at the start of any session involving git operations.

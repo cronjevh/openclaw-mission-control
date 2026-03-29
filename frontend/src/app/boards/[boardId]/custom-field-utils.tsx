@@ -206,7 +206,7 @@ export const parseCustomFieldInputValue = (
     definition.field_type === "text" ||
     definition.field_type === "text_long"
   ) {
-    return trimmed;
+    return text; // preserve spaces while typing; trimming happens on save
   }
   if (definition.field_type === "integer") {
     if (!/^-?\d+$/.test(trimmed)) return trimmed;

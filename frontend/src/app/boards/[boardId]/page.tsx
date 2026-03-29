@@ -4038,18 +4038,19 @@ export default function BoardDetailPage() {
                         className="inline-flex items-center gap-1.5 rounded-full border border-[color:var(--border)] bg-[color:var(--surface)] px-2.5 py-1 text-xs font-semibold text-muted"
                       >
                         <span
-                        className="h-2 w-2 rounded-full"
-                        style={{
-                          backgroundColor: `#${normalizeTagColor(tag.color)}`,
-                        }}
-                      />
-                      {tag.name}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-quiet">No tags assigned.</p>
-              )}
+                          className="h-2 w-2 rounded-full"
+                          style={{
+                            backgroundColor: `#${normalizeTagColor(tag.color)}`,
+                          }}
+                        />
+                        {tag.name}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-quiet">No tags assigned.</p>
+                )}
+              </div>
             </div>
             {(() => {
               const hasDependencies =
@@ -4072,7 +4073,6 @@ export default function BoardDetailPage() {
                   : hasResolvedDependencies
                     ? "This task resolves these tasks."
                     : null;
-
               return (
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wider text-quiet">

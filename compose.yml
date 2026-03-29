@@ -36,28 +36,35 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      # Use localhost since host networking shares the host network namespace
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@localhost:5432/${POSTGRES_DB:-mission_control}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-mission_control}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       DB_AUTO_MIGRATE: ${DB_AUTO_MIGRATE:-true}
       AUTH_MODE: ${AUTH_MODE}
       LOCAL_AUTH_TOKEN: ${LOCAL_AUTH_TOKEN}
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
       BASE_URL: ${BASE_URL}
-      RQ_REDIS_URL: redis://localhost:6379/0
+      RQ_REDIS_URL: redis://redis:6379/0
       OPENCLAW_GATEWAY_DEVICE_IDENTITY_PATH: /app/identity/mission-control.json
       OPENCLAW_CONFIG_PATH: /etc/openclaw/config.json
-      WORKSPACE_ROOT_REMAP: /root/.openclaw/workspace=/app/workspaces
+      WORKSPACE_ROOT_REMAP: /home/cronjev/.openclaw/workspace=/app/workspaces
     volumes:
-      - /root/.openclaw/identity:/app/identity:rw
-      - /root/.openclaw/workspace:/app/workspaces:rw
-      - /root/.openclaw/openclaw.json:/etc/openclaw/config.json:ro
+      - /home/cronjev/.openclaw/identity:/app/identity:rw
+      - /home/cronjev/.openclaw/workspace:/app/workspaces:rw
+      - /home/cronjev/.openclaw/openclaw.json:/etc/openclaw/config.json:ro
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_started
-    network_mode: host
+    ports:
+      - "${BACKEND_PORT:-8000}:${BACKEND_PORT:-8000}"
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - ${BACKEND_PORT:-8000}
 
   frontend:
     build:
@@ -119,6 +126,13 @@ services:
       RQ_QUEUE_NAME: ${RQ_QUEUE_NAME:-default}
       RQ_DISPATCH_THROTTLE_SECONDS: ${RQ_DISPATCH_THROTTLE_SECONDS:-2.0}
       RQ_DISPATCH_MAX_RETRIES: ${RQ_DISPATCH_MAX_RETRIES:-3}
+      OPENCLAW_GATEWAY_DEVICE_IDENTITY_PATH: /app/identity/mission-control.json
+      OPENCLAW_CONFIG_PATH: /etc/openclaw/config.json
+      WORKSPACE_ROOT_REMAP: /home/cronjev/.openclaw/workspace=/app/workspaces
+    volumes:
+      - /home/cronjev/.openclaw/identity:/app/identity:rw
+      - /home/cronjev/.openclaw/workspace:/app/workspaces:rw
+      - /home/cronjev/.openclaw/openclaw.json:/etc/openclaw/config.json:ro
     restart: unless-stopped
 
 volumes:

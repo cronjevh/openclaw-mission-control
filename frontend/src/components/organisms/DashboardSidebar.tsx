@@ -19,6 +19,7 @@ import {
 
 import { useAuth } from "@/auth/clerk";
 import { ApiError } from "@/api/mutator";
+import { GlobalSearch } from "@/components/ui/GlobalSearch";
 import { useOrganizationMembership } from "@/lib/use-organization-membership";
 import {
   type healthzHealthzGetResponse,
@@ -61,6 +62,9 @@ export function DashboardSidebar() {
     <aside className="flex h-full min-h-0 w-[260px] flex-col border-r border-[color:var(--border)] bg-[color:var(--surface)]">
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-4">
         <nav className="space-y-4 text-sm">
+          <div className="mb-2">
+            <GlobalSearch />
+          </div>
           <div>
             <p className="px-3 text-[11px] font-semibold uppercase tracking-wider text-quiet">
               Overview

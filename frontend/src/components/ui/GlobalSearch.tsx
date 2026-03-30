@@ -78,7 +78,6 @@ export function GlobalSearch() {
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
-  const pathname = usePathname();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Search, FileText, MessageSquare, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getLocalAuthToken, isLocalAuthMode } from "@/auth/localAuth";
@@ -80,13 +80,9 @@ export function GlobalSearch() {
   const router = useRouter();
   const pathname = usePathname();
 
-  // Only register Cmd+K when NOT on a board page (board pages have their own)
-  const isOnBoardPage = pathname.startsWith("/boards/");
-
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        if (isOnBoardPage) return; // let board-level search handle it
         e.preventDefault();
         setOpen((v) => !v);
       }
@@ -94,7 +90,7 @@ export function GlobalSearch() {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [isOnBoardPage]);
+  }, []);
 
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 50);

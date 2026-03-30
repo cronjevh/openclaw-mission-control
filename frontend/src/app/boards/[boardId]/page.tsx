@@ -139,6 +139,7 @@ import {
   firstMissingRequiredCustomField,
   formatCustomFieldDetailValue,
   isCustomFieldVisible,
+  isCustomFieldValueSet,
   type TaskCustomFieldValues,
 } from "./custom-field-utils";
 
@@ -3997,18 +3998,46 @@ export default function BoardDetailPage() {
                 <p className="text-sm text-muted">{selectedTask?.assignee ?? "Unassigned"}</p>
               </div>
             </div>
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
-                Tags
-              </p>
-              {selectedTask?.tags?.length ? (
-                <div className="flex flex-wrap gap-2">
-                  {selectedTask.tags.map((tag) => (
-                    <span
-                      key={tag.id}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-[color:var(--border)] bg-[color:var(--surface)] px-2.5 py-1 text-xs font-semibold text-muted"
-                    >
+            <div className="grid grid-cols-2 gap-4">
+              {boardCustomFieldDefinitions.some((def) => {
+                const value = selectedTask?.custom_field_values?.[def.field_key];
+                return isCustomFieldVisible(def, value) && isCustomFieldValueSet(value);
+              }) && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
+                    Custom fields
+                  </p>
+                  <div className="space-y-1.5">
+                    {boardCustomFieldDefinitions.map((def) => {
+                      const value =
+                        selectedTask?.custom_field_values?.[def.field_key];
+                      if (!isCustomFieldVisible(def, value) || !isCustomFieldValueSet(value)) return null;
+                      return (
+                        <div key={def.id} className="flex items-start gap-2">
+                          <span className="min-w-[100px] text-xs font-medium text-quiet">
+                            {def.label || def.field_key}
+                          </span>
+                          <span className="text-xs text-muted">
+                            {formatCustomFieldDetailValue(def, value)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
+                  Tags
+                </p>
+                {selectedTask?.tags?.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedTask.tags.map((tag) => (
                       <span
+                        key={tag.id}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-[color:var(--border)] bg-[color:var(--surface)] px-2.5 py-1 text-xs font-semibold text-muted"
+                      >
+                        <span
                         className="h-2 w-2 rounded-full"
                         style={{
                           backgroundColor: `#${normalizeTagColor(tag.color)}`,
@@ -4022,38 +4051,33 @@ export default function BoardDetailPage() {
                 <p className="text-sm text-quiet">No tags assigned.</p>
               )}
             </div>
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
-                Dependencies
-              </p>
-              {(() => {
-                const hasDependencies =
-                  (selectedTask?.depends_on_task_ids?.length ?? 0) > 0;
-                const hasResolvedDependencies =
-                  selectedTaskResolvedDependencies.length > 0;
-                const isDependencyModeBlocked = hasDependencies
-                  ? selectedTask?.is_blocked === true
-                  : false;
-                const bannerVariant =
-                  hasDependencies || hasResolvedDependencies
-                    ? isDependencyModeBlocked
-                      ? "blocked"
-                      : "resolved"
-                    : "blocked";
-                const displayedDependencies =
-                  hasDependencies && selectedTask
-                    ? selectedTaskDependencies
-                    : selectedTaskResolvedDependencies;
-                const childrenMessage =
-                  hasDependencies && selectedTask?.is_blocked
-                    ? "Blocked by incomplete dependencies."
-                    : hasDependencies
-                      ? "Dependencies resolved."
-                      : hasResolvedDependencies
-                        ? "This task resolves these tasks."
-                        : null;
+            {(() => {
+              const hasDependencies =
+                (selectedTask?.depends_on_task_ids?.length ?? 0) > 0;
+              const hasResolvedDependencies =
+                selectedTaskResolvedDependencies.length > 0;
+              if (!hasDependencies && !hasResolvedDependencies) return null;
+              const isDependencyModeBlocked = hasDependencies
+                ? selectedTask?.is_blocked === true
+                : false;
+              const bannerVariant =
+                isDependencyModeBlocked ? "blocked" : "resolved";
+              const displayedDependencies = hasDependencies && selectedTask
+                ? selectedTaskDependencies
+                : selectedTaskResolvedDependencies;
+              const childrenMessage = hasDependencies && selectedTask?.is_blocked
+                ? "Blocked by incomplete dependencies."
+                : hasDependencies
+                  ? "Dependencies resolved."
+                  : hasResolvedDependencies
+                    ? "This task resolves these tasks."
+                    : null;
 
-                return (
+              return (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
+                    Dependencies
+                  </p>
                   <DependencyBanner
                     dependencies={displayedDependencies}
                     variant={bannerVariant}
@@ -4061,9 +4085,9 @@ export default function BoardDetailPage() {
                   >
                     {childrenMessage}
                   </DependencyBanner>
-                );
-              })()}
-            </div>
+                </div>
+              );
+            })()}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold uppercase tracking-wider text-quiet">

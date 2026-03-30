@@ -15,6 +15,7 @@ from app.models.boards import Board
 from app.models.tasks import Task
 from app.services.organizations import list_accessible_board_ids
 
+
 if TYPE_CHECKING:
     from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -78,10 +79,7 @@ async def global_search(
 
     tasks_out = []
     for row in task_rows:
-        if isinstance(row, tuple):
-            task, board_name = row
-        else:
-            continue
+        task, board_name = row[0], row[1]
         tasks_out.append(
             {
                 "id": str(task.id),
@@ -95,10 +93,7 @@ async def global_search(
 
     comments_out = []
     for row in comment_rows:
-        if isinstance(row, tuple):
-            event, task, board_name = row
-        else:
-            continue
+        event, task, board_name = row[0], row[1], row[2]
         comments_out.append(
             {
                 "id": str(event.id),

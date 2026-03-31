@@ -85,16 +85,53 @@ The following documents/guides are available for this board:
 No board documents available yet.
 {% endif %}
 
+## Managed Capability Policy
+
+{% if agent_capabilities %}
+{% if agent_capabilities.policy_name %}
+- Policy: `{{ agent_capabilities.policy_name }}`
+{% endif %}
+{% if agent_capabilities.secret_keys %}
+- Allowed secret keys:
+{% for key in agent_capabilities.secret_keys %}
+  - `{{ key }}`
+{% endfor %}
+{% endif %}
+{% if agent_capabilities.required_secret_keys %}
+- Required secret keys:
+{% for key in agent_capabilities.required_secret_keys %}
+  - `{{ key }}`
+{% endfor %}
+{% endif %}
+{% if agent_capabilities.skills %}
+- Allowed skills:
+{% for skill in agent_capabilities.skills %}
+  - `{{ skill }}`
+{% endfor %}
+{% endif %}
+{% if agent_capabilities.file_access %}
+- Approved file access roots:
+{% for path in agent_capabilities.file_access %}
+  - `{{ path }}`
+{% endfor %}
+{% endif %}
+{% if agent_capabilities.notes %}
+- Notes: {{ agent_capabilities.notes }}
+{% endif %}
+{% else %}
+No managed capability policy assigned. This agent currently inherits the board's full secret set and default workspace behavior.
+{% endif %}
+
 ## Board Secrets
 
 {% if board_secrets %}
-The following secret keys are provisioned for this board:
+The following secret keys are available to this agent:
 {% for secret in board_secrets %}
 - `{{ secret.key }}`{% if secret.description %} — {{ secret.description }}{% endif %}
 
 {% endfor %}
 {% else %}
-No secrets provisioned yet. If a task needs external credentials, follow the Credentials Protocol in `AGENTS.md`.
+No secrets are currently available to this agent. If work needs credentials outside this policy, escalate to the gateway main / admin flow first.
 {% endif %}
 
 **Always fetch secrets at runtime via API — never hardcode values:**

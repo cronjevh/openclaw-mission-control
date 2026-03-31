@@ -138,6 +138,27 @@ export default function AgentDetailPage() {
 
   const isDeleting = deleteMutation.isPending;
   const agentStatus = agent?.status ?? "unknown";
+  const capabilities = useMemo(() => {
+    const raw = agent?.identity_profile;
+    if (!raw || typeof raw !== "object") return null;
+    const record = raw as Record<string, unknown>;
+    const policy = record.capabilities;
+    if (!policy || typeof policy !== "object") return null;
+    return policy as Record<string, unknown>;
+  }, [agent?.identity_profile]);
+  const capabilityList = (key: string): string[] => {
+    const value = capabilities?.[key];
+    if (Array.isArray(value)) {
+      return value.map((entry) => String(entry)).filter(Boolean);
+    }
+    if (typeof value === "string") {
+      return value
+        .split(/\r?\n|,/)
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    }
+    return [];
+  };
 
   const handleDelete = () => {
     if (!agentId || !isSignedIn) return;
@@ -316,6 +337,76 @@ export default function AgentDetailPage() {
                         <span className="text-strong">{agentStatus}</span>
                       </div>
                     </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-quiet">
+                      Managed access policy
+                    </p>
+                    {capabilities ? (
+                      <div className="mt-4 space-y-4 text-sm text-muted">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-quiet">
+                            Policy
+                          </p>
+                          <p className="mt-1 text-sm text-strong">
+                            {typeof capabilities.policy_name === "string" &&
+                            capabilities.policy_name.trim()
+                              ? capabilities.policy_name
+                              : "Custom"}
+                          </p>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-quiet">
+                              Allowed secrets
+                            </p>
+                            <p className="mt-1 text-sm text-strong">
+                              {capabilityList("secret_keys").join(", ") || "Inherited"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-quiet">
+                              Required secrets
+                            </p>
+                            <p className="mt-1 text-sm text-strong">
+                              {capabilityList("required_secret_keys").join(", ") || "None"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-quiet">
+                              Allowed skills
+                            </p>
+                            <p className="mt-1 text-sm text-strong">
+                              {capabilityList("skills").join(", ") || "Not specified"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-quiet">
+                              File access roots
+                            </p>
+                            <p className="mt-1 text-sm text-strong">
+                              {capabilityList("file_access").join(", ") || "Workspace defaults"}
+                            </p>
+                          </div>
+                        </div>
+                        {typeof capabilities.notes === "string" &&
+                        capabilities.notes.trim() ? (
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-quiet">
+                              Notes
+                            </p>
+                            <p className="mt-1 text-sm text-strong">
+                              {capabilities.notes}
+                            </p>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="mt-4 rounded-lg border border-dashed border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4 text-sm text-muted">
+                        No managed capability policy is configured for this agent.
+                      </div>
+                    )}
                   </div>
                 </div>
 

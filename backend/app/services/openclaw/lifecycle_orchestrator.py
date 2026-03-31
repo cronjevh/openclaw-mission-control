@@ -18,6 +18,10 @@ from app.models.board_secrets import BoardSecret
 from app.models.board_documents import BoardDocument
 from app.models.boards import Board
 from app.models.gateways import Gateway
+from app.services.agent_capabilities import (
+    filter_secret_keys_for_capabilities,
+    resolve_agent_capabilities,
+)
 from app.services.openclaw.constants import CHECKIN_DEADLINE_AFTER_WAKE
 from app.services.openclaw.db_agent_state import (
     mark_provision_complete,
@@ -210,6 +214,10 @@ class AgentLifecycleOrchestrator(OpenClawDBService):
                     "key": s.key,
                     "description": s.description,
                 })
+            board_secrets = filter_secret_keys_for_capabilities(
+                board_secrets,
+                resolve_agent_capabilities(locked.identity_profile),
+            )
 
         # Load board documents/guides for agent context.
         board_documents: list[dict[str, str]] = []

@@ -14,6 +14,7 @@ This folder is the documentation home for **OpenClaw Mission Control**.
 - [Gateway agent provisioning and check-in troubleshooting](./troubleshooting/gateway-agent-provisioning.md)
 - [Gateway WebSocket protocol](./openclaw_gateway_ws.md)
 - [OpenClaw baseline configuration](./openclaw_baseline_config.md)
+- [Agent capability policies](./features/agent-capability-policies.md)
 
 ## Reference
 

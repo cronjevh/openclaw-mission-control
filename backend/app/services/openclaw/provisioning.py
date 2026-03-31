@@ -26,6 +26,7 @@ from app.models.agents import Agent
 from app.models.boards import Board
 from app.models.gateways import Gateway
 from app.services import souls_directory
+from app.services.agent_capabilities import resolve_agent_capabilities
 from app.services.openclaw.constants import (
     BOARD_SHARED_TEMPLATE_MAP,
     DEFAULT_CHANNEL_HEARTBEAT_VISIBILITY,
@@ -1051,6 +1052,7 @@ class BaseAgentLifecycleManager(ABC):
         )
         context["board_secrets"] = board_secrets or []  # type: ignore[assignment]
         context["board_documents"] = board_documents or []  # type: ignore[assignment]
+        context["agent_capabilities"] = resolve_agent_capabilities(agent.identity_profile)  # type: ignore[assignment]
         context = await self._augment_context(agent=agent, context=context)
         # Always attempt to sync Mission Control's full template set.
         # Do not introspect gateway defaults (avoids touching gateway "main" agent state).

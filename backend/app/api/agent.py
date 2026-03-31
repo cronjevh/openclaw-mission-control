@@ -2181,6 +2181,10 @@ async def get_agent_secrets(
     """
     from app.models.board_secrets import BoardSecret
     from app.core.encryption import decrypt_secret
+    from app.services.agent_capabilities import (
+        filter_secret_keys_for_capabilities,
+        resolve_agent_capabilities,
+    )
     from sqlmodel import select, col
 
     agent = agent_ctx.agent
@@ -2196,7 +2200,11 @@ async def get_agent_secrets(
         .order_by(col(BoardSecret.key))
     )
     secrets = result.all()
-    return [
+    payload = [
         {"key": s.key, "value": decrypt_secret(s.encrypted_value), "description": s.description}
         for s in secrets
     ]
+    return filter_secret_keys_for_capabilities(
+        payload,
+        resolve_agent_capabilities(agent.identity_profile),
+    )

@@ -56,6 +56,11 @@ def test_openapi_agent_role_tags_are_exposed() -> None:
         path="/api/v1/agent/gateway/leads/broadcast",
         method="post",
     )
+    assert "agent-lead" in _op_tags(
+        schema,
+        path="/api/v1/agent/boards/{board_id}/gateway/main/request-secret",
+        method="post",
+    )
     assert "agent-worker" in _op_tags(
         schema,
         path="/api/v1/boards/{board_id}/group-memory",
@@ -139,6 +144,7 @@ def test_openapi_agent_tool_endpoints_include_llm_hints() -> None:
         ("/api/v1/agent/boards/{board_id}/agents/{agent_id}/soul", "put"),
         ("/api/v1/agent/boards/{board_id}/agents/{agent_id}", "delete"),
         ("/api/v1/agent/boards/{board_id}/gateway/main/ask-user", "post"),
+        ("/api/v1/agent/boards/{board_id}/gateway/main/request-secret", "post"),
         ("/api/v1/agent/gateway/boards/{board_id}/lead/message", "post"),
         ("/api/v1/agent/gateway/leads/broadcast", "post"),
     ]
@@ -196,6 +202,8 @@ def test_openapi_agent_schemas_include_discoverability_hints() -> None:
         ("GatewayLeadBroadcastResponse", "lead_broadcast_summary"),
         ("GatewayMainAskUserRequest", "human_escalation_request"),
         ("GatewayMainAskUserResponse", "human_escalation_result"),
+        ("GatewayMainSecretRequest", "secret_access_request"),
+        ("GatewayMainSecretRequestResponse", "secret_access_request_result"),
         ("AgentNudge", "agent_nudge"),
     ]
     for schema_name, intent in expected_schema_hints:

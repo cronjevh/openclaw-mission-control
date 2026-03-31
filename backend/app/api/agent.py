@@ -16,7 +16,7 @@ from app.api import approvals as approvals_api
 from app.api import board_memory as board_memory_api
 from app.api import board_onboarding as onboarding_api
 from app.api import tasks as tasks_api
-from app.api.deps import ActorContext, get_board_or_404, get_task_or_404
+from app.api.deps import ActorContext, get_board_or_404
 from app.core.agent_auth import AgentAuthContext, get_agent_auth_context
 from app.db.pagination import paginate
 from app.db.session import get_session
@@ -48,6 +48,8 @@ from app.schemas.gateway_coordination import (
     GatewayLeadMessageResponse,
     GatewayMainAskUserRequest,
     GatewayMainAskUserResponse,
+    GatewayMainSecretRequest,
+    GatewayMainSecretRequestResponse,
 )
 from app.schemas.health import AgentHealthStatusResponse
 from app.schemas.pagination import DefaultLimitOffsetPage
@@ -80,7 +82,6 @@ router = APIRouter(prefix="/agent", tags=["agent"])
 SESSION_DEP = Depends(get_session)
 AGENT_CTX_DEP = Depends(get_agent_auth_context)
 BOARD_DEP = Depends(get_board_or_404)
-TASK_DEP = Depends(get_task_or_404)
 BOARD_ID_QUERY = Query(default=None)
 TASK_STATUS_QUERY = Query(default=None, alias="status")
 IS_CHAT_QUERY = Query(default=None)
@@ -238,6 +239,21 @@ def _guard_task_access(agent_ctx: AgentAuthContext, task: Task) -> None:
         agent_ctx.agent.board_id and task.board_id and agent_ctx.agent.board_id != task.board_id
     )
     OpenClawAuthorizationPolicy.require_board_write_access(allowed=allowed)
+
+
+async def get_agent_task_or_404(
+    task_id: UUID,
+    board: Board = BOARD_DEP,
+    session: AsyncSession = SESSION_DEP,
+) -> Task:
+    """Load a task for an agent-scoped board route without mixed actor auth."""
+    task = await Task.objects.by_id(task_id).first(session)
+    if task is None or task.board_id != board.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    return task
+
+
+TASK_DEP = Depends(get_agent_task_or_404)
 
 
 @router.get(
@@ -1983,6 +1999,94 @@ async def ask_user_via_gateway_main(
     _require_board_lead(agent_ctx)
     coordination = GatewayCoordinationService(session)
     return await coordination.ask_user_via_gateway_main(
+        board=board,
+        payload=payload,
+        actor_agent=agent_ctx.agent,
+    )
+
+
+@router.post(
+    "/boards/{board_id}/gateway/main/request-secret",
+    response_model=GatewayMainSecretRequestResponse,
+    tags=AGENT_LEAD_TAGS,
+    summary="Request missing secret access via gateway-main",
+    description=(
+        "Escalate a missing secret requirement through the gateway-main channel.\n\n"
+        "Use when a board lead or one of its managed specialists cannot continue without a secret."
+    ),
+    operation_id="agent_lead_request_secret_via_gateway_main",
+    responses={
+        200: {"description": "Secret request accepted"},
+        403: {
+            "model": LLMErrorResponse,
+            "description": "Caller is not board lead",
+        },
+        404: {
+            "model": LLMErrorResponse,
+            "description": "Board or target specialist not found",
+        },
+        502: {
+            "model": LLMErrorResponse,
+            "description": "Gateway main handoff failed",
+        },
+    },
+    openapi_extra={
+        "x-llm-intent": "secret_access_request",
+        "x-when-to-use": [
+            "Lead is blocked because required secret access is missing",
+            "Managed specialist cannot complete task due to unavailable secret",
+        ],
+        "x-when-not-to-use": [
+            "Human preference/approval questions (use ask-user route)",
+            "Direct lead-to-lead routing from gateway-main",
+        ],
+        "x-required-actor": "board_lead",
+        "x-prerequisites": [
+            "Authenticated board lead",
+            "Configured gateway-main routing",
+            "Secret key and blocked context provided",
+        ],
+        "x-side-effects": [
+            "Sends structured secret-access request to gateway-main",
+            "Records dispatch metadata for traceability",
+        ],
+        "x-negative-guidance": [
+            "Do not include actual secret values in the request payload.",
+            "Do not use when the secret is already available to the required agent.",
+        ],
+        "x-routing-policy": [
+            "Use for missing-secret escalations that require gateway/operator follow-up.",
+            "Use ask-user route when the blocker is consent or user choice, not credentials.",
+        ],
+        "x-routing-policy-examples": [
+            {
+                "input": {
+                    "intent": "specialist cannot deploy without registry token",
+                    "required_privilege": "board_lead",
+                },
+                "decision": "agent_lead_request_secret_via_gateway_main",
+            },
+            {
+                "input": {
+                    "intent": "need budget approval before continuing",
+                    "required_privilege": "board_lead",
+                },
+                "decision": "agent_lead_ask_user_via_gateway_main",
+            },
+        ],
+    },
+)
+async def request_secret_via_gateway_main(
+    payload: GatewayMainSecretRequest,
+    board: Board = BOARD_DEP,
+    session: AsyncSession = SESSION_DEP,
+    agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
+) -> GatewayMainSecretRequestResponse:
+    """Ask gateway-main to coordinate missing secret access for board execution."""
+    _guard_board_access(agent_ctx, board)
+    _require_board_lead(agent_ctx)
+    coordination = GatewayCoordinationService(session)
+    return await coordination.request_secret_via_gateway_main(
         board=board,
         payload=payload,
         actor_agent=agent_ctx.agent,

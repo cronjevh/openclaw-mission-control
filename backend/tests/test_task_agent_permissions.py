@@ -499,6 +499,7 @@ async def test_non_lead_agent_move_to_review_reassigns_to_lead_and_sends_review_
                 config: Any,
                 agent_name: str,
                 message: str,
+                **_: Any,
             ) -> None:
                 _ = dispatch, config
                 sent["session_key"] = session_key
@@ -616,6 +617,7 @@ async def test_lead_moves_review_task_to_inbox_and_reassigns_last_worker_with_re
                 config: Any,
                 agent_name: str,
                 message: str,
+                **_: Any,
             ) -> None:
                 _ = dispatch, config
                 sent.append(

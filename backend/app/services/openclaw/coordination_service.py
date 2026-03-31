@@ -25,6 +25,8 @@ from app.schemas.gateway_coordination import (
     GatewayLeadMessageResponse,
     GatewayMainAskUserRequest,
     GatewayMainAskUserResponse,
+    GatewayMainSecretRequest,
+    GatewayMainSecretRequestResponse,
 )
 from app.services.activity_log import record_activity
 from app.services.openclaw.db_service import OpenClawDBService
@@ -523,6 +525,128 @@ class GatewayCoordinationService(AbstractGatewayMessagingService):
             board_id=board.id,
             main_agent_id=main_agent.id if main_agent else None,
             main_agent_name=main_agent.name if main_agent else None,
+        )
+
+    async def request_secret_via_gateway_main(
+        self,
+        *,
+        board: Board,
+        payload: GatewayMainSecretRequest,
+        actor_agent: Agent,
+    ) -> GatewayMainSecretRequestResponse:
+        trace_id = GatewayDispatchService.resolve_trace_id(
+            payload.correlation_id, prefix="coord.secret_request"
+        )
+        self.logger.log(
+            TRACE_LEVEL,
+            "gateway.coordination.secret_request.start trace_id=%s board_id=%s actor_agent_id=%s",
+            trace_id,
+            board.id,
+            actor_agent.id,
+        )
+        gateway, config = await GatewayDispatchService(
+            self.session
+        ).require_gateway_config_for_board(board)
+        main_session_key = GatewayAgentIdentity.session_key(gateway)
+
+        target_agent: Agent | None = None
+        target_agent_name = (payload.target_agent_name or "").strip() or None
+        if payload.target_agent_id is not None:
+            target_agent = await self._board_agent_or_404(
+                board=board,
+                agent_id=str(payload.target_agent_id),
+            )
+            target_agent_name = target_agent.name
+
+        secret_key = payload.secret_key.upper().strip()
+        correlation = payload.correlation_id.strip() if payload.correlation_id else ""
+        correlation_line = f"Correlation ID: {correlation}\n" if correlation else ""
+        for_line = (
+            f"Requested for agent: {target_agent_name}\n"
+            if target_agent_name
+            else "Requested for agent: Board lead\n"
+        )
+        tags = payload.reply_tags or ["gateway_main", "secret_request_reply"]
+        tags_json = json.dumps(tags)
+        reply_source = payload.reply_source or "secret_request_via_gateway_main"
+        base_url = settings.base_url
+        message = (
+            "LEAD REQUEST: SECRET ACCESS\n"
+            f"Board: {board.name}\n"
+            f"Board ID: {board.id}\n"
+            f"From lead: {actor_agent.name}\n"
+            f"{correlation_line}"
+            f"Secret key needed: {secret_key}\n"
+            f"{for_line}\n"
+            f"{payload.content.strip()}\n\n"
+            "Please coordinate with the operator/user to provide or grant this secret.\n"
+            "When resolved (or rejected), write a NON-chat memory item with status and next steps:\n"
+            f"POST {base_url}/api/v1/agent/boards/{board.id}/memory\n"
+            f'Body: {{"content":"<status/update>","tags":{tags_json},"source":"{reply_source}"}}\n'
+            "Do NOT reply in OpenClaw chat."
+        )
+        try:
+            await self._dispatch_gateway_message(
+                session_key=main_session_key,
+                config=config,
+                agent_name="Gateway Agent",
+                message=message,
+                deliver=True,
+            )
+        except (OpenClawGatewayError, TimeoutError) as exc:
+            record_activity(
+                self.session,
+                event_type="gateway.lead.secret_request.failed",
+                message=f"Lead secret request failed for {board.name}: {exc}",
+                agent_id=actor_agent.id,
+                board_id=board.id,
+            )
+            await self.session.commit()
+            self.logger.error(
+                "gateway.coordination.secret_request.failed trace_id=%s board_id=%s "
+                "actor_agent_id=%s error=%s",
+                trace_id,
+                board.id,
+                actor_agent.id,
+                str(exc),
+            )
+            raise map_gateway_error_to_http_exception(
+                GatewayOperation.SECRET_REQUEST_DISPATCH,
+                exc,
+            ) from exc
+        except Exception as exc:  # pragma: no cover - defensive guard
+            self.logger.critical(
+                "gateway.coordination.secret_request.failed_unexpected trace_id=%s board_id=%s "
+                "actor_agent_id=%s error_type=%s error=%s",
+                trace_id,
+                board.id,
+                actor_agent.id,
+                exc.__class__.__name__,
+                str(exc),
+            )
+            raise
+
+        record_activity(
+            self.session,
+            event_type="gateway.lead.secret_request.sent",
+            message=f"Lead requested secret access via gateway agent for board: {board.name}.",
+            agent_id=actor_agent.id,
+            board_id=board.id,
+        )
+        await self.session.commit()
+        self.logger.info(
+            "gateway.coordination.secret_request.success trace_id=%s board_id=%s "
+            "actor_agent_id=%s target_agent_id=%s",
+            trace_id,
+            board.id,
+            actor_agent.id,
+            target_agent.id if target_agent else None,
+        )
+        return GatewayMainSecretRequestResponse(
+            board_id=board.id,
+            secret_key=secret_key,
+            target_agent_id=target_agent.id if target_agent else None,
+            target_agent_name=target_agent_name,
         )
 
     async def _ensure_and_message_board_lead(

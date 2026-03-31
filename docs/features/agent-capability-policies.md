@@ -31,3 +31,53 @@ The policy is stored in the agent's `identity_profile.capabilities` block.
 ## Important limitation
 
 Skills and file roots are policy-guided in this first cut. They are visible in provisioning output and can be used by a central superuser workflow, but they are not yet hard-enforced by a dedicated runtime sandbox patch from Mission Control.
+
+## Missing-secret escalation via Gateway Main (POC)
+
+Board Leads can now request secret access help from Gateway Main when they are blocked, or when a managed specialist is blocked.
+
+### New endpoint
+
+- `POST /api/v1/agent/boards/{board_id}/gateway/main/request-secret`
+
+Payload fields:
+
+- `secret_key`: required secret key name (normalized to uppercase)
+- `content`: why work is blocked and what is needed
+- `target_agent_id`: optional specialist agent id needing the secret
+- `target_agent_name`: optional specialist name when id is not known
+- `correlation_id`: optional trace token
+
+Behavior:
+
+- Requires board-lead agent auth (`X-Agent-Token`).
+- Dispatches a structured message to Gateway Main.
+- Instructs Gateway Main to post resolution updates into board memory as non-chat entries.
+- Records activity events for sent/failed dispatches.
+
+### E2E POC script
+
+1. Pick board lead token and board id.
+2. Trigger a missing-secret request.
+3. Confirm API accepted the request.
+4. Inspect board memory for gateway-main follow-up.
+
+Example:
+
+```bash
+BOARD_ID="<board-uuid>"
+LEAD_TOKEN="<board-lead-auth-token>"
+
+curl -s -X POST "http://localhost:8002/api/v1/agent/boards/${BOARD_ID}/gateway/main/request-secret" \
+	-H "X-Agent-Token: ${LEAD_TOKEN}" \
+	-H "Content-Type: application/json" \
+	-d '{
+		"secret_key": "GITHUB_TOKEN",
+		"content": "Release specialist is blocked on push/tag operations.",
+		"target_agent_name": "Release Specialist",
+		"correlation_id": "poc-secret-req-001"
+	}' | jq .
+
+curl -s "http://localhost:8002/api/v1/agent/boards/${BOARD_ID}/memory?is_chat=false" \
+	-H "X-Agent-Token: ${LEAD_TOKEN}" | jq '.items[0:10]'
+```

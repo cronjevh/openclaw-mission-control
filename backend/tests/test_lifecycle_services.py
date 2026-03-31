@@ -16,6 +16,7 @@ import app.services.openclaw.onboarding_service as onboarding_lifecycle
 from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
 from app.services.openclaw.gateway_rpc import OpenClawGatewayError
 from app.services.openclaw.shared import GatewayAgentIdentity
+from app.schemas.gateway_coordination import GatewayMainSecretRequest
 
 
 @dataclass
@@ -270,3 +271,129 @@ async def test_board_onboarding_dispatch_answer_maps_timeout_error(
 
     assert exc_info.value.status_code == status.HTTP_502_BAD_GATEWAY
     assert "Gateway onboarding answer dispatch failed:" in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_gateway_coordination_secret_request_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _FakeSession()
+    service = coordination_lifecycle.GatewayCoordinationService(session)  # type: ignore[arg-type]
+    gateway_id = uuid4()
+    board = _BoardStub(id=uuid4(), gateway_id=gateway_id, name="Roadmap")
+    actor = _AgentStub(id=uuid4(), name="Lead Agent", board_id=board.id)
+    specialist = _AgentStub(
+        id=uuid4(),
+        name="Release Specialist",
+        openclaw_session_id="agent:release:main",
+        board_id=board.id,
+    )
+    captured: list[dict[str, Any]] = []
+
+    async def _fake_require_gateway_config_for_board(
+        self: coordination_lifecycle.GatewayDispatchService,
+        _board: object,
+    ) -> tuple[object, GatewayClientConfig]:
+        _ = self
+        gateway = SimpleNamespace(id=gateway_id, url="ws://gateway.example/ws")
+        return gateway, GatewayClientConfig(url="ws://gateway.example/ws", token=None)
+
+    async def _fake_send_agent_message(self, **kwargs: Any) -> None:
+        _ = self
+        captured.append(kwargs)
+
+    async def _fake_board_agent_or_404(
+        self: coordination_lifecycle.GatewayCoordinationService,
+        *,
+        board: object,
+        agent_id: str,
+    ) -> _AgentStub:
+        _ = (self, board)
+        assert agent_id == str(specialist.id)
+        return specialist
+
+    monkeypatch.setattr(
+        coordination_lifecycle.GatewayDispatchService,
+        "require_gateway_config_for_board",
+        _fake_require_gateway_config_for_board,
+    )
+    monkeypatch.setattr(
+        coordination_lifecycle.GatewayCoordinationService,
+        "_board_agent_or_404",
+        _fake_board_agent_or_404,
+    )
+    monkeypatch.setattr(
+        coordination_lifecycle.GatewayDispatchService,
+        "send_agent_message",
+        _fake_send_agent_message,
+    )
+
+    response = await service.request_secret_via_gateway_main(
+        board=board,  # type: ignore[arg-type]
+        payload=GatewayMainSecretRequest(
+            secret_key="docker_registry_token",
+            content="Need push credentials to publish release artifacts.",
+            target_agent_id=specialist.id,
+        ),
+        actor_agent=actor,  # type: ignore[arg-type]
+    )
+
+    assert response.ok is True
+    assert response.board_id == board.id
+    assert response.secret_key == "DOCKER_REGISTRY_TOKEN"
+    assert response.target_agent_id == specialist.id
+    assert response.target_agent_name == "Release Specialist"
+    assert len(captured) == 1
+    assert captured[0]["agent_name"] == "Gateway Agent"
+    assert captured[0]["deliver"] is True
+    assert "Secret key needed: DOCKER_REGISTRY_TOKEN" in captured[0]["message"]
+    assert "Requested for agent: Release Specialist" in captured[0]["message"]
+    assert session.committed == 1
+
+
+@pytest.mark.asyncio
+async def test_gateway_coordination_secret_request_maps_gateway_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _FakeSession()
+    service = coordination_lifecycle.GatewayCoordinationService(session)  # type: ignore[arg-type]
+    gateway_id = uuid4()
+    board = _BoardStub(id=uuid4(), gateway_id=gateway_id, name="Roadmap")
+    actor = _AgentStub(id=uuid4(), name="Lead Agent", board_id=board.id)
+
+    async def _fake_require_gateway_config_for_board(
+        self: coordination_lifecycle.GatewayDispatchService,
+        _board: object,
+    ) -> tuple[object, GatewayClientConfig]:
+        _ = self
+        gateway = SimpleNamespace(id=gateway_id, url="ws://gateway.example/ws")
+        return gateway, GatewayClientConfig(url="ws://gateway.example/ws", token=None)
+
+    async def _fake_send_agent_message(self, **_kwargs: Any) -> None:
+        _ = self
+        raise OpenClawGatewayError("gateway offline")
+
+    monkeypatch.setattr(
+        coordination_lifecycle.GatewayDispatchService,
+        "require_gateway_config_for_board",
+        _fake_require_gateway_config_for_board,
+    )
+    monkeypatch.setattr(
+        coordination_lifecycle.GatewayDispatchService,
+        "send_agent_message",
+        _fake_send_agent_message,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.request_secret_via_gateway_main(
+            board=board,  # type: ignore[arg-type]
+            payload=GatewayMainSecretRequest(
+                secret_key="github_token",
+                content="Need token for release automation.",
+            ),
+            actor_agent=actor,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == status.HTTP_502_BAD_GATEWAY
+    assert "Gateway secret-request dispatch failed:" in str(exc_info.value.detail)
+    assert session.committed == 1

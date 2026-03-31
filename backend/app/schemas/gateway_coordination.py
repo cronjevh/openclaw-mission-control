@@ -22,6 +22,10 @@ def _user_reply_tags() -> list[str]:
     return ["gateway_main", "user_reply"]
 
 
+def _secret_reply_tags() -> list[str]:
+    return ["gateway_main", "secret_request_reply"]
+
+
 class GatewayLeadMessageRequest(SQLModel):
     """Request payload for sending a message to a board lead agent."""
 
@@ -276,4 +280,80 @@ class GatewayMainAskUserResponse(SQLModel):
     main_agent_name: str | None = Field(
         default=None,
         description="Resolved main agent display name.",
+    )
+
+
+class GatewayMainSecretRequest(SQLModel):
+    """Request payload for asking gateway-main to resolve missing board secret access."""
+
+    model_config = SQLModelConfig(
+        json_schema_extra={
+            "x-llm-intent": "secret_access_request",
+            "x-when-to-use": [
+                "Board lead is blocked due to missing secret access",
+                "A managed specialist agent cannot continue without a specific secret",
+            ],
+            "x-required-actor": "board_lead",
+            "x-response-shape": "GatewayMainSecretRequestResponse",
+        },
+    )
+
+    correlation_id: str | None = Field(
+        default=None,
+        description="Optional correlation token for tracing the secret request flow.",
+        examples=["secret-req-001"],
+    )
+    secret_key: NonEmptyStr = Field(
+        description="Secret key required to continue work.",
+        examples=["GITHUB_TOKEN"],
+    )
+    content: NonEmptyStr = Field(
+        description="Why the secret is needed and what is blocked.",
+        examples=["Need repository token to create release candidate tags."],
+    )
+    target_agent_id: UUID | None = Field(
+        default=None,
+        description="Optional managed specialist agent id that requires this secret.",
+    )
+    target_agent_name: str | None = Field(
+        default=None,
+        description="Optional managed specialist name when id is not available.",
+        examples=["Release Specialist"],
+    )
+    reply_tags: list[str] = Field(
+        default_factory=_secret_reply_tags,
+        description="Tags required when gateway-main posts secret request outcome.",
+        examples=[["gateway_main", "secret_request_reply"]],
+    )
+    reply_source: str | None = Field(
+        default="secret_request_via_gateway_main",
+        description="Reply source key used by downstream memory routing.",
+        examples=["secret_request_via_gateway_main"],
+    )
+
+
+class GatewayMainSecretRequestResponse(SQLModel):
+    """Response payload after dispatching a gateway-main secret access request."""
+
+    model_config = SQLModelConfig(
+        json_schema_extra={
+            "x-llm-intent": "secret_access_request_result",
+            "x-when-to-use": [
+                "Confirm a missing-secret request was dispatched via gateway-main.",
+            ],
+            "x-required-actor": "board_lead",
+            "x-interpretation": "Use this to correlate follow-up memory replies from gateway-main.",
+        },
+    )
+
+    ok: bool = Field(default=True, description="Whether dispatch was accepted.")
+    board_id: UUID = Field(description="Board that initiated the secret request.")
+    secret_key: str = Field(description="Normalized (upper-case) requested secret key.")
+    target_agent_id: UUID | None = Field(
+        default=None,
+        description="Resolved target managed specialist id if supplied.",
+    )
+    target_agent_name: str | None = Field(
+        default=None,
+        description="Resolved target managed specialist name if supplied.",
     )

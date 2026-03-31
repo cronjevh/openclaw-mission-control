@@ -15,6 +15,7 @@ class GatewayOperation(str, Enum):
     SOUL_READ = "soul_read"
     SOUL_WRITE = "soul_write"
     ASK_USER_DISPATCH = "ask_user_dispatch"
+    SECRET_REQUEST_DISPATCH = "secret_request_dispatch"
     LEAD_MESSAGE_DISPATCH = "lead_message_dispatch"
     LEAD_BROADCAST_DISPATCH = "lead_broadcast_dispatch"
     ONBOARDING_START_DISPATCH = "onboarding_start_dispatch"
@@ -45,6 +46,10 @@ _GATEWAY_ERROR_POLICIES: dict[GatewayOperation, GatewayErrorPolicy] = {
     GatewayOperation.ASK_USER_DISPATCH: GatewayErrorPolicy(
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail_template="Gateway ask-user dispatch failed: {error}",
+    ),
+    GatewayOperation.SECRET_REQUEST_DISPATCH: GatewayErrorPolicy(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail_template="Gateway secret-request dispatch failed: {error}",
     ),
     GatewayOperation.LEAD_MESSAGE_DISPATCH: GatewayErrorPolicy(
         status_code=status.HTTP_502_BAD_GATEWAY,

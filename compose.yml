@@ -33,6 +33,7 @@ services:
       # like `backend/templates/`.
       context: .
       dockerfile: backend/Dockerfile
+    user: "0:0"
     env_file:
       - ./backend/.env
     environment:
@@ -45,12 +46,11 @@ services:
       BASE_URL: ${BASE_URL}
       RQ_REDIS_URL: redis://redis:6379/0
       OPENCLAW_GATEWAY_DEVICE_IDENTITY_PATH: /app/identity/mission-control.json
-      OPENCLAW_CONFIG_PATH: /etc/openclaw/config.json
-      WORKSPACE_ROOT_REMAP: /home/cronjev/.openclaw/workspace=/app/workspaces
+      OPENCLAW_CONFIG_PATH: /app/openclaw/openclaw.json
+      WORKSPACE_ROOT_REMAP: /home/cronjev/.openclaw=/app/openclaw
     volumes:
       - /home/cronjev/.openclaw/identity:/app/identity:rw
-      - /home/cronjev/.openclaw/workspace:/app/workspaces:rw
-      - /home/cronjev/.openclaw:/etc/openclaw:ro
+      - /home/cronjev/.openclaw:/app/openclaw:ro
     depends_on:
       db:
         condition: service_healthy
@@ -110,6 +110,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    user: "0:0"
     command: ["python", "scripts/rq-docker", "worker"]
     env_file:
       - ./backend/.env
@@ -127,12 +128,11 @@ services:
       RQ_DISPATCH_THROTTLE_SECONDS: ${RQ_DISPATCH_THROTTLE_SECONDS:-2.0}
       RQ_DISPATCH_MAX_RETRIES: ${RQ_DISPATCH_MAX_RETRIES:-3}
       OPENCLAW_GATEWAY_DEVICE_IDENTITY_PATH: /app/identity/mission-control.json
-      OPENCLAW_CONFIG_PATH: /etc/openclaw/config.json
-      WORKSPACE_ROOT_REMAP: /home/cronjev/.openclaw/workspace=/app/workspaces
+      OPENCLAW_CONFIG_PATH: /app/openclaw/openclaw.json
+      WORKSPACE_ROOT_REMAP: /home/cronjev/.openclaw=/app/openclaw
     volumes:
       - /home/cronjev/.openclaw/identity:/app/identity:rw
-      - /home/cronjev/.openclaw/workspace:/app/workspaces:rw
-      - /home/cronjev/.openclaw:/etc/openclaw:ro
+      - /home/cronjev/.openclaw:/app/openclaw:ro
     restart: unless-stopped
 
 volumes:

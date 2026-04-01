@@ -9,10 +9,12 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from app.api import boards
+from app.api import board_group_memory, board_memory, boards
+from app.api.deps import ActorContext
 from app.models.agents import Agent
 from app.models.board_groups import BoardGroup
 from app.models.boards import Board
+from app.models.board_memory import BoardMemory
 from app.schemas.boards import BoardUpdate
 from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
 from app.services.openclaw.gateway_rpc import OpenClawGatewayError
@@ -508,3 +510,107 @@ async def test_notify_agents_on_board_group_removal_fanout_and_records_results(
     event_types = [getattr(item, "event_type", "") for item in session.added]
     assert "board.group.leave.notified" in event_types
     assert session.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_notify_chat_targets_propagates_new_control_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    board = _board(board_group_id=None)
+    session = _FakeSession()
+
+    agent = Agent(
+        id=uuid4(),
+        board_id=board.id,
+        gateway_id=board.gateway_id or uuid4(),
+        name="Lead",
+        openclaw_session_id="agent:lead:session",
+    )
+
+    class _FakeAgentQuery:
+        async def all(self, _session: object) -> list[Agent]:
+            return [agent]
+
+    class _FakeAgentObjects:
+        @staticmethod
+        def filter_by(**_kwargs: Any) -> _FakeAgentQuery:
+            return _FakeAgentQuery()
+
+    class _FakeAgentModel:
+        objects = _FakeAgentObjects()
+
+    monkeypatch.setattr(board_memory, "Agent", _FakeAgentModel)
+
+    sent: list[dict[str, str]] = []
+
+    async def _fake_optional_gateway_config_for_board(
+        self: board_memory.GatewayDispatchService,
+        target_board: Board,
+    ) -> GatewayClientConfig:
+        _ = self
+        return GatewayClientConfig(url=f"ws://gateway.example/ws/{target_board.id}", token=None)
+
+    async def _fake_try_send_agent_message(
+        self: board_memory.GatewayDispatchService,
+        *,
+        session_key: str,
+        config: object,
+        agent_name: str,
+        message: str,
+        deliver: bool = False,
+        **_kwargs: Any,
+    ) -> OpenClawGatewayError | None:
+        _ = self
+        sent.append({"session_key": session_key, "message": message})
+        return None
+
+    monkeypatch.setattr(
+        board_memory.GatewayDispatchService,
+        "optional_gateway_config_for_board",
+        _fake_optional_gateway_config_for_board,
+    )
+    monkeypatch.setattr(
+        board_memory.GatewayDispatchService,
+        "try_send_agent_message",
+        _fake_try_send_agent_message,
+    )
+
+    memory = BoardMemory(
+        board_id=board.id,
+        content="/new",
+        tags=["chat"],
+        is_chat=True,
+        source="User",
+    )
+    actor = ActorContext(actor_type="user", user=None, agent=None)
+
+    await board_memory._notify_chat_targets(
+        session=session,
+        board=board,
+        memory=memory,
+        actor=actor,
+    )
+
+    assert sent == [{"session_key": "agent:lead:session", "message": "/new"}]
+
+
+def test_board_reply_instructions_use_quote_safe_payload_pattern() -> None:
+    message = board_memory._quote_safe_board_reply_instructions(
+        base_url="http://localhost:8000",
+        board_id=uuid4(),
+    )
+
+    assert "REPLY_TEXT=$(cat <<'EOF'" in message
+    assert 'jq -n --arg content "$REPLY_TEXT"' in message
+    assert "--data-binary @-" in message
+    assert 'Body: {"content":"...","tags":["chat"]}' not in message
+
+
+def test_group_reply_instructions_use_quote_safe_payload_pattern() -> None:
+    message = board_group_memory._quote_safe_group_reply_instructions(
+        post_url="http://localhost:8000/api/v1/board-groups/abc/memory",
+        reply_label="group chat",
+    )
+
+    assert "REPLY_TEXT=$(cat <<'EOF'" in message
+    assert 'jq -n --arg content "$REPLY_TEXT"' in message
+    assert "--data-binary @-" in message
+    assert 'Body: {"content":"...","tags":["chat"]}' not in message

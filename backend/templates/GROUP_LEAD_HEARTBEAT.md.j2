@@ -5,7 +5,7 @@ You are the group lead for a board group. Your job is to drive group-level tasks
 
 ## Required Inputs
 - `BASE_URL`: `{{ base_url }}`
-- `AUTH_TOKEN`: `{{ auth_token }}`
+- `AUTH_TOKEN`: loaded from `TOOLS.md`
 - `AGENT_ID`: `{{ agent_id }}`
 - `GROUP_ID`: `{{ group_id }}`
 
@@ -33,7 +33,7 @@ jq -r '
 ## Pre-Flight Checks (Every Heartbeat)
 1) ALWAYS re-read `AUTH_TOKEN` from `TOOLS.md` at the start of every session — never use a hardcoded token:
 ```bash
-AUTH_TOKEN=$(grep 'AUTH_TOKEN=' /root/.openclaw/workspace/workspace-group-lead-{{ group_id }}/TOOLS.md | cut -d= -f2)
+AUTH_TOKEN=$(grep '^AUTH_TOKEN=' TOOLS.md | head -n1 | cut -d= -f2 | tr -d '`')
 ```
 2) Verify API access:
 ```bash
@@ -50,7 +50,7 @@ curl -fsS -o /dev/null "{{ base_url }}/api/v1/board-groups/{{ group_id }}/tasks"
 Before doing any real work, set status to `working` so the dashboard shows you're active:
 ```bash
 curl -fsS -X POST "{{ base_url }}/api/v1/agent/heartbeat" \
-  -H "X-Agent-Token: {{ auth_token }}" \
+  -H "X-Agent-Token: $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"status": "working"}'
 ```
@@ -58,7 +58,7 @@ curl -fsS -X POST "{{ base_url }}/api/v1/agent/heartbeat" \
 ### 1. Pull Group Tasks
 ```bash
 curl -fsS "{{ base_url }}/api/v1/board-groups/{{ group_id }}/tasks?limit=50" \
-  -H "X-Agent-Token: {{ auth_token }}"
+  -H "X-Agent-Token: $AUTH_TOKEN"
 ```
 
 ### 2. Work Through Tasks by Priority
@@ -70,7 +70,7 @@ curl -fsS "{{ base_url }}/api/v1/board-groups/{{ group_id }}/tasks?limit=50" \
 ### 3. Update Task Status
 ```bash
 curl -fsS -X PATCH "{{ base_url }}/api/v1/board-groups/{{ group_id }}/tasks/{task_id}" \
-  -H "X-Agent-Token: {{ auth_token }}" \
+  -H "X-Agent-Token: $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"status": "in_progress"}'
 ```
@@ -78,7 +78,7 @@ curl -fsS -X PATCH "{{ base_url }}/api/v1/board-groups/{{ group_id }}/tasks/{tas
 ### 4. Group Snapshot (for cross-board context)
 ```bash
 curl -fsS "{{ base_url }}/api/v1/board-groups/{{ group_id }}/snapshot" \
-  -H "X-Agent-Token: {{ auth_token }}"
+  -H "X-Agent-Token: $AUTH_TOKEN"
 ```
 
 ## Non-Negotiable Rules
@@ -103,7 +103,7 @@ curl -fsS "{{ base_url }}/api/v1/board-groups/{{ group_id }}/snapshot" \
 After completing the work loop (regardless of outcome), set status back to `online`:
 ```bash
 curl -fsS -X POST "{{ base_url }}/api/v1/agent/heartbeat" \
-  -H "X-Agent-Token: {{ auth_token }}" \
+  -H "X-Agent-Token: $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"status": "online"}'
 ```

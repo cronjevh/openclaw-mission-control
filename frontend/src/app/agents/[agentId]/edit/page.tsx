@@ -31,6 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { AGENT_EMOJI_OPTIONS } from "@/lib/agent-emoji";
 import { DEFAULT_IDENTITY_PROFILE } from "@/lib/agent-templates";
 
@@ -38,6 +39,24 @@ type IdentityProfile = {
   role: string;
   communication_style: string;
   emoji: string;
+};
+
+type AgentCapabilities = {
+  policy_name: string;
+  secret_keys: string;
+  required_secret_keys: string;
+  skills: string;
+  file_access: string;
+  notes: string;
+};
+
+const EMPTY_CAPABILITIES: AgentCapabilities = {
+  policy_name: "",
+  secret_keys: "",
+  required_secret_keys: "",
+  skills: "",
+  file_access: "",
+  notes: "",
 };
 
 const getBoardOptions = (boards: BoardRead[]): SearchableSelectOption[] =>
@@ -79,6 +98,81 @@ const withIdentityDefaults = (
   emoji: profile?.emoji ?? DEFAULT_IDENTITY_PROFILE.emoji,
 });
 
+const normalizeCapabilitiesText = (value: string): string =>
+  value
+    .split(/\r?\n|,/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .join("\n");
+
+const loadCapabilities = (
+  identityProfile: unknown,
+): AgentCapabilities => {
+  if (!identityProfile || typeof identityProfile !== "object") {
+    return EMPTY_CAPABILITIES;
+  }
+  const capabilities = (identityProfile as Record<string, unknown>).capabilities;
+  if (!capabilities || typeof capabilities !== "object") {
+    return EMPTY_CAPABILITIES;
+  }
+  const record = capabilities as Record<string, unknown>;
+  const readList = (key: string) => {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      return value
+        .map((entry) => String(entry).trim())
+        .filter(Boolean)
+        .join("\n");
+    }
+    if (typeof value === "string") {
+      return normalizeCapabilitiesText(value);
+    }
+    return "";
+  };
+  return {
+    policy_name:
+      typeof record.policy_name === "string" ? record.policy_name : "",
+    secret_keys: readList("secret_keys"),
+    required_secret_keys: readList("required_secret_keys"),
+    skills: readList("skills"),
+    file_access: readList("file_access"),
+    notes: typeof record.notes === "string" ? record.notes : "",
+  };
+};
+
+const mergeCapabilities = (
+  existing: unknown,
+  patch: AgentCapabilities,
+): Record<string, unknown> | null => {
+  const resolved: Record<string, unknown> =
+    existing && typeof existing === "object"
+      ? { ...(existing as Record<string, unknown>) }
+      : {};
+  const asList = (value: string, uppercase = false) =>
+    value
+      .split(/\r?\n|,/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => (uppercase ? entry.toUpperCase() : entry));
+  const next = {
+    policy_name: patch.policy_name.trim(),
+    secret_keys: asList(patch.secret_keys, true),
+    required_secret_keys: asList(patch.required_secret_keys, true),
+    skills: asList(patch.skills),
+    file_access: asList(patch.file_access),
+    notes: patch.notes.trim(),
+  };
+  const hasAny = Object.values(next).some((value) =>
+    Array.isArray(value) ? value.length > 0 : Boolean(value),
+  );
+  if (hasAny) {
+    resolved.capabilities = next;
+  } else {
+    delete resolved.capabilities;
+  }
+  return Object.keys(resolved).length > 0 ? resolved : null;
+};
+
 export default function EditAgentPage() {
   const { isSignedIn } = useAuth();
   const router = useRouter();
@@ -97,6 +191,9 @@ export default function EditAgentPage() {
   const [identityProfile, setIdentityProfile] = useState<
     IdentityProfile | undefined
   >(undefined);
+  const [capabilities, setCapabilities] = useState<AgentCapabilities | undefined>(
+    undefined,
+  );
   const [error, setError] = useState<string | null>(null);
 
   const boardsQuery = useListBoardsApiV1BoardsGet<
@@ -179,6 +276,8 @@ export default function EditAgentPage() {
     isGatewayMain ?? Boolean(loadedAgent?.is_gateway_main);
   const resolvedHeartbeatEvery = heartbeatEvery ?? loadedHeartbeat.every;
   const resolvedIdentityProfile = identityProfile ?? loadedIdentityProfile;
+  const resolvedCapabilities =
+    capabilities ?? loadCapabilities(loadedAgent?.identity_profile);
 
   const resolvedBoardId = useMemo(() => {
     if (resolvedIsGatewayMain) return boardId ?? "";
@@ -232,6 +331,10 @@ export default function EditAgentPage() {
         resolvedIdentityProfile,
       ) as unknown as Record<string, unknown> | null,
     };
+    payload.identity_profile = mergeCapabilities(
+      payload.identity_profile,
+      resolvedCapabilities,
+    ) as unknown as Record<string, unknown> | null;
     if (!resolvedIsGatewayMain) {
       payload.board_id = resolvedBoardId || null;
     } else if (resolvedBoardId) {
@@ -440,6 +543,119 @@ export default function EditAgentPage() {
               <p className="text-xs text-quiet">
                 Set how often this agent runs HEARTBEAT.md.
               </p>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
+            Managed access policy
+          </p>
+          <div className="mt-4 grid gap-6">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-strong">
+                Policy name
+              </label>
+              <Input
+                value={resolvedCapabilities.policy_name}
+                onChange={(event) =>
+                  setCapabilities({
+                    ...resolvedCapabilities,
+                    policy_name: event.target.value,
+                  })
+                }
+                placeholder="e.g. board-worker-minimal"
+                disabled={isLoading}
+              />
+            </div>
+            <div className="grid gap-6 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-strong">
+                  Allowed secret keys
+                </label>
+                <Textarea
+                  value={resolvedCapabilities.secret_keys}
+                  onChange={(event) =>
+                    setCapabilities({
+                      ...resolvedCapabilities,
+                      secret_keys: event.target.value,
+                    })
+                  }
+                  placeholder={"GITHUB_ACCESS_TOKEN\nSLACK_BOT_TOKEN"}
+                  disabled={isLoading}
+                  className="min-h-[110px]"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-strong">
+                  Required secret keys
+                </label>
+                <Textarea
+                  value={resolvedCapabilities.required_secret_keys}
+                  onChange={(event) =>
+                    setCapabilities({
+                      ...resolvedCapabilities,
+                      required_secret_keys: event.target.value,
+                    })
+                  }
+                  placeholder={"GITHUB_ACCESS_TOKEN"}
+                  disabled={isLoading}
+                  className="min-h-[110px]"
+                />
+              </div>
+            </div>
+            <div className="grid gap-6 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-strong">
+                  Allowed skills
+                </label>
+                <Textarea
+                  value={resolvedCapabilities.skills}
+                  onChange={(event) =>
+                    setCapabilities({
+                      ...resolvedCapabilities,
+                      skills: event.target.value,
+                    })
+                  }
+                  placeholder={"skill-installer\nrepo-audit"}
+                  disabled={isLoading}
+                  className="min-h-[110px]"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-strong">
+                  Approved file access roots
+                </label>
+                <Textarea
+                  value={resolvedCapabilities.file_access}
+                  onChange={(event) =>
+                    setCapabilities({
+                      ...resolvedCapabilities,
+                      file_access: event.target.value,
+                    })
+                  }
+                  placeholder={"/workspace/project-a\n/workspace/shared/docs"}
+                  disabled={isLoading}
+                  className="min-h-[110px]"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-strong">
+                Policy notes
+              </label>
+              <Textarea
+                value={resolvedCapabilities.notes}
+                onChange={(event) =>
+                  setCapabilities({
+                    ...resolvedCapabilities,
+                    notes: event.target.value,
+                  })
+                }
+                placeholder="Use this agent for triage only. Escalate for extra access."
+                disabled={isLoading}
+                className="min-h-[110px]"
+              />
             </div>
           </div>
         </div>

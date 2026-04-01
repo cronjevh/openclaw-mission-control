@@ -176,18 +176,22 @@ async def get_board_for_actor_write(
     return board
 
 
-async def get_board_for_user_read(
+async def get_board_for_actor_read(
     board_id: str,
     session: AsyncSession = SESSION_DEP,
-    auth: AuthContext = AUTH_DEP,
+    actor: ActorContext = ACTOR_DEP,
 ) -> Board:
-    """Load a board and enforce authenticated-user read access."""
+    """Load a board and enforce actor read access."""
     board = await Board.objects.by_id(board_id).first(session)
     if board is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    if auth.user is None:
+    if actor.actor_type == "agent":
+        if actor.agent and actor.agent.board_id and actor.agent.board_id != board.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+        return board
+    if actor.user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
-    await require_board_access(session, user=auth.user, board=board, write=False)
+    await require_board_access(session, user=actor.user, board=board, write=False)
     return board
 
 

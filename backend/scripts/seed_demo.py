@@ -17,25 +17,36 @@ async def run() -> None:
     from app.models.agents import Agent
     from app.models.boards import Board
     from app.models.gateways import Gateway
+    from app.models.organizations import Organization
     from app.models.users import User
-    from app.services.openclaw.shared import GatewayAgentIdentity
 
     await init_db()
     async with async_session_maker() as session:
+        # Get or create org
+        from app.models.organizations import Organization
+        org = Organization(
+            name="Demo Organization",
+            slug="demo-org",
+            created_by_user_id=None,
+        )
+        session.add(org)
+        await session.commit()
+        await session.refresh(org)
+
         demo_workspace_root = BACKEND_ROOT / ".tmp" / "openclaw-demo"
         gateway = Gateway(
+            organization_id=org.id,
             name="Demo Gateway",
-            url="http://localhost:8080",
-            token=None,
-            main_session_key="placeholder",
+            url="ws://host.docker.internal:18789",
+            token="demo-token",
             workspace_root=str(demo_workspace_root),
         )
-        gateway.main_session_key = GatewayAgentIdentity.session_key(gateway)
         session.add(gateway)
         await session.commit()
         await session.refresh(gateway)
 
         board = Board(
+            organization_id=org.id,
             name="Demo Board",
             slug="demo-board",
             gateway_id=gateway.id,
@@ -58,13 +69,14 @@ async def run() -> None:
         await session.refresh(user)
 
         lead = Agent(
+            gateway_id=gateway.id,
             board_id=board.id,
-            name="Lead Agent",
-            status="online",
-            is_board_lead=True,
+            name="Demo Lead Agent",
+            status="offline",
         )
         session.add(lead)
         await session.commit()
+        print(f"✓ Seeded: Gateway {gateway.id}, Board {board.id}, User {user.id}, Agent {lead.id}")
 
 
 if __name__ == "__main__":

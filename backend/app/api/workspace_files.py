@@ -36,13 +36,18 @@ if "=" in _remap_env:
     _src, _dst = _remap_env.split("=", 1)
     _WORKSPACE_REMAP = (_src.rstrip("/"), _dst.rstrip("/"))
 
+_OPENCLAW_CONFIG_FALLBACKS = (
+    Path("/etc/openclaw/openclaw.json"),
+    Path("/root/.openclaw/openclaw.json"),
+)
+
 
 def _apply_workspace_remap(path: Path) -> Path:
     if _WORKSPACE_REMAP is None:
         return path
     src, dst = _WORKSPACE_REMAP
     s = str(path)
-    if s.startswith(src):
+    if s == src or s.startswith(f"{src}/"):
         return Path(dst + s[len(src):])
     return path
 
@@ -69,11 +74,58 @@ class WorkspaceFileContent(SQLModel):
     size: int
 
 
+def _openclaw_config_candidates() -> list[Path]:
+    candidates: list[Path] = [OPENCLAW_CONFIG_PATH]
+    if OPENCLAW_CONFIG_PATH.name == "config.json":
+        candidates.append(OPENCLAW_CONFIG_PATH.with_name("openclaw.json"))
+    candidates.extend(_OPENCLAW_CONFIG_FALLBACKS)
+
+    seen: set[str] = set()
+    ordered: list[Path] = []
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(candidate)
+    return ordered
+
+
 def _load_openclaw_config() -> dict[str, Any]:
-    if not OPENCLAW_CONFIG_PATH.exists():
-        return {}
-    with OPENCLAW_CONFIG_PATH.open() as f:
-        return json.load(f)
+    for candidate in _openclaw_config_candidates():
+        try:
+            if not candidate.exists():
+                continue
+            with candidate.open() as f:
+                return json.load(f)
+        except (OSError, PermissionError, json.JSONDecodeError):
+            continue
+    return {}
+
+
+def _fallback_workspace_root_for_config_id(config_id: str) -> Path | None:
+    candidates: list[Path] = []
+    if _WORKSPACE_REMAP is not None:
+        _, dst = _WORKSPACE_REMAP
+        candidates.append(Path(dst) / f"workspace-{config_id}")
+    candidates.extend(
+        [
+            Path("/app/workspaces") / f"workspace-{config_id}",
+            Path("/root/.openclaw/workspace") / f"workspace-{config_id}",
+        ]
+    )
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if candidate.exists():
+                return candidate
+        except (PermissionError, OSError):
+            continue
+    return None
 
 
 def _workspace_root_for_config_id(config_id: str) -> Path | None:
@@ -84,7 +136,7 @@ def _workspace_root_for_config_id(config_id: str) -> Path | None:
             ws = entry.get("workspace")
             if ws:
                 return _apply_workspace_remap(Path(ws))
-    return None
+    return _fallback_workspace_root_for_config_id(config_id)
 
 
 def _config_id_from_session_id(session_id: str) -> str | None:
@@ -104,7 +156,7 @@ def _workspace_root_for_agent(agent_id: UUID) -> Path | None:
             ws = entry.get("workspace")
             if ws:
                 return _apply_workspace_remap(Path(ws))
-    return None
+    return _fallback_workspace_root_for_config_id(f"mc-{agent_id}")
 
 
 async def _workspace_roots_for_board(

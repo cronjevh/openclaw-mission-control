@@ -29,7 +29,11 @@ from app.schemas.board_memory import BoardMemoryCreate, BoardMemoryRead
 from app.schemas.pagination import DefaultLimitOffsetPage
 from app.services.mentions import extract_mentions, matches_agent_mention
 from app.services.openclaw.gateway_dispatch import GatewayDispatchService
-from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
+from app.services.openclaw.gateway_rpc import (
+    GatewayConfig as GatewayClientConfig,
+    OpenClawGatewayError,
+    openclaw_call,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -42,6 +46,8 @@ if TYPE_CHECKING:
 router = APIRouter(prefix="/boards/{board_id}/memory", tags=["board-memory"])
 MAX_SNIPPET_LENGTH = 800
 STREAM_POLL_SECONDS = 2
+SESSION_REPLY_POLL_SECONDS = 2
+SESSION_REPLY_TIMEOUT_SECONDS = 45
 IS_CHAT_QUERY = Query(default=None)
 SINCE_QUERY = Query(default=None)
 TASK_ID_QUERY = Query(default=None)
@@ -73,6 +79,139 @@ def _serialize_memory(memory: BoardMemory) -> dict[str, object]:
         memory,
         from_attributes=True,
     ).model_dump(mode="json")
+
+
+def _board_reply_guidance() -> str:
+    return (
+        "Reply in plain natural language as a concise board-chat message.\n"
+        "Do not output shell commands, curl snippets, JSON payloads, or code blocks.\n"
+        "If asked a simple question, answer it directly in one short sentence."
+    )
+
+
+def _extract_text_from_session_message(msg: dict[str, object]) -> str:
+    content = msg.get("content", "")
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text)
+        return "\n".join(parts).strip()
+    return str(content).strip()
+
+
+def _looks_like_command_payload(text: str) -> bool:
+    normalized = text.strip().lower()
+    if not normalized:
+        return True
+    command_markers = (
+        "reply_text=$(cat <<'eof'",
+        "auth_token=$(grep '^auth_token='",
+        "curl -fss -x post",
+        "curl -fss -xpost",
+        "x-agent-token:",
+        "--data-binary @-",
+        "jq -n --arg content",
+    )
+    return any(marker in normalized for marker in command_markers)
+
+
+def _max_seq_from_history(payload: object) -> int:
+    if not isinstance(payload, dict):
+        return 0
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return 0
+    max_seq = 0
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        seq = (msg.get("__openclaw") or {}).get("seq")
+        if isinstance(seq, (int, float)) and int(seq) > max_seq:
+            max_seq = int(seq)
+    return max_seq
+
+
+async def _baseline_session_seq(
+    *,
+    session_key: str,
+    config: GatewayClientConfig,
+) -> int:
+    try:
+        payload = await openclaw_call(
+            "chat.history",
+            {"sessionKey": session_key, "limit": 8},
+            config=config,
+        )
+    except OpenClawGatewayError:
+        return 0
+    return _max_seq_from_history(payload)
+
+
+async def _mirror_session_reply_to_board_chat(
+    *,
+    board_id: UUID,
+    agent_name: str,
+    session_key: str,
+    config: GatewayClientConfig,
+    after_seq: int,
+) -> None:
+    deadline = asyncio.get_running_loop().time() + SESSION_REPLY_TIMEOUT_SECONDS
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            payload = await openclaw_call(
+                "chat.history",
+                {"sessionKey": session_key, "limit": 24},
+                config=config,
+            )
+        except OpenClawGatewayError:
+            await asyncio.sleep(SESSION_REPLY_POLL_SECONDS)
+            continue
+
+        messages = payload.get("messages") if isinstance(payload, dict) else None
+        if not isinstance(messages, list):
+            await asyncio.sleep(SESSION_REPLY_POLL_SECONDS)
+            continue
+
+        reply_text = ""
+        for msg in reversed(messages):
+            if not isinstance(msg, dict):
+                continue
+            seq = (msg.get("__openclaw") or {}).get("seq")
+            if not isinstance(seq, (int, float)) or int(seq) <= after_seq:
+                continue
+            if msg.get("role") != "assistant":
+                continue
+            candidate = _extract_text_from_session_message(msg)
+            if candidate:
+                reply_text = candidate
+                break
+
+        if reply_text and not _looks_like_command_payload(reply_text):
+            async with async_session_maker() as mirror_session:
+                recent = (
+                    BoardMemory.objects.filter_by(board_id=board_id, source=agent_name, is_chat=True)
+                    .order_by(col(BoardMemory.created_at).desc())
+                    .limit(3)
+                )
+                recent_rows = await recent.all(mirror_session)
+                if any((row.content or "").strip() == reply_text for row in recent_rows):
+                    return
+                mirror_session.add(
+                    BoardMemory(
+                        board_id=board_id,
+                        content=reply_text,
+                        tags=["chat"],
+                        is_chat=True,
+                        source=agent_name,
+                    ),
+                )
+                await mirror_session.commit()
+            return
+
+        await asyncio.sleep(SESSION_REPLY_POLL_SECONDS)
 
 
 async def _fetch_memory_events(
@@ -171,7 +310,7 @@ async def _notify_chat_targets(
     command = normalized.lower()
     # Special-case control commands to reach all board agents.
     # These are intended to be parsed verbatim by agent runtimes.
-    if command in {"/pause", "/resume"}:
+    if command in {"/pause", "/resume", "/new"}:
         await _send_control_command(
             session=session,
             board=board,
@@ -198,6 +337,10 @@ async def _notify_chat_targets(
     for agent in targets.values():
         if not agent.openclaw_session_id:
             continue
+        baseline_seq = await _baseline_session_seq(
+            session_key=agent.openclaw_session_id,
+            config=config,
+        )
         mentioned = matches_agent_mention(agent, mentions)
         header = "BOARD CHAT MENTION" if mentioned else "BOARD CHAT"
         message = (
@@ -205,20 +348,30 @@ async def _notify_chat_targets(
             f"Board: {board.name}\n"
             f"From: {actor_name}\n\n"
             f"{snippet}\n\n"
-            "Reply via board chat:\n"
-            f"POST {base_url}/api/v1/agent/boards/{board.id}/memory\n"
-            'Body: {"content":"...","tags":["chat"]}'
+            f"{_board_reply_guidance()}"
         )
         error = await dispatch.try_send_agent_message(
             session_key=agent.openclaw_session_id,
             config=config,
             agent_name=agent.name,
             message=message,
+            deliver=True,
             agent=agent,
             board=board,
         )
         if error is not None:
             continue
+        # Fallback mirror path: if the agent answers in session chat but fails
+        # to execute the board-memory POST, persist that reply into board chat.
+        asyncio.create_task(
+            _mirror_session_reply_to_board_chat(
+                board_id=board.id,
+                agent_name=agent.name,
+                session_key=agent.openclaw_session_id,
+                config=config,
+                after_seq=baseline_seq,
+            ),
+        )
 
 
 @router.get("", response_model=DefaultLimitOffsetPage[BoardMemoryRead])

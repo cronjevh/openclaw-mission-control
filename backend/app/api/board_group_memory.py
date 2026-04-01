@@ -115,6 +115,27 @@ def _agent_group_memory_openapi_hints(
     }
 
 
+def _quote_safe_group_reply_instructions(*, post_url: str, reply_label: str) -> str:
+    return (
+        "MANDATORY: execute the API post now; do not reply in OpenClaw chat.\n"
+        "Do not return code blocks or explanations.\n"
+        f"Reply via {reply_label} (quote-safe; avoid inline JSON with single quotes):\n"
+        f"POST {post_url}\n"
+        "Use this pattern exactly:\n"
+        "REPLY_TEXT=$(cat <<'EOF'\n"
+        "...\n"
+        "EOF\n"
+        ")\n"
+        "AUTH_TOKEN=$(grep '^AUTH_TOKEN=' TOOLS.md | head -n1 | cut -d= -f2 | tr -d '`')\n"
+        "jq -n --arg content \"$REPLY_TEXT\" "
+        "'{\"content\":$content,\"tags\":[\"chat\"]}' | \\\n"
+        f"curl -fsS -X POST \"{post_url}\" \\\n"
+        "  -H \"X-Agent-Token: $AUTH_TOKEN\" \\\n"
+        "  -H \"Content-Type: application/json\" \\\n"
+        "  --data-binary @-"
+    )
+
+
 def _parse_since(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -280,14 +301,13 @@ async def _notify_group_target(
         is_broadcast=context.is_broadcast,
         mentioned=matches_agent_mention(agent, context.mentions),
     )
+    post_url = f"{context.base_url}/api/v1/boards/{board.id}/group-memory"
     message = (
         f"{header}\n"
         f"Group: {context.group.name}\n"
         f"From: {context.actor_name}\n\n"
         f"{context.snippet}\n\n"
-        "Reply via group chat (shared across linked boards):\n"
-        f"POST {context.base_url}/api/v1/boards/{board.id}/group-memory\n"
-        'Body: {"content":"...","tags":["chat"]}'
+        f"{_quote_safe_group_reply_instructions(post_url=post_url, reply_label='group chat (shared across linked boards)')}"
     )
     error = await context.dispatch.try_send_agent_message(
         session_key=session_key,
@@ -321,14 +341,13 @@ async def _notify_group_agent_target(
     config = optional_gateway_client_config(gateway)
     if config is None:
         return
+    post_url = f"{base_url}/api/v1/board-groups/{group.id}/memory"
     message = (
         f"GROUP CHAT\n"
         f"Group: {group.name}\n"
         f"From: {actor_name}\n\n"
         f"{snippet}\n\n"
-        "Reply via group chat:\n"
-        f"POST {base_url}/api/v1/board-groups/{group.id}/memory\n"
-        'Body: {"content":"...","tags":["chat"]}'
+        f"{_quote_safe_group_reply_instructions(post_url=post_url, reply_label='group chat')}"
     )
     await dispatch.try_send_agent_message(
         session_key=session_key,

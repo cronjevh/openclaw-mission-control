@@ -21,7 +21,7 @@ from sqlalchemy import asc, func, or_
 from sqlmodel import col, select
 from sse_starlette.sse import EventSourceResponse
 
-from app.core.agent_tokens import verify_agent_token
+from app.core.agent_tokens import generate_stable_agent_token, verify_agent_token
 from app.core.logging import TRACE_LEVEL
 from app.core.time import utcnow
 from app.db import crud
@@ -515,49 +515,34 @@ async def _resolve_agent_auth_token(
     board: Board | None,
     *,
     agent_gateway_id: str,
-) -> tuple[str | None, bool]:
-    try:
-        auth_token = await _get_existing_auth_token(
-            agent_gateway_id=agent_gateway_id,
-            control_plane=ctx.control_plane,
-            backoff=ctx.backoff,
-        )
-    except TimeoutError as exc:
-        _append_sync_error(result, agent=agent, board=board, message=str(exc))
-        return None, True
-
-    if not auth_token:
-        if not ctx.options.rotate_tokens:
-            result.agents_skipped += 1
-            _append_sync_error(
-                result,
-                agent=agent,
-                board=board,
-                message=(
-                    "Skipping agent: unable to read AUTH_TOKEN from TOOLS.md "
-                    "(run with rotate_tokens=true to re-key)."
-                ),
-            )
-            return None, False
+) -> tuple[str | None, bool, bool, str | None]:
+    previous_hash = agent.agent_token_hash
+    rotated = False
+    if ctx.options.rotate_tokens:
+        # Forced rotation ensures token drift is eliminated when requested.
         auth_token = await _rotate_agent_token(ctx.session, agent)
+        return auth_token, False, True, previous_hash
 
-    if agent.agent_token_hash and not verify_agent_token(
-        auth_token,
-        agent.agent_token_hash,
-    ):
-        if ctx.options.rotate_tokens:
-            auth_token = await _rotate_agent_token(ctx.session, agent)
-        else:
-            _append_sync_error(
-                result,
-                agent=agent,
-                board=board,
-                message=(
-                    "Warning: AUTH_TOKEN in TOOLS.md does not match backend "
-                    "token hash (agent auth may be broken)."
-                ),
-            )
-    return auth_token, False
+    auth_token = generate_stable_agent_token(agent.id)
+    return auth_token, False, rotated, previous_hash
+
+
+async def _restore_rotated_token_hash(
+    session: AsyncSession,
+    agent_id: UUID,
+    previous_hash: str | None,
+) -> None:
+    # Rotation can happen before gateway file writes complete. If a sync attempt
+    # fails, restore the prior hash to avoid DB/file token drift.
+    await session.rollback()
+    current = await session.get(Agent, agent_id)
+    if current is None:
+        return
+    current.agent_token_hash = previous_hash
+    current.updated_at = utcnow()
+    session.add(current)
+    await session.commit()
+    await session.refresh(current)
 
 
 async def _sync_one_agent(
@@ -566,7 +551,7 @@ async def _sync_one_agent(
     agent: Agent,
     board: Board,
 ) -> bool:
-    auth_token, fatal = await _resolve_agent_auth_token(
+    auth_token, fatal, rotated, previous_hash = await _resolve_agent_auth_token(
         ctx,
         result,
         agent,
@@ -589,6 +574,7 @@ async def _sync_one_agent(
                     action="update",
                     auth_token=auth_token,
                     force_bootstrap=ctx.options.force_bootstrap,
+                    overwrite=ctx.options.overwrite,
                     reset_session=ctx.options.reset_sessions,
                     wake=False,
                     deliver_wakeup=False,
@@ -607,6 +593,9 @@ async def _sync_one_agent(
     except TimeoutError as exc:  # pragma: no cover - gateway/network dependent
         result.agents_skipped += 1
         _append_sync_error(result, agent=agent, board=board, message=str(exc))
+        if rotated:
+            await _restore_rotated_token_hash(ctx.session, agent.id, previous_hash)
+            return True
         return True
     except (OSError, RuntimeError, ValueError) as exc:  # pragma: no cover
         result.agents_skipped += 1
@@ -616,6 +605,9 @@ async def _sync_one_agent(
             board=board,
             message=f"Failed to sync templates: {exc}",
         )
+        if rotated:
+            await _restore_rotated_token_hash(ctx.session, agent.id, previous_hash)
+            return True
         return False
     except HTTPException as exc:
         result.agents_skipped += 1
@@ -625,6 +617,9 @@ async def _sync_one_agent(
             board=board,
             message=f"Failed to sync templates: {exc.detail}",
         )
+        if rotated:
+            await _restore_rotated_token_hash(ctx.session, agent.id, previous_hash)
+            return True
         return False
     else:
         return False
@@ -648,7 +643,7 @@ async def _sync_main_agent(
         return True
 
     main_gateway_agent_id = GatewayAgentIdentity.openclaw_agent_id(ctx.gateway)
-    token, fatal = await _resolve_agent_auth_token(
+    token, fatal, rotated, previous_hash = await _resolve_agent_auth_token(
         ctx,
         result,
         main_agent,
@@ -693,6 +688,8 @@ async def _sync_main_agent(
         await ctx.backoff.run(_do_provision_main)
     except TimeoutError as exc:  # pragma: no cover - gateway/network dependent
         _append_sync_error(result, agent=main_agent, message=str(exc))
+        if rotated:
+            await _restore_rotated_token_hash(ctx.session, main_agent.id, previous_hash)
         stop_sync = True
     except (OSError, RuntimeError, ValueError) as exc:  # pragma: no cover
         _append_sync_error(
@@ -700,12 +697,16 @@ async def _sync_main_agent(
             agent=main_agent,
             message=f"Failed to sync gateway agent templates: {exc}",
         )
+        if rotated:
+            await _restore_rotated_token_hash(ctx.session, main_agent.id, previous_hash)
     except HTTPException as exc:
         _append_sync_error(
             result,
             agent=main_agent,
             message=f"Failed to sync gateway agent templates: {exc.detail}",
         )
+        if rotated:
+            await _restore_rotated_token_hash(ctx.session, main_agent.id, previous_hash)
     else:
         result.main_updated = True
     return stop_sync
@@ -881,8 +882,13 @@ class AgentLifecycleService(OpenClawDBService):
             else:
                 return agent
         if agent.last_seen_at is None:
-            agent.status = "provisioning"
-        elif now - agent.last_seen_at > OFFLINE_AFTER:
+            # No check-in yet: keep this explicitly non-online so the UI does not
+            # overstate availability during restart/recovery churn.
+            if agent.status not in {"updating", "deleting"}:
+                agent.status = "provisioning"
+            return agent
+
+        if now - agent.last_seen_at > OFFLINE_AFTER:
             agent.status = "offline"
         return agent
 
@@ -1441,9 +1447,12 @@ class AgentLifecycleService(OpenClawDBService):
         agent: Agent,
         status_value: str | None,
     ) -> AgentRead:
-        if status_value:
+        transient_statuses = {"provisioning", "updating"}
+        if status_value in transient_statuses:
+            agent.status = "online"
+        elif status_value:
             agent.status = status_value
-        elif agent.status == "provisioning":
+        elif agent.status in {"provisioning", "updating", "offline"}:
             agent.status = "online"
         agent.last_seen_at = utcnow()
         # Successful check-in ends the current wake escalation cycle.

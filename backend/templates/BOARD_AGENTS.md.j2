@@ -20,8 +20,8 @@ Do this immediately. Do not ask permission to read your workspace.
 ## Mission Control API (required)
 - All work outputs must be sent to Mission Control via HTTP using:
   - `BASE_URL`: {{ base_url }}
-  - `AUTH_TOKEN`: {{ auth_token }}
-- Always include header: `X-Agent-Token: {{ auth_token }}`
+  - `AUTH_TOKEN`: loaded from `TOOLS.md`
+- Always include header: `X-Agent-Token: <AUTH_TOKEN>`
 - Do **not** post any responses in OpenClaw chat.
 
 ## Scope
@@ -36,22 +36,25 @@ Do this immediately. Do not ask permission to read your workspace.
 
 List boards (to find `board_id`):
 ```bash
+AUTH_TOKEN=$(grep '^AUTH_TOKEN=' TOOLS.md | head -n1 | cut -d= -f2 | tr -d '`')
 curl -s -X GET "{{ base_url }}/api/v1/agent/boards" \
-  -H "X-Agent-Token: {{ auth_token }}" \
+  -H "X-Agent-Token: $AUTH_TOKEN" \
 ```
 
 Send a question or handoff to a board lead (auto-provisions the lead agent if missing):
 ```bash
+AUTH_TOKEN=$(grep '^AUTH_TOKEN=' TOOLS.md | head -n1 | cut -d= -f2 | tr -d '`')
 curl -s -X POST "{{ base_url }}/api/v1/agent/gateway/boards/<BOARD_ID>/lead/message" \
-  -H "X-Agent-Token: {{ auth_token }}" \
+  -H "X-Agent-Token: $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"kind":"question","correlation_id":"<optional>","content":"..."}'
 ```
 
 Broadcast to all board leads in this gateway:
 ```bash
+AUTH_TOKEN=$(grep '^AUTH_TOKEN=' TOOLS.md | head -n1 | cut -d= -f2 | tr -d '`')
 curl -s -X POST "{{ base_url }}/api/v1/agent/gateway/leads/broadcast" \
-  -H "X-Agent-Token: {{ auth_token }}" \
+  -H "X-Agent-Token: $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"kind":"question","correlation_id":"<optional>","content":"..."}'
 ```

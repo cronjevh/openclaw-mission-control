@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
+from app.core.agent_tokens import generate_stable_agent_token
 from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.db.session import async_session_maker
@@ -11,8 +12,12 @@ from app.models.agents import Agent
 from app.models.boards import Board
 from app.models.gateways import Gateway
 from app.services.openclaw.constants import MAX_WAKE_ATTEMPTS_WITHOUT_CHECKIN
+from app.services.openclaw.gateway_resolver import optional_gateway_client_config
+from app.services.openclaw.gateway_rpc import OpenClawGatewayError
+from app.services.openclaw.internal.agent_key import agent_key
 from app.services.openclaw.lifecycle_orchestrator import AgentLifecycleOrchestrator
 from app.services.openclaw.lifecycle_queue import decode_lifecycle_task, defer_lifecycle_reconcile
+from app.services.openclaw.provisioning import OpenClawGatewayControlPlane
 from app.services.queue import QueuedTask
 
 logger = get_logger(__name__)
@@ -25,6 +30,35 @@ def _has_checked_in_since_wake(agent: Agent) -> bool:
     if agent.last_wake_sent_at is None:
         return True
     return agent.last_seen_at >= agent.last_wake_sent_at
+
+
+def _extract_file_content(payload: object) -> str | None:
+    if isinstance(payload, str):
+        return payload
+    if isinstance(payload, dict):
+        content = payload.get("content")
+        if isinstance(content, str):
+            return content
+        file_obj = payload.get("file")
+        if isinstance(file_obj, dict):
+            nested = file_obj.get("content")
+            if isinstance(nested, str):
+                return nested
+    return None
+
+
+def _parse_auth_token_from_tools(content: str) -> str | None:
+    for raw in content.splitlines():
+        line = raw.strip()
+        if line.startswith("AUTH_TOKEN="):
+            token = line.split("=", 1)[1].strip().strip("`")
+            return token or None
+    return None
+
+
+async def _resolve_reconcile_auth_token(*, gateway: Gateway, agent: Agent) -> str | None:
+    del gateway
+    return generate_stable_agent_token(agent.id)
 
 
 async def process_lifecycle_queue_task(task: QueuedTask) -> None:
@@ -116,6 +150,19 @@ async def process_lifecycle_queue_task(task: QueuedTask) -> None:
                 return
 
         orchestrator = AgentLifecycleOrchestrator(session)
+        auth_token = await _resolve_reconcile_auth_token(gateway=gateway, agent=agent)
+        if not auth_token:
+            agent.last_provision_error = (
+                "Lifecycle reconcile skipped: unable to read AUTH_TOKEN from TOOLS.md"
+            )
+            agent.updated_at = utcnow()
+            session.add(agent)
+            await session.commit()
+            logger.warning(
+                "lifecycle.reconcile.skip_missing_auth_token",
+                extra={"agent_id": str(agent.id)},
+            )
+            return
         await asyncio.wait_for(
             orchestrator.run_lifecycle(
                 gateway=gateway,
@@ -123,9 +170,10 @@ async def process_lifecycle_queue_task(task: QueuedTask) -> None:
                 board=board,
                 user=None,
                 action="update",
-                auth_token=None,
+                auth_token=auth_token,
                 force_bootstrap=False,
-                reset_session=True,
+                # Preserve session context during retries to avoid reset churn.
+                reset_session=False,
                 wake=True,
                 deliver_wakeup=True,
                 wakeup_verb="updated",

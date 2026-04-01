@@ -12,7 +12,7 @@ _GATEWAY_AGENT_PREFIX = f"agent:{_GATEWAY_OPENCLAW_AGENT_PREFIX}"
 _GATEWAY_AGENT_SUFFIX = ":main"
 
 DEFAULT_HEARTBEAT_CONFIG: dict[str, Any] = {
-    "every": "24h",
+    "every": "10m",
     "target": "last",
     "includeReasoning": False,
 }
@@ -89,7 +89,17 @@ LEAD_GATEWAY_FILES = frozenset(
 # Examples:
 # - USER.md: human-provided context + lead intake notes
 # - MEMORY.md: curated long-term memory (consolidated)
-PRESERVE_AGENT_EDITABLE_FILES = frozenset({"USER.md", "MEMORY.md"})
+# - AGENTS.md / TOOLS.md / HEARTBEAT.md: board-specific operating logic may be
+#   migrated into the live workspace and must survive reprovisioning.
+PRESERVE_AGENT_EDITABLE_FILES = frozenset(
+    {
+        "AGENTS.md",
+        "TOOLS.md",
+        "HEARTBEAT.md",
+        "USER.md",
+        "MEMORY.md",
+    }
+)
 
 HEARTBEAT_LEAD_TEMPLATE = "BOARD_HEARTBEAT.md.j2"
 HEARTBEAT_AGENT_TEMPLATE = "BOARD_HEARTBEAT.md.j2"

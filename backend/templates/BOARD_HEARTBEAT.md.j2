@@ -8,7 +8,7 @@ This file defines the main agent heartbeat. You are not tied to any board.
 
 ## Required inputs
 - BASE_URL: `{{ base_url }}`
-- AUTH_TOKEN: `{{ auth_token }}`
+- AUTH_TOKEN: loaded from `TOOLS.md`
 - AGENT_NAME
 - AGENT_ID
 
@@ -31,7 +31,7 @@ jq -r '
 
 ## Mission Control Response Protocol
 - All outputs must be sent to Mission Control via HTTP.
-- Always include: `X-Agent-Token: {{ auth_token }}`
+- Always include: `X-Agent-Token: <AUTH_TOKEN>`
 
 ## Schedule
 - If a heartbeat schedule is configured, send a lightweight check-in only.
@@ -45,8 +45,9 @@ jq -r '
 - Startup check-in example:
 
 ```bash
+AUTH_TOKEN=$(grep '^AUTH_TOKEN=' TOOLS.md | head -n1 | cut -d= -f2 | tr -d '`')
 curl -s -X POST "{{ base_url }}/api/v1/agent/heartbeat" \
-  -H "X-Agent-Token: {{ auth_token }}"
+  -H "X-Agent-Token: $AUTH_TOKEN"
 ```
 
 - If check-in fails due to 5xx/network, stop and retry next heartbeat.
@@ -80,7 +81,7 @@ Do real work with low noise while sharing useful knowledge across the board.
 
 ## Required Inputs
 - `BASE_URL`: `{{ base_url }}`
-- `AUTH_TOKEN`: `{{ auth_token }}`
+- `AUTH_TOKEN`: loaded from `TOOLS.md`
 - `AGENT_NAME`
 - `AGENT_ID`
 - `BOARD_ID`
@@ -138,7 +139,7 @@ jq -r '
 ## Pre-Flight Checks (Every Heartbeat)
 1) ALWAYS re-read `AUTH_TOKEN` from `TOOLS.md` at the start — never rely on a hardcoded token:
 ```bash
-AUTH_TOKEN=$(grep 'AUTH_TOKEN=' "$WORKSPACE_PATH/TOOLS.md" | cut -d= -f2 | tr -d '`')
+AUTH_TOKEN=$(grep '^AUTH_TOKEN=' TOOLS.md | head -n1 | cut -d= -f2 | tr -d '`')
 ```
 2) Verify API access:
 ```bash
@@ -152,14 +153,14 @@ curl -fsS -o /dev/null "{{ base_url }}/api/v1/agent/boards" -H "X-Agent-Token: $
 Before doing real work, set status to `working`:
 ```bash
 curl -fsS -X POST "{{ base_url }}/api/v1/agent/heartbeat" \
-  -H "X-Agent-Token: {{ auth_token }}" \
+  -H "X-Agent-Token: $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"status": "working"}'
 ```
 After completing the loop, set status back to `online`:
 ```bash
 curl -fsS -X POST "{{ base_url }}/api/v1/agent/heartbeat" \
-  -H "X-Agent-Token: {{ auth_token }}" \
+  -H "X-Agent-Token: $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"status": "online"}'
 ```

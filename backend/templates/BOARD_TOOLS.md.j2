@@ -2,6 +2,21 @@
 {% set is_lead = (is_board_lead | default(false) | string | lower) in ["true", "1", "yes"] %}
 # TOOLS.md
 
+BASE_URL={{ base_url }}
+AUTH_TOKEN={{ auth_token }}
+AGENT_NAME={{ agent_name }}
+AGENT_ID={{ agent_id }}
+{% if board_id is defined and board_id %}
+BOARD_ID={{ board_id }}
+{% endif %}
+{% if group_id is defined and group_id %}
+GROUP_ID={{ group_id }}
+{% endif %}
+WORKSPACE_ROOT={{ workspace_root }}
+{% if workspace_path is defined %}
+WORKSPACE_PATH={{ workspace_path }}
+{% endif %}
+
 - `BASE_URL={{ base_url }}`
 - `AUTH_TOKEN={{ auth_token }}`
 - `AGENT_NAME={{ agent_name }}`
@@ -70,24 +85,63 @@ The following documents/guides are available for this board:
 No board documents available yet.
 {% endif %}
 
+## Managed Capability Policy
+
+{% if agent_capabilities %}
+{% if agent_capabilities.policy_name %}
+- Policy: `{{ agent_capabilities.policy_name }}`
+{% endif %}
+{% if agent_capabilities.secret_keys %}
+- Allowed secret keys:
+{% for key in agent_capabilities.secret_keys %}
+  - `{{ key }}`
+{% endfor %}
+{% endif %}
+{% if agent_capabilities.required_secret_keys %}
+- Required secret keys:
+{% for key in agent_capabilities.required_secret_keys %}
+  - `{{ key }}`
+{% endfor %}
+{% endif %}
+{% if agent_capabilities.skills %}
+- Allowed skills:
+{% for skill in agent_capabilities.skills %}
+  - `{{ skill }}`
+{% endfor %}
+{% endif %}
+{% if agent_capabilities.file_access %}
+- Approved file access roots:
+{% for path in agent_capabilities.file_access %}
+  - `{{ path }}`
+{% endfor %}
+{% endif %}
+{% if agent_capabilities.notes %}
+- Notes: {{ agent_capabilities.notes }}
+{% endif %}
+{% else %}
+No managed capability policy assigned. This agent currently inherits the board's full secret set and default workspace behavior.
+{% endif %}
+
 ## Board Secrets
 
 {% if board_secrets %}
-The following secret keys are provisioned for this board:
+The following secret keys are available to this agent:
 {% for secret in board_secrets %}
 - `{{ secret.key }}`{% if secret.description %} — {{ secret.description }}{% endif %}
 
 {% endfor %}
 {% else %}
-No secrets provisioned yet. If a task needs external credentials, follow the Credentials Protocol in `AGENTS.md`.
+No secrets are currently available to this agent. If work needs credentials outside this policy, escalate to the gateway main / admin flow first.
 {% endif %}
 
 **Always fetch secrets at runtime via API — never hardcode values:**
 
 ```bash
+AUTH_TOKEN=$(grep '^AUTH_TOKEN=' TOOLS.md | head -n1 | cut -d= -f2 | tr -d '`')
+
 # Fetch all board secrets and export as env vars
 eval $(curl -s -X GET "{{ base_url }}/api/v1/agent/secrets" \
-  -H "X-Agent-Token: {{ auth_token }}" | \
+  -H "X-Agent-Token: $AUTH_TOKEN" | \
   jq -r '.[] | "export \(.key)=\(.value | @sh)"')
 
 # Then use normally, e.g.:

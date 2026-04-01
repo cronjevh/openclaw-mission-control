@@ -10,9 +10,13 @@ import pytest
 
 import app.services.openclaw.internal.agent_key as agent_key_mod
 import app.services.openclaw.provisioning as agent_provisioning
-from app.services.openclaw.provisioning_db import AgentLifecycleService
+from app.services.openclaw.provisioning_db import (
+    AgentLifecycleService,
+    _resolve_agent_auth_token,
+)
 from app.services.openclaw.shared import GatewayAgentIdentity
 from app.services.souls_directory import SoulRef
+from app.core.agent_tokens import generate_stable_agent_token
 
 
 def test_slugify_normalizes_and_trims():
@@ -31,6 +35,7 @@ def test_slugify_falls_back_to_uuid_hex(monkeypatch):
 @dataclass
 class _AgentStub:
     name: str
+    agent_token_hash: str | None = None
     openclaw_session_id: str | None = None
     heartbeat_config: dict | None = None
     is_board_lead: bool = False
@@ -69,6 +74,93 @@ def test_agent_lifecycle_workspace_path_preserves_tilde_in_workspace_root():
         AgentLifecycleService.workspace_path("Alice", "~/.openclaw")
         == "~/.openclaw/workspace-alice"
     )
+
+
+@pytest.mark.asyncio
+async def test_resolve_agent_auth_token_forces_rotation_when_rotate_tokens_true(monkeypatch):
+    agent = _AgentStub(name="Alice")
+    rotate_spy = {"called": False}
+
+    async def fake_rotate_agent_token(session, agent_arg):
+        rotate_spy["called"] = True
+        return "rotated-token"
+
+    async def fake_get_existing_auth_token(*args, **kwargs):
+        return "existing-token"
+
+    monkeypatch.setattr(
+        "app.services.openclaw.provisioning_db._rotate_agent_token",
+        fake_rotate_agent_token,
+    )
+    monkeypatch.setattr(
+        "app.services.openclaw.provisioning_db._get_existing_auth_token",
+        fake_get_existing_auth_token,
+    )
+
+    from types import SimpleNamespace
+
+    ctx = SimpleNamespace(
+        session=None,
+        gateway=None,
+        control_plane=None,
+        backoff=None,
+        options=SimpleNamespace(rotate_tokens=True, user=None, force_bootstrap=False, reset_sessions=False),
+    )
+    result = SimpleNamespace(errors=[])
+
+    token, fatal, rotated, previous_hash = await _resolve_agent_auth_token(
+        ctx,
+        result,
+        agent,
+        None,
+        agent_gateway_id="agent-alice",
+    )
+
+    assert rotate_spy["called"]
+    assert token == "rotated-token"
+    assert fatal is False
+    assert rotated is True
+    assert previous_hash is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_agent_auth_token_uses_stable_token_when_not_rotating(monkeypatch):
+    agent = _AgentStub(name="Alice")
+
+    async def fake_get_existing_auth_token(*args, **kwargs):
+        raise AssertionError("should not read AUTH_TOKEN from TOOLS.md for stable token mode")
+
+    monkeypatch.setattr(
+        "app.services.openclaw.provisioning_db._get_existing_auth_token",
+        fake_get_existing_auth_token,
+    )
+
+    ctx = SimpleNamespace(
+        session=None,
+        gateway=None,
+        control_plane=None,
+        backoff=None,
+        options=SimpleNamespace(
+            rotate_tokens=False,
+            user=None,
+            force_bootstrap=False,
+            reset_sessions=False,
+        ),
+    )
+    result = SimpleNamespace(errors=[])
+
+    token, fatal, rotated, previous_hash = await _resolve_agent_auth_token(
+        ctx,
+        result,
+        agent,
+        None,
+        agent_gateway_id="agent-alice",
+    )
+
+    assert token == generate_stable_agent_token(agent.id)
+    assert fatal is False
+    assert rotated is False
+    assert previous_hash is None
 
 
 def test_templates_root_points_to_repo_templates_dir():
@@ -494,6 +586,155 @@ async def test_control_plane_upsert_agent_create_then_update(monkeypatch):
 
     assert calls[0][0] == "agents.create"
     assert calls[1][0] == "agents.update"
+
+
+@pytest.mark.asyncio
+async def test_patch_gateway_agent_heartbeats_rate_limited(monkeypatch):
+    from app.services.openclaw import provisioning as agent_provisioning
+
+    gateway_id = uuid4()
+
+    class _GatewayTiny:
+        id: UUID
+        name: str
+        url: str
+        token: str | None
+        workspace_root: str
+        allow_insecure_tls: bool = False
+        disable_device_pairing: bool = False
+
+    class _ControlPlaneStub:
+        def __init__(self):
+            self.calls = 0
+
+        async def patch_agent_heartbeats(self, entries):
+            self.calls += 1
+
+    cp = _ControlPlaneStub()
+
+    def fake_control_plane_for_gateway(gateway):
+        assert gateway.id == gateway_id
+        return cp
+
+    monkeypatch.setattr(agent_provisioning, "_control_plane_for_gateway", fake_control_plane_for_gateway)
+    agent_provisioning._gateway_last_heartbeat_patch.clear()
+
+    gateway = _GatewayTiny()
+    gateway.id = gateway_id
+    gateway.name = "G"
+    gateway.url = "ws://x"
+    gateway.token = None
+    gateway.workspace_root = "/tmp"
+
+    entries = [("agent-1", "/tmp", {"every": "10m", "target": "last", "includeReasoning": False})]
+
+    await agent_provisioning._patch_gateway_agent_heartbeats(gateway, entries=entries)
+    await agent_provisioning._patch_gateway_agent_heartbeats(gateway, entries=entries)
+
+    assert cp.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_control_plane_patch_agent_heartbeats_rate_limited(monkeypatch):
+    calls = {"patch": 0}
+
+    async def fake_openclaw_call(method, params=None, config=None):
+        if method == "config.get":
+            return {"hash": None, "config": {"agents": {"list": []}}}
+        if method == "config.patch":
+            calls["patch"] += 1
+            return {"ok": True}
+        raise AssertionError(f"Unexpected method: {method}")
+
+    monkeypatch.setattr(agent_provisioning, "openclaw_call", fake_openclaw_call)
+    agent_provisioning._gateway_last_heartbeat_patch.clear()
+
+    cp = agent_provisioning.OpenClawGatewayControlPlane(
+        agent_provisioning.GatewayClientConfig(url="ws://gateway.example/ws", token=None)
+    )
+
+    entries = [("agent-1", "/tmp", {"every": "10m", "target": "last", "includeReasoning": False})]
+    await cp.patch_agent_heartbeats(entries)
+    await cp.patch_agent_heartbeats(entries)
+
+    assert calls["patch"] == 1
+
+
+def test_updated_agent_list_preserves_raw_path_when_tilde_abs_equivalent():
+    raw_list = [
+        {
+            "id": "agent-1",
+            "workspace": "/root/.openclaw/workspace-agent-1",
+            "heartbeat": {
+                "every": "10m",
+                "target": "last",
+                "includeReasoning": False,
+            },
+        }
+    ]
+    entry_by_id = {
+        "agent-1": (
+            "~/.openclaw/workspace-agent-1",
+            {"every": "10m", "target": "last", "includeReasoning": False},
+        )
+    }
+    updated = agent_provisioning._updated_agent_list(raw_list, entry_by_id)
+    assert updated == [
+        {
+            "id": "agent-1",
+            "workspace": "/root/.openclaw/workspace-agent-1",
+            "heartbeat": {"every": "10m", "target": "last", "includeReasoning": False},
+        }
+    ]
+
+
+def test_updated_agent_list_preserves_raw_heartbeat_extra_fields():
+    raw_list = [
+        {
+            "id": "agent-1",
+            "workspace": "/root/.openclaw/workspace-agent-1",
+            "heartbeat": {
+                "every": "10m",
+                "target": "last",
+                "includeReasoning": False,
+                "unused": "value"
+            },
+        }
+    ]
+    entry_by_id = {
+        "agent-1": (
+            "/root/.openclaw/workspace-agent-1",
+            {"every": "10m", "target": "last", "includeReasoning": False},
+        )
+    }
+    updated = agent_provisioning._updated_agent_list(raw_list, entry_by_id)
+    assert updated == raw_list
+
+
+def test_updated_agent_list_preserves_root_mapped_workspace_path(monkeypatch):
+    monkeypatch.setenv("WORKSPACE_ROOT_REMAP", "/home/cronjev/.openclaw/workspace=/app/workspaces")
+    raw_list = [
+        {
+            "id": "agent-1",
+            "workspace": "/app/workspaces/workspace-agent-1",
+            "heartbeat": {
+                "every": "10m",
+                "target": "last",
+                "includeReasoning": False,
+            },
+        }
+    ]
+    entry_by_id = {
+        "agent-1": (
+            "/home/cronjev/.openclaw/workspace/workspace-agent-1",
+            {"every": "10m", "target": "last", "includeReasoning": False},
+        )
+    }
+    updated = agent_provisioning._updated_agent_list(raw_list, entry_by_id)
+    assert updated == raw_list
+
+
+# no-op: keep tilde in workspace root to preserve user-input format and avoid flip-flops.
 
 
 @pytest.mark.asyncio

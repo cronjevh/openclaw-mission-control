@@ -91,6 +91,24 @@ Actions:
 1. Fix check-in path first (startup, network, token, API reachability).
 2. Re-run provisioning/update to start a new attempt cycle.
 
+### Agent task PATCH returns 403 while healthz and board reads succeed
+
+Symptom pattern:
+
+- `GET /api/v1/agent/healthz` succeeds
+- `GET /api/v1/agent/boards` succeeds
+- `GET /api/v1/agent/boards/{board_id}/tasks` succeeds
+- `PATCH /api/v1/agent/boards/{board_id}/tasks/{task_id}` returns `403`
+
+This usually indicates an auth-context split on task-scoped agent routes. Older code paths resolved the task through shared user-or-agent dependencies before the request reached the agent-specific handler. That could classify the same request differently from the surrounding agent route, especially when callers used `Authorization: Bearer ...` instead of `X-Agent-Token`.
+
+Actions:
+
+1. Prefer `X-Agent-Token` for agent-originated task/comment routes.
+2. Verify the server includes the agent-scoped task lookup fix for `backend/app/api/agent.py` so task routes do not re-enter mixed user/agent auth.
+3. Re-test task assignment with a minimal payload such as `{"assigned_agent_id":"<worker-id>"}`.
+4. If task list still shows `assigned_agent_id: null` after the PATCH, capture the exact response body and server logs for the task route.
+
 ## Operator Recovery Checklist
 
 1. Ensure queue worker is running.

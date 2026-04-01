@@ -275,8 +275,54 @@ def _extract_text_from_msg(msg: dict) -> str:
     return str(content).strip()
 
 
+def _history_messages(history: object) -> list[dict]:
+    if not isinstance(history, dict):
+        return []
+    messages = history.get("messages") or []
+    if not isinstance(messages, list):
+        return []
+    return [msg for msg in messages if isinstance(msg, dict)]
 
 
+def _message_seq(msg: dict) -> int | None:
+    seq = (msg.get("__openclaw") or {}).get("seq", 0)
+    if not isinstance(seq, (int, float)):
+        return None
+    return int(seq)
+
+
+def _find_matching_user_seq(
+    messages: list[dict],
+    *,
+    after_seq: int,
+    expected_message: str,
+) -> int | None:
+    expected = expected_message.strip()
+    if not expected:
+        return None
+    for msg in messages:
+        seq = _message_seq(msg)
+        if seq is None or seq <= after_seq:
+            continue
+        if msg.get("role") != "user":
+            continue
+        text = _extract_text_from_msg(msg)
+        if text.strip() == expected:
+            return seq
+    return None
+
+
+def _find_assistant_reply_after_seq(messages: list[dict], *, after_seq: int) -> str:
+    for msg in reversed(messages):
+        seq = _message_seq(msg)
+        if seq is None or seq <= after_seq:
+            continue
+        if msg.get("role") != "assistant":
+            continue
+        text = _extract_text_from_msg(msg)
+        if text:
+            return text
+    return ""
 
 async def _get_max_seq(session_key: str, config: GatewayConfig) -> int:
     """Snapshot the current max seq number in the session history."""
@@ -286,11 +332,11 @@ async def _get_max_seq(session_key: str, config: GatewayConfig) -> int:
             {"sessionKey": session_key, "limit": 3},
             config=config,
         )
-        messages = pre_history.get("messages") or [] if isinstance(pre_history, dict) else []
+        messages = _history_messages(pre_history)
         max_seq = 0
         for m in messages:
-            seq = (m.get("__openclaw") or {}).get("seq", 0)
-            if isinstance(seq, (int, float)) and seq > max_seq:
+            seq = _message_seq(m)
+            if seq is not None and seq > max_seq:
                 max_seq = seq
         return max_seq
     except Exception:  # noqa: BLE001
@@ -332,44 +378,40 @@ async def _send_and_wait(
         config=config,
     )
 
-    # Our user message will have seq = max_pre_seq + 1.
-    # Poll history until we see an assistant reply with seq > user_seq.
-    # Don't rely on agent.wait — it can return for wrong run IDs when
-    # multiple messages are queued (e.g. after a wake ping).
-    user_seq = max_pre_seq + 1
+    # Poll history until we see an assistant reply after our specific user
+    # message. Don't rely on agent.wait — it can return for wrong run IDs when
+    # multiple messages are queued (e.g. after a wake ping). Instead, anchor
+    # on the actual user message we just sent when it appears in history, and
+    # only then look for the assistant reply after that seq. Fall back to the
+    # previous heuristic if the history entry cannot be resolved.
+    fallback_user_seq = max_pre_seq + 1
+    resolved_user_seq: int | None = None
     deadline = sent_at + _WAIT_TIMEOUT_MS / 1000
     poll_interval = 2.0
 
     while time.monotonic() < deadline:
         await asyncio.sleep(poll_interval)
-        text = await _get_reply_after_seq(session_key, user_seq, config)
+        history = await openclaw_call(
+            "chat.history",
+            {"sessionKey": session_key, "limit": 50},
+            config=config,
+        )
+        messages = _history_messages(history)
+        if resolved_user_seq is None:
+            resolved_user_seq = _find_matching_user_seq(
+                messages,
+                after_seq=max_pre_seq,
+                expected_message=message,
+            )
+        text = _find_assistant_reply_after_seq(
+            messages,
+            after_seq=resolved_user_seq or fallback_user_seq,
+        )
         if text:
             return text
         # Increase poll interval slightly after first few attempts
         poll_interval = min(poll_interval + 1.0, 5.0)
 
-    return ""
-
-
-async def _get_reply_after_seq(session_key: str, user_seq: int, config: GatewayConfig) -> str:
-    """Fetch history and find the last assistant text message with seq > user_seq."""
-    history = await openclaw_call(
-        "chat.history",
-        {"sessionKey": session_key, "limit": 15},
-        config=config,
-    )
-    messages = history.get("messages") or [] if isinstance(history, dict) else []
-    for msg in reversed(messages):
-        if not isinstance(msg, dict):
-            continue
-        seq = (msg.get("__openclaw") or {}).get("seq", 0)
-        if not isinstance(seq, (int, float)) or seq <= user_seq:
-            continue  # This message is from before our send
-        if msg.get("role") != "assistant":
-            continue
-        text = _extract_text_from_msg(msg)
-        if text:
-            return text
     return ""
 
 

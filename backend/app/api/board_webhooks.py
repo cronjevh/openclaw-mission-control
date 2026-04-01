@@ -11,7 +11,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import col, select
 
-from app.api.deps import get_board_for_user_read, get_board_for_user_write, get_board_or_404
+from app.api.deps import get_board_for_actor_read, get_board_for_user_write, get_board_or_404
 from app.core.client_ip import get_client_ip
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
 router = APIRouter(prefix="/boards/{board_id}/webhooks", tags=["board-webhooks"])
 SESSION_DEP = Depends(get_session)
-BOARD_USER_READ_DEP = Depends(get_board_for_user_read)
+BOARD_USER_READ_DEP = Depends(get_board_for_actor_read)
 BOARD_USER_WRITE_DEP = Depends(get_board_for_user_write)
 BOARD_OR_404_DEP = Depends(get_board_or_404)
 logger = get_logger(__name__)

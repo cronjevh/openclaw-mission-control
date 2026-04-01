@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import get_board_for_user_read, get_board_for_user_write
+from app.api.deps import get_board_for_actor_read, get_board_for_user_write
 from app.core.encryption import decrypt_secret, encrypt_secret
 from app.core.logging import get_logger
 from app.core.time import utcnow
@@ -26,7 +26,7 @@ logger = get_logger(__name__)
 
 SESSION_DEP = Depends(get_session)
 BOARD_WRITE_DEP = Depends(get_board_for_user_write)
-BOARD_READ_DEP = Depends(get_board_for_user_read)
+BOARD_READ_DEP = Depends(get_board_for_actor_read)
 
 
 class SecretRead(BaseModel):

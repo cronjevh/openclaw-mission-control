@@ -14,7 +14,6 @@ from sqlmodel import col, select
 
 from app.api.deps import (
     get_board_for_actor_read,
-    get_board_for_user_read,
     get_board_for_user_write,
     require_org_admin,
     require_org_member,
@@ -53,7 +52,7 @@ logger = get_logger(__name__)
 SESSION_DEP = Depends(get_session)
 ORG_ADMIN_DEP = Depends(require_org_admin)
 ORG_MEMBER_DEP = Depends(require_org_member)
-BOARD_USER_READ_DEP = Depends(get_board_for_user_read)
+BOARD_USER_READ_DEP = Depends(get_board_for_actor_read)
 BOARD_USER_WRITE_DEP = Depends(get_board_for_user_write)
 BOARD_ACTOR_READ_DEP = Depends(get_board_for_actor_read)
 GATEWAY_ID_QUERY = Query(default=None)

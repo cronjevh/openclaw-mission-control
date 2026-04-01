@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+from uuid import UUID
 from typing import TYPE_CHECKING, Literal
 
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -49,17 +50,64 @@ class AgentAuthContext:
     agent: Agent
 
 
-async def _find_agent_for_token(session: AsyncSession, token: str) -> Agent | None:
+def _board_id_hint_from_request(request: Request) -> UUID | None:
+    path_params = getattr(request, "path_params", None)
+    if not isinstance(path_params, dict):
+        return None
+    raw_board_id = path_params.get("board_id")
+    if not raw_board_id:
+        return None
+    try:
+        return UUID(str(raw_board_id))
+    except (TypeError, ValueError):
+        return None
+
+
+async def _find_agent_for_token(
+    session: AsyncSession,
+    token: str,
+    *,
+    board_id_hint: UUID | None = None,
+) -> Agent | None:
     agents = list(
         await session.exec(
-            select(Agent).where(col(Agent.agent_token_hash).is_not(None)),
+            select(Agent).where(
+                col(Agent.agent_token_hash).is_not(None),
+                col(Agent.status) != "deleting",
+            ),
         ),
     )
+
+    stable_matches: list[Agent] = []
+    hash_matches: list[Agent] = []
     for agent in agents:
         if token == generate_stable_agent_token(agent.id):
-            return agent
+            stable_matches.append(agent)
+            continue
         if agent.agent_token_hash and verify_agent_token(token, agent.agent_token_hash):
-            return agent
+            hash_matches.append(agent)
+
+    if len(stable_matches) == 1:
+        return stable_matches[0]
+    if len(stable_matches) > 1:
+        logger.warning("agent auth ambiguous stable token board_id_hint=%s", board_id_hint)
+        return None
+
+    if not hash_matches:
+        return None
+    if len(hash_matches) == 1:
+        return hash_matches[0]
+
+    if board_id_hint is not None:
+        board_matches = [candidate for candidate in hash_matches if candidate.board_id == board_id_hint]
+        if len(board_matches) == 1:
+            return board_matches[0]
+
+    logger.warning(
+        "agent auth ambiguous legacy token board_id_hint=%s matches=%s",
+        board_id_hint,
+        len(hash_matches),
+    )
     return None
 
 
@@ -133,7 +181,11 @@ async def get_agent_auth_context(
             bool(authorization),
         )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
-    agent = await _find_agent_for_token(session, resolved)
+    agent = await _find_agent_for_token(
+        session,
+        resolved,
+        board_id_hint=_board_id_hint_from_request(request),
+    )
     if agent is None:
         logger.warning(
             "agent auth invalid token path=%s token_prefix=%s",
@@ -179,7 +231,11 @@ async def get_agent_auth_context_optional(
     client_ip = get_client_ip(request)
     if not await agent_auth_limiter.is_allowed(client_ip):
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS)
-    agent = await _find_agent_for_token(session, resolved)
+    agent = await _find_agent_for_token(
+        session,
+        resolved,
+        board_id_hint=_board_id_hint_from_request(request),
+    )
     if agent is None:
         logger.warning(
             "agent auth optional invalid token path=%s token_prefix=%s",

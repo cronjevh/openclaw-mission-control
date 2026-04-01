@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 from fastapi import HTTPException
@@ -40,7 +41,7 @@ async def test_optional_agent_auth_rate_limits_bearer_agent_token(
         method="POST",
     )
 
-    async def _fake_find(_session: object, token: str) -> object:
+    async def _fake_find(_session: object, token: str, **_: object) -> object:
         assert token == "agent-secret"
         return agent
 
@@ -100,7 +101,7 @@ async def test_required_agent_auth_invalid_token_logs_short_prefix_only(
         method="POST",
     )
 
-    async def _fake_find(_session: object, _token: str) -> None:
+    async def _fake_find(_session: object, _token: str, **_kw: object) -> None:
         return None
 
     def _fake_warning(message: str, *args: object, **_: object) -> None:
@@ -140,7 +141,7 @@ async def test_optional_agent_auth_invalid_token_logs_short_prefix_only(
         method="POST",
     )
 
-    async def _fake_find(_session: object, _token: str) -> None:
+    async def _fake_find(_session: object, _token: str, **_kw: object) -> None:
         return None
 
     def _fake_warning(message: str, *args: object, **_: object) -> None:
@@ -183,3 +184,34 @@ async def test_find_agent_for_token_accepts_stable_token_even_when_hash_is_stale
     )
 
     assert resolved is agent
+
+
+@pytest.mark.asyncio
+async def test_find_agent_for_token_disambiguates_legacy_hash_by_board_hint() -> None:
+    legacy_token = "shared-legacy-token"
+    board_a = UUID("dd95369d-1497-41f2-8aeb-e06b51b63162")
+    board_b = UUID("27ea8f27-f98d-4cd8-a37d-f42c14b4a5bc")
+    agent_a = SimpleNamespace(
+        id="9e590c5d-9745-427f-b5c8-f0ea85f23f8c",
+        board_id=board_a,
+        status="online",
+        agent_token_hash=hash_agent_token(legacy_token),
+    )
+    agent_b = SimpleNamespace(
+        id="c9f73bcf-1d11-4c83-8e45-a6b9ce032b10",
+        board_id=board_b,
+        status="online",
+        agent_token_hash=hash_agent_token(legacy_token),
+    )
+
+    class _FakeSession:
+        async def exec(self, _stmt: object) -> list[object]:
+            return [agent_a, agent_b]
+
+    resolved = await agent_auth._find_agent_for_token(
+        _FakeSession(),  # type: ignore[arg-type]
+        legacy_token,
+        board_id_hint=board_b,
+    )
+
+    assert resolved is agent_b

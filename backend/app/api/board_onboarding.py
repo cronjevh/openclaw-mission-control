@@ -10,7 +10,7 @@ from sqlmodel import col
 
 from app.api.deps import (
     ActorContext,
-    get_board_for_user_read,
+    get_board_for_actor_read,
     get_board_for_user_write,
     get_board_or_404,
     require_user_auth,
@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 
 router = APIRouter(prefix="/boards/{board_id}/onboarding", tags=["board-onboarding"])
 logger = get_logger(__name__)
-BOARD_USER_READ_DEP = Depends(get_board_for_user_read)
+BOARD_USER_READ_DEP = Depends(get_board_for_actor_read)
 BOARD_USER_WRITE_DEP = Depends(get_board_for_user_write)
 BOARD_OR_404_DEP = Depends(get_board_or_404)
 SESSION_DEP = Depends(get_session)

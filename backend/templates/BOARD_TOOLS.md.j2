@@ -42,8 +42,12 @@ WORKSPACE_PATH={{ workspace_path }}
   `curl -fsS "$BASE_URL/api/v1/agent/boards/$BOARD_ID/snapshot" -H "X-Agent-Token: $AUTH_TOKEN"`
 - Create persistent board specialist:
   `curl -fsS -X POST "$BASE_URL/api/v1/agent/agents" -H "X-Agent-Token: $AUTH_TOKEN" -H "Content-Type: application/json" -d '{"name":"Athena"}'`
+- Update an existing board specialist:
+  `curl -fsS -X PATCH "$BASE_URL/api/v1/agent/boards/$BOARD_ID/agents/<agent_id>" -H "X-Agent-Token: $AUTH_TOKEN" -H "Content-Type: application/json" -d '{"name":"Hermes","identity_profile":{"role":"Operations Specialist"}}'`
+- Update recurring SOUL guidance:
+  `curl -fsS -X PUT "$BASE_URL/api/v1/agent/boards/$BOARD_ID/agents/<agent_id>/soul" -H "X-Agent-Token: $AUTH_TOKEN" -H "Content-Type: application/json" -d '{"content":"..."}'`
 - Delete obsolete non-lead board agent:
-  `curl -fsS -X DELETE "$BASE_URL/api/v1/agent/agents/<agent_id>" -H "X-Agent-Token: $AUTH_TOKEN"`
+  `curl -fsS -X DELETE "$BASE_URL/api/v1/agent/boards/$BOARD_ID/agents/<agent_id>" -H "X-Agent-Token: $AUTH_TOKEN"`
 
 ## Capacity Rule
 
@@ -51,6 +55,7 @@ WORKSPACE_PATH={{ workspace_path }}
 - Count only non-lead board agents against the cap.
 - If snapshot shows the lead plus 2 workers and `max_agents=3`, one worker slot remains available.
 - Do not use `agents_list` or `sessions_spawn` to decide whether a persistent board agent can be created.
+- Do not use org-admin `PATCH /api/v1/agents/<agent_id>` with `X-Agent-Token` for board-agent updates; that route expects org-admin auth and will return `401`.
 {% endif %}
 
 {% if is_main %}

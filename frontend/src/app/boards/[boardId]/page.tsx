@@ -39,7 +39,6 @@ import { DashboardShell } from "@/components/templates/DashboardShell";
 import { BoardChatComposer } from "@/components/BoardChatComposer";
 import { TaskCustomFieldsEditor } from "./TaskCustomFieldsEditor";
 import { buildUrlWithTaskId } from "./task-detail-query";
-import { BoardSearch } from "@/components/ui/BoardSearch";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -139,6 +138,7 @@ import {
   firstMissingRequiredCustomField,
   formatCustomFieldDetailValue,
   isCustomFieldVisible,
+  isCustomFieldValueSet,
   type TaskCustomFieldValues,
 } from "./custom-field-utils";
 
@@ -3246,18 +3246,6 @@ export default function BoardDetailPage() {
                   ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
-                  {boardId && (
-                    <BoardSearch
-                      boardId={boardId}
-                      onTaskSelect={(taskId) => {
-                        const found = tasks.find((t) => t.id === taskId);
-                        if (found) {
-                          setSelectedTask(found);
-                          setIsDetailOpen(true);
-                        }
-                      }}
-                    />
-                  )}
                   <div className="flex items-center gap-1 rounded-lg border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-1">
                     <button
                       className={cn(
@@ -3926,15 +3914,27 @@ export default function BoardDetailPage() {
       >
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between border-b border-[color:var(--border)] px-6 py-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
-                Task detail
-              </p>
+            <div className="min-w-0 flex-1 pr-4">
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
+                  Task detail
+                </p>
+                {selectedTask && (
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(selectedTask.id)}
+                    className="cursor-pointer rounded bg-[color:var(--surface-strong)] px-2 py-0.5 font-mono text-xs text-quiet transition hover:bg-[color:var(--surface-muted)]"
+                    title="Click to copy task ID"
+                  >
+                    {selectedTask.id}
+                  </button>
+                )}
+              </div>
               <p className="mt-1 text-sm font-medium text-strong">
                 {selectedTask?.title ?? "Task"}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               <button
                 type="button"
                 onClick={() => setIsEditDialogOpen(true)}
@@ -3953,26 +3953,13 @@ export default function BoardDetailPage() {
               </button>
             </div>
           </div>
-          <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
-            {selectedTask && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-quiet">
-                  Task ID
-                </span>
-                <span
-                  className="cursor-pointer select-all rounded bg-[color:var(--surface-strong)] px-2 py-0.5 font-mono text-xs text-quiet hover:bg-[color:var(--surface-strong)] dark:hover:bg-[color:var(--surface-strong)]"
-                  title="Click to select"
-                >
-                  {selectedTask.id}
-                </span>
-              </div>
-            )}
+          <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
                 Description
               </p>
               {selectedTask?.description ? (
-                <div className="prose prose-sm max-w-none dark:prose-invert text-[color:var(--text)]">
+                <div className="prose prose-sm max-w-none dark:prose-invert text-[color:var(--text)] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
                   <CollapsibleMarkdown
                     content={selectedTask.description}
                     variant="description"
@@ -3998,63 +3985,86 @@ export default function BoardDetailPage() {
                 <p className="text-sm text-muted">{selectedTask?.assignee ?? "Unassigned"}</p>
               </div>
             </div>
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
-                Tags
-              </p>
-              {selectedTask?.tags?.length ? (
-                <div className="flex flex-wrap gap-2">
-                  {selectedTask.tags.map((tag) => (
-                    <span
-                      key={tag.id}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-[color:var(--border)] bg-[color:var(--surface)] px-2.5 py-1 text-xs font-semibold text-muted"
-                    >
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{
-                          backgroundColor: `#${normalizeTagColor(tag.color)}`,
-                        }}
-                      />
-                      {tag.name}
-                    </span>
-                  ))}
+            <div className="grid grid-cols-2 gap-4">
+              {boardCustomFieldDefinitions.some((def) => {
+                const value = selectedTask?.custom_field_values?.[def.field_key];
+                return isCustomFieldVisible(def, value) && isCustomFieldValueSet(value);
+              }) && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
+                    Custom fields
+                  </p>
+                  <div className="space-y-1.5">
+                    {boardCustomFieldDefinitions.map((def) => {
+                      const value =
+                        selectedTask?.custom_field_values?.[def.field_key];
+                      if (!isCustomFieldVisible(def, value) || !isCustomFieldValueSet(value)) return null;
+                      return (
+                        <div key={def.id} className="flex items-start gap-2">
+                          <span className="min-w-[100px] text-xs font-medium text-quiet">
+                            {def.label || def.field_key}
+                          </span>
+                          <span className="text-xs text-muted">
+                            {formatCustomFieldDetailValue(def, value)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              ) : (
-                <p className="text-sm text-quiet">No tags assigned.</p>
               )}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
+                  Tags
+                </p>
+                {selectedTask?.tags?.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedTask.tags.map((tag) => (
+                      <span
+                        key={tag.id}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-[color:var(--border)] bg-[color:var(--surface)] px-2.5 py-1 text-xs font-semibold text-muted"
+                      >
+                        <span
+                          className="h-2 w-2 rounded-full"
+                          style={{
+                            backgroundColor: `#${normalizeTagColor(tag.color)}`,
+                          }}
+                        />
+                        {tag.name}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-quiet">No tags assigned.</p>
+                )}
+              </div>
             </div>
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
-                Dependencies
-              </p>
-              {(() => {
-                const hasDependencies =
-                  (selectedTask?.depends_on_task_ids?.length ?? 0) > 0;
-                const hasResolvedDependencies =
-                  selectedTaskResolvedDependencies.length > 0;
-                const isDependencyModeBlocked = hasDependencies
-                  ? selectedTask?.is_blocked === true
-                  : false;
-                const bannerVariant =
-                  hasDependencies || hasResolvedDependencies
-                    ? isDependencyModeBlocked
-                      ? "blocked"
-                      : "resolved"
-                    : "blocked";
-                const displayedDependencies =
-                  hasDependencies && selectedTask
-                    ? selectedTaskDependencies
-                    : selectedTaskResolvedDependencies;
-                const childrenMessage =
-                  hasDependencies && selectedTask?.is_blocked
-                    ? "Blocked by incomplete dependencies."
-                    : hasDependencies
-                      ? "Dependencies resolved."
-                      : hasResolvedDependencies
-                        ? "This task resolves these tasks."
-                        : null;
-
-                return (
+            {(() => {
+              const hasDependencies =
+                (selectedTask?.depends_on_task_ids?.length ?? 0) > 0;
+              const hasResolvedDependencies =
+                selectedTaskResolvedDependencies.length > 0;
+              if (!hasDependencies && !hasResolvedDependencies) return null;
+              const isDependencyModeBlocked = hasDependencies
+                ? selectedTask?.is_blocked === true
+                : false;
+              const bannerVariant =
+                isDependencyModeBlocked ? "blocked" : "resolved";
+              const displayedDependencies = hasDependencies && selectedTask
+                ? selectedTaskDependencies
+                : selectedTaskResolvedDependencies;
+              const childrenMessage = hasDependencies && selectedTask?.is_blocked
+                ? "Blocked by incomplete dependencies."
+                : hasDependencies
+                  ? "Dependencies resolved."
+                  : hasResolvedDependencies
+                    ? "This task resolves these tasks."
+                    : null;
+              return (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
+                    Dependencies
+                  </p>
                   <DependencyBanner
                     dependencies={displayedDependencies}
                     variant={bannerVariant}
@@ -4062,9 +4072,9 @@ export default function BoardDetailPage() {
                   >
                     {childrenMessage}
                   </DependencyBanner>
-                );
-              })()}
-            </div>
+                </div>
+              );
+            })()}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold uppercase tracking-wider text-quiet">

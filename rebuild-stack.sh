@@ -3,6 +3,8 @@ set -euo pipefail
 
 COMPOSE_FILE="compose.yml"
 ENV_FILE=".env"
+DOWN_TIMEOUT_SECONDS="${DOWN_TIMEOUT_SECONDS:-10}"
+COMPOSE_PROGRESS_MODE="${COMPOSE_PROGRESS_MODE:-plain}"
 
 cleanup() {
   if [[ -n "${TEMP_DOCKER_CONFIG_DIR:-}" && -d "${TEMP_DOCKER_CONFIG_DIR}" ]]; then
@@ -69,11 +71,21 @@ PY
 trap cleanup EXIT
 prepare_docker_config
 
-echo "--- stopping existing stack"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down
+compose() {
+  docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
+}
 
-echo "--- rebuilding images and starting"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build
+echo "--- checking existing stack"
+running_container_ids="$(compose ps -q 2>/dev/null || true)"
+if [[ -n "${running_container_ids}" ]]; then
+  echo "--- stopping existing stack (timeout: ${DOWN_TIMEOUT_SECONDS}s)"
+  compose down --remove-orphans --timeout "${DOWN_TIMEOUT_SECONDS}"
+else
+  echo "--- no existing compose-managed containers found; skipping shutdown"
+fi
+
+echo "--- rebuilding images and starting (progress: ${COMPOSE_PROGRESS_MODE})"
+compose --progress "${COMPOSE_PROGRESS_MODE}" up -d --build
 
 echo "--- tailing backend logs (ctrl+c to exit)"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs -f --no-log-prefix backend
+compose logs -f --no-log-prefix backend

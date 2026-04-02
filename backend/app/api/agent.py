@@ -32,6 +32,7 @@ from app.schemas.agents import (
     AgentHeartbeat,
     AgentNudge,
     AgentRead,
+    AgentUpdate,
 )
 from app.schemas.approvals import ApprovalCreate, ApprovalRead, ApprovalStatus
 from app.schemas.board_memory import BoardMemoryCreate, BoardMemoryRead
@@ -1491,6 +1492,102 @@ async def create_agent(
         payload=payload,
         session=session,
         actor=_actor(agent_ctx),
+    )
+
+
+@router.patch(
+    "/boards/{board_id}/agents/{agent_id}",
+    response_model=AgentRead,
+    tags=AGENT_LEAD_TAGS,
+    summary="Update a board agent as lead",
+    description=(
+        "Patch mutable metadata for an existing board agent and reprovision it if needed.\n\n"
+        "Use this for renames, identity-profile changes, or other persistent profile updates."
+    ),
+    operation_id="agent_lead_update_board_agent",
+    responses={
+        200: {"description": "Agent updated"},
+        403: {
+            "model": LLMErrorResponse,
+            "description": "Caller is not board lead or tried to modify a forbidden target/field",
+        },
+        404: {
+            "model": LLMErrorResponse,
+            "description": "Board or target agent not found",
+        },
+        409: {
+            "model": LLMErrorResponse,
+            "description": "Requested agent name conflicts with an existing board or gateway agent",
+        },
+        422: {
+            "model": LLMErrorResponse,
+            "description": "Payload validation failed",
+        },
+    },
+    openapi_extra={
+        "x-llm-intent": "agent_management",
+        "x-when-to-use": [
+            "Renaming an existing board specialist",
+            "Updating identity_profile, identity_template, or heartbeat policy for a board worker",
+        ],
+        "x-when-not-to-use": [
+            "Creating a new agent",
+            "Updating SOUL guidance when the dedicated SOUL endpoint is more specific",
+        ],
+        "x-required-actor": "board_lead",
+        "x-prerequisites": [
+            "Authenticated board lead",
+            "Target agent on the same board",
+            "AgentUpdate payload with only allowed mutable fields",
+        ],
+        "x-side-effects": [
+            "Mutates persisted board-agent metadata",
+            "Marks the target agent for reprovisioning",
+            "May rotate live instruction/rendered workspace state",
+        ],
+        "x-negative-guidance": [
+            "Do not call org-admin /api/v1/agents/{agent_id} with an agent token; that will 401.",
+            "Do not use this route to move agents across boards or to change gateway-main assignment.",
+        ],
+        "x-routing-policy": [
+            "Use this lead-scoped board route for persistent metadata changes to existing board agents.",
+            "Use the create/delete endpoints for lifecycle changes, and the SOUL route for dedicated role-guidance rewrites.",
+        ],
+        "x-routing-policy-examples": [
+            {
+                "input": {
+                    "intent": "rename Athena to Hermes and update role metadata",
+                    "required_privilege": "board_lead",
+                },
+                "decision": "agent_lead_update_board_agent",
+            },
+            {
+                "input": {
+                    "intent": "patch an existing agent through /api/v1/agents/{agent_id} using X-Agent-Token",
+                    "required_privilege": "board_lead",
+                },
+                "decision": "wrong route; use agent_lead_update_board_agent instead",
+            },
+        ],
+    },
+)
+async def update_board_agent(
+    agent_id: str,
+    payload: AgentUpdate,
+    force: bool = Query(default=False),
+    board: Board = BOARD_DEP,
+    session: AsyncSession = SESSION_DEP,
+    agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
+) -> AgentRead:
+    """Update a board-scoped agent as the board lead."""
+    _guard_board_access(agent_ctx, board)
+    _require_board_lead(agent_ctx)
+    service = AgentLifecycleService(session)
+    return await service.update_agent_as_lead(
+        agent_id=agent_id,
+        payload=payload,
+        actor_agent=agent_ctx.agent,
+        force=force,
     )
 
 

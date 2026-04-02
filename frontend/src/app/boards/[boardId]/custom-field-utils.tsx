@@ -178,7 +178,7 @@ export const formatCustomFieldDetailValue = (
   return customFieldInputText(value) || "—";
 };
 
-const isCustomFieldValueSet = (value: unknown): boolean => {
+export const isCustomFieldValueSet = (value: unknown): boolean => {
   if (value === null || value === undefined) return false;
   if (typeof value === "string") return value.trim().length > 0;
   if (Array.isArray(value)) return value.length > 0;
@@ -206,7 +206,7 @@ export const parseCustomFieldInputValue = (
     definition.field_type === "text" ||
     definition.field_type === "text_long"
   ) {
-    return trimmed;
+    return text; // preserve spaces while typing; trimming happens on save
   }
   if (definition.field_type === "integer") {
     if (!/^-?\d+$/.test(trimmed)) return trimmed;

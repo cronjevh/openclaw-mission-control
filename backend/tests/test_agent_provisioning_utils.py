@@ -170,6 +170,65 @@ def test_templates_root_points_to_repo_templates_dir():
     assert (root / "BOARD_AGENTS.md.j2").exists()
 
 
+def test_rendered_lead_templates_include_specialist_management_guidance():
+    agent = _AgentStub(
+        name="Atlas",
+        is_board_lead=True,
+        openclaw_session_id="agent:lead-test-board:main",
+        identity_profile={
+            "role": "Generalist",
+            "emoji": ":gear:",
+            "communication_style": "direct, concise, practical",
+        },
+    )
+    board = SimpleNamespace(
+        id=uuid4(),
+        name="Mission Control Management",
+        board_type="goal",
+        objective="Own board-level coordination and delivery quality.",
+        success_metrics=None,
+        target_date=None,
+        goal_confirmed=True,
+        require_approval_for_done=True,
+        require_review_before_done=False,
+        comment_required_for_review=False,
+        block_status_changes_with_pending_approval=False,
+        only_lead_can_change_status=False,
+        max_agents=3,
+    )
+    gateway = _GatewayStub(
+        id=uuid4(),
+        name="Mission Control Gateway",
+        url="http://localhost:8002",
+        token="gateway-token",
+        workspace_root="~/.openclaw",
+    )
+
+    context = agent_provisioning._build_context(agent, board, gateway, "agent-token", None)
+    context.update(
+        {
+            "board_documents": [],
+            "agent_capabilities": None,
+            "board_secrets": [],
+        }
+    )
+    rendered = agent_provisioning._render_agent_files(
+        context,
+        agent,
+        {"AGENTS.md", "HEARTBEAT.md", "TOOLS.md"},
+        include_bootstrap=False,
+        template_overrides=agent_provisioning.BOARD_SHARED_TEMPLATE_MAP,
+    )
+
+    assert "### Specialist Provisioning" in rendered["AGENTS.md"]
+    assert "`max_agents` excludes the lead itself." in rendered["AGENTS.md"]
+    assert "Do not confuse `agents_list`, `sessions_spawn`, or subagent allowlists" in rendered["AGENTS.md"]
+    assert "For persistent board specialists, use `POST /api/v1/agent/agents`" in rendered["HEARTBEAT.md"]
+    assert "`max_agents` counts only non-lead workers." in rendered["HEARTBEAT.md"]
+    assert "## Agent Management Quick Reference" in rendered["TOOLS.md"]
+    assert 'curl -fsS -X POST "$BASE_URL/api/v1/agent/agents"' in rendered["TOOLS.md"]
+
+
 def test_user_context_uses_email_fallback_when_name_is_missing():
     user = SimpleNamespace(
         name=None,

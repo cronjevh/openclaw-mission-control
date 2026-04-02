@@ -1046,15 +1046,22 @@ class AgentLifecycleService(OpenClawDBService):
         board: Board,
         gateway: Gateway,
         requested_name: str,
+        exclude_agent_id: UUID | None = None,
     ) -> None:
         if not requested_name:
             return
 
+        board_stmt = (
+            select(Agent)
+            .where(Agent.board_id == board.id)
+            .where(col(Agent.name).ilike(requested_name))
+        )
+        if exclude_agent_id is not None:
+            board_stmt = board_stmt.where(Agent.id != exclude_agent_id)
+
         existing = (
             await self.session.exec(
-                select(Agent)
-                .where(Agent.board_id == board.id)
-                .where(col(Agent.name).ilike(requested_name)),
+                board_stmt,
             )
         ).first()
         if existing:
@@ -1063,12 +1070,18 @@ class AgentLifecycleService(OpenClawDBService):
                 detail="An agent with this name already exists on this board.",
             )
 
+        gateway_stmt = (
+            select(Agent)
+            .join(Board, col(Agent.board_id) == col(Board.id))
+            .where(col(Board.gateway_id) == gateway.id)
+            .where(col(Agent.name).ilike(requested_name))
+        )
+        if exclude_agent_id is not None:
+            gateway_stmt = gateway_stmt.where(Agent.id != exclude_agent_id)
+
         existing_gateway = (
             await self.session.exec(
-                select(Agent)
-                .join(Board, col(Agent.board_id) == col(Board.id))
-                .where(col(Board.gateway_id) == gateway.id)
-                .where(col(Agent.name).ilike(requested_name)),
+                gateway_stmt,
             )
         ).first()
         if existing_gateway:
@@ -1665,6 +1678,103 @@ class AgentLifecycleService(OpenClawDBService):
             request=provision_request,
         )
         self.logger.info("agent.update.success agent_id=%s", agent.id)
+        return self.to_agent_read(self.with_computed_status(agent))
+
+    async def update_agent_as_lead(
+        self,
+        *,
+        agent_id: str,
+        payload: AgentUpdate,
+        actor_agent: Agent,
+        force: bool = False,
+    ) -> AgentRead:
+        """Update a board-scoped non-lead agent as the board lead."""
+        self.logger.log(
+            TRACE_LEVEL,
+            "agent.update.lead.start agent_id=%s force=%s",
+            agent_id,
+            force,
+        )
+        lead = OpenClawAuthorizationPolicy.require_board_lead_actor(
+            actor_agent=actor_agent,
+            detail="Only board leads can update agents",
+        )
+        agent = await Agent.objects.by_id(agent_id).first(self.session)
+        if agent is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        if agent.board_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Board leads cannot update gateway main agents",
+            )
+
+        board = await self.require_board(lead.board_id)
+        OpenClawAuthorizationPolicy.require_board_agent_target(target=agent, board=board)
+        if agent.is_board_lead:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Board leads cannot update lead agents",
+            )
+
+        updates = payload.model_dump(exclude_unset=True)
+        make_main = updates.pop("is_gateway_main", None)
+        if make_main is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Board leads cannot change gateway-main assignment",
+            )
+        if "status" in updates:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="status is controlled by agent heartbeat",
+            )
+        if "board_id" in updates and updates["board_id"] != board.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Board leads can only manage agents in their own board",
+            )
+        updates.pop("board_id", None)
+
+        requested_name = (updates.get("name") or "").strip()
+        current_name = (agent.name or "").strip()
+        if requested_name and requested_name.casefold() != current_name.casefold():
+            gateway, _ = await self.require_gateway(board)
+            await self.ensure_unique_agent_name(
+                board=board,
+                gateway=gateway,
+                requested_name=requested_name,
+                exclude_agent_id=agent.id,
+            )
+
+        if not updates and not force:
+            return self.to_agent_read(self.with_computed_status(agent))
+
+        main_gateway, gateway_for_main = await self.apply_agent_update_mutations(
+            agent=agent,
+            updates=updates,
+            make_main=None,
+        )
+        target = await self.resolve_agent_update_target(
+            agent=agent,
+            make_main=None,
+            main_gateway=main_gateway,
+            gateway_for_main=gateway_for_main,
+        )
+        raw_token = self.mark_agent_update_pending(agent)
+        self.session.add(agent)
+        await self.session.commit()
+        await self.session.refresh(agent)
+        provision_request = AgentUpdateProvisionRequest(
+            target=target,
+            raw_token=raw_token,
+            user=None,
+            force_bootstrap=force,
+        )
+        await self.provision_updated_agent(
+            agent=agent,
+            request=provision_request,
+        )
+        self.logger.info("agent.update.lead.success agent_id=%s", agent.id)
         return self.to_agent_read(self.with_computed_status(agent))
 
     async def heartbeat_agent(

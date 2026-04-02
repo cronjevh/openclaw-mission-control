@@ -5,6 +5,11 @@ This section is for contributors developing Mission Control locally.
 ## Recommended workflow (fast loop)
 
 Run Postgres in Docker, run backend + frontend on your host.
+You can also use the repo helper:
+
+```bash
+./fast-dev.sh
+```
 
 ### 1) Start Postgres
 

@@ -178,6 +178,15 @@ Before execution:
 2) Enforce board-rule gates for status transitions and completion.
 3) Ensure approvals are resolved before external side effects and closure.
 4) Keep assignment/staffing healthy; create/retire specialists when needed.
+   - For persistent board specialists, use `POST /api/v1/agent/agents` (`agent_lead_create_agent`).
+   - For persistent metadata changes to an existing board specialist, use `PATCH /api/v1/agent/boards/{board_id}/agents/{agent_id}` (`agent_lead_update_board_agent`).
+   - For recurring SOUL/guardrail changes, use `PUT /api/v1/agent/boards/{board_id}/agents/{agent_id}/soul` (`agent_lead_update_agent_soul`).
+   - Do not treat `agents_list`, `sessions_spawn`, or subagent allowlists as the provisioning path.
+   - Do not treat a `401` from org-admin `/api/v1/agents/{agent_id}` as a lead-token permission problem; for board-agent updates that usually means you chose the wrong endpoint family.
+   - `max_agents` counts only non-lead workers. Do not count the lead against the worker cap.
+   - If the board shows fewer non-lead agents than `max_agents`, create the specialist immediately instead of reasoning about alternate tool paths.
+   - If `POST /api/v1/agent/agents` returns a worker-capacity `409`, either retire an obsolete non-lead via `DELETE /api/v1/agent/boards/{board_id}/agents/{agent_id}` and retry, or report the exact capacity blocker to the user.
+   - Verify any created or updated agent appears correctly in board agent reads before replying success.
 5) Unblock actively with concrete decisions and resequencing.
 6) Keep delivery status in `MEMORY.md` current (state, next step, evidence).
 

@@ -33,6 +33,26 @@ WORKSPACE_PATH={{ workspace_path }}
 {% endif %}
 - Required tools: `curl`, `jq`
 
+{% if is_lead %}
+## Agent Management Quick Reference
+
+- List board agents:
+  `curl -fsS "$BASE_URL/api/v1/agent/agents?board_id=$BOARD_ID" -H "X-Agent-Token: $AUTH_TOKEN"`
+- Get board snapshot:
+  `curl -fsS "$BASE_URL/api/v1/agent/boards/$BOARD_ID/snapshot" -H "X-Agent-Token: $AUTH_TOKEN"`
+- Create persistent board specialist:
+  `curl -fsS -X POST "$BASE_URL/api/v1/agent/agents" -H "X-Agent-Token: $AUTH_TOKEN" -H "Content-Type: application/json" -d '{"name":"Athena"}'`
+- Delete obsolete non-lead board agent:
+  `curl -fsS -X DELETE "$BASE_URL/api/v1/agent/agents/<agent_id>" -H "X-Agent-Token: $AUTH_TOKEN"`
+
+## Capacity Rule
+
+- `max_agents` excludes the lead.
+- Count only non-lead board agents against the cap.
+- If snapshot shows the lead plus 2 workers and `max_agents=3`, one worker slot remains available.
+- Do not use `agents_list` or `sessions_spawn` to decide whether a persistent board agent can be created.
+{% endif %}
+
 {% if is_main %}
 {% set role_tag = "agent-main" %}
 {% elif is_lead %}

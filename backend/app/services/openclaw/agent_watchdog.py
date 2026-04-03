@@ -30,6 +30,7 @@ from app.services.openclaw.constants import MAX_WAKE_ATTEMPTS_WITHOUT_CHECKIN, O
 from app.services.openclaw.gateway_resolver import optional_gateway_client_config
 from app.services.openclaw.gateway_rpc import OpenClawGatewayError, openclaw_call
 from app.services.openclaw.internal.agent_key import agent_key
+from app.services.openclaw.gateway_dispatch import GatewayDispatchService
 from app.services.openclaw.lifecycle_orchestrator import AgentLifecycleOrchestrator
 from app.services.openclaw.provisioning import OpenClawGatewayControlPlane
 from app.services.openclaw.gateway_rpc import GatewayConfig, send_message
@@ -296,11 +297,23 @@ async def _recover_stuck_updating(now: datetime) -> int:
                     if gateway is None:
                         continue
                     config = GatewayConfig(url=gateway.url, token=gateway.token)
-                    await send_message(
-                        "Resume your current task. Check your assigned tasks on the board and continue working.",
+                    board: Board | None = None
+                    if agent.board_id is not None:
+                        board_result = await gw_db.execute(select(Board).where(Board.id == agent.board_id))
+                        board = board_result.scalar_one_or_none()
+                    dispatch = GatewayDispatchService(gw_db)
+                    error = await dispatch.try_send_agent_message(
                         session_key=agent.openclaw_session_id,
                         config=config,
+                        agent_name=agent.name,
+                        message=(
+                            "Resume your current task. Check your assigned tasks on the board and continue working."
+                        ),
+                        deliver=False,
+                        board=board,
                     )
+                    if error is not None:
+                        continue
                     logger.info(
                         "watchdog.stuck_updating.wake_sent",
                         extra={"agent_id": str(agent.id), "agent_name": agent.name},

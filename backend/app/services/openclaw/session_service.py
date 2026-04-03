@@ -22,6 +22,7 @@ from app.schemas.gateway_api import (
 )
 from app.services.openclaw.db_service import OpenClawDBService
 from app.services.openclaw.error_messages import normalize_gateway_error_message
+from app.services.openclaw.gateway_dispatch import GatewayDispatchService
 from app.services.openclaw.gateway_compat import check_gateway_version_compatibility
 from app.services.openclaw.gateway_resolver import gateway_client_config, require_gateway_for_board
 from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
@@ -30,7 +31,6 @@ from app.services.openclaw.gateway_rpc import (
     ensure_session,
     get_chat_history,
     openclaw_call,
-    send_message,
 )
 from app.services.openclaw.policies import OpenClawAuthorizationPolicy
 from app.services.openclaw.shared import GatewayAgentIdentity
@@ -389,7 +389,17 @@ class GatewaySessionService(OpenClawDBService):
         try:
             if main_session and session_id == main_session:
                 await ensure_session(main_session, config=config, label="Gateway Agent")
-            await send_message(payload.content, session_key=session_id, config=config)
+            dispatch = GatewayDispatchService(self.session)
+            error = await dispatch.try_send_agent_message(
+                session_key=session_id,
+                config=config,
+                agent_name="Gateway Session",
+                message=payload.content,
+                deliver=False,
+                board=board,
+            )
+            if error is not None:
+                raise error
         except OpenClawGatewayError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,

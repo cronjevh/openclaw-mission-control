@@ -743,6 +743,7 @@ const LiveFeedCard = memo(function LiveFeedCard({
   item,
   taskTitle,
   authorName,
+  authorHref,
   authorRole,
   authorAvatar,
   onViewTask,
@@ -751,6 +752,7 @@ const LiveFeedCard = memo(function LiveFeedCard({
   item: LiveFeedItem;
   taskTitle: string;
   authorName: string;
+  authorHref?: string;
   authorRole?: string | null;
   authorAvatar: string;
   onViewTask?: () => void;
@@ -804,7 +806,19 @@ const LiveFeedCard = memo(function LiveFeedCard({
             >
               {eventLabel}
             </span>
-            <span className="font-medium text-muted">{authorName}</span>
+            {authorHref ? (
+              <a
+                href={authorHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-muted underline-offset-2 hover:underline"
+                title="Open latest session log"
+              >
+                {authorName}
+              </a>
+            ) : (
+              <span className="font-medium text-muted">{authorName}</span>
+            )}
             {authorRole ? (
               <>
                 <span className="text-quiet">·</span>
@@ -5466,16 +5480,31 @@ export default function BoardDetailPage() {
               <div className="space-y-3">
                 {orderedLiveFeed.map((item) => {
                   const taskId = item.task_id;
+                  const actorLabel = resolveHumanActorName(item.actor_name, "");
+                  const normalizedActorLabel = actorLabel.trim().toLowerCase();
                   const authorAgent = item.agent_id
                     ? (agents.find((agent) => agent.id === item.agent_id) ??
                       null)
-                    : null;
+                    : normalizedActorLabel
+                      ? (agents.find(
+                          (agent) =>
+                            agent.name.trim().toLowerCase() ===
+                            normalizedActorLabel,
+                        ) ?? null)
+                      : null;
                   const authorName =
                     authorAgent?.name ??
                     resolveHumanActorName(item.actor_name, "User");
                   const authorRole = authorAgent
                     ? agentRoleLabel(authorAgent)
                     : null;
+                  const authorHref =
+                    authorAgent?.openclaw_session_id && boardId
+                      ? `/boards/${encodeURIComponent(boardId)}/session-log?${new URLSearchParams({
+                          sessionKey: authorAgent.openclaw_session_id,
+                          agentName: authorAgent.name,
+                        }).toString()}`
+                      : undefined;
                   const authorAvatar = authorAgent
                     ? agentAvatarLabel(authorAgent)
                     : (authorName[0] ?? "A").toUpperCase();
@@ -5492,6 +5521,7 @@ export default function BoardDetailPage() {
                             : "Activity"
                       }
                       authorName={authorName}
+                      authorHref={authorHref}
                       authorRole={authorRole}
                       authorAvatar={authorAvatar}
                       onViewTask={

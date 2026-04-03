@@ -20,6 +20,7 @@ from app.api.deps import (
     get_board_for_actor_read,
     get_board_for_user_write,
     get_task_or_404,
+    require_agent_writes_unpaused,
     require_user_auth,
     require_user_or_agent,
 )
@@ -2079,6 +2080,12 @@ async def _validate_task_comment_access(
                 "or on tasks they created."
             ),
         )
+
+    if actor.actor_type == "agent" and actor.agent is not None:
+        board = await Board.objects.by_id(task.board_id).first(session)
+        if board is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        await require_agent_writes_unpaused(session=session, board=board, actor=actor)
 
 
 def _comment_actor_id(actor: ActorContext) -> UUID | None:

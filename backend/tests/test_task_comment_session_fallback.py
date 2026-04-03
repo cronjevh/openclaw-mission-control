@@ -5,6 +5,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlmodel import SQLModel, col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -13,6 +14,7 @@ from app.api import tasks as tasks_api
 from app.api.deps import ActorContext
 from app.models.activity_events import ActivityEvent
 from app.models.agents import Agent
+from app.models.board_memory import BoardMemory
 from app.models.boards import Board
 from app.models.gateways import Gateway
 from app.models.organizations import Organization
@@ -251,5 +253,144 @@ async def test_task_comment_notifications_schedule_session_reply_fallback(
             assert captured[0]["agent_id"] == lead_id
             assert captured[0]["session_key"] == "agent:lead:main"
             assert captured[0]["after_seq"] == 41
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_validate_task_comment_access_blocks_agent_when_board_paused() -> None:
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            org_id = uuid4()
+            gateway_id = uuid4()
+            board_id = uuid4()
+            agent_id = uuid4()
+            task_id = uuid4()
+
+            session.add(Organization(id=org_id, name="org"))
+            session.add(
+                Gateway(
+                    id=gateway_id,
+                    organization_id=org_id,
+                    name="gateway",
+                    url="https://gateway.local",
+                    workspace_root="/tmp/workspace",
+                ),
+            )
+            session.add(
+                Board(
+                    id=board_id,
+                    organization_id=org_id,
+                    name="board",
+                    slug="board",
+                    gateway_id=gateway_id,
+                ),
+            )
+            agent = Agent(
+                id=agent_id,
+                name="Worker",
+                board_id=board_id,
+                gateway_id=gateway_id,
+                status="online",
+            )
+            task = Task(
+                id=task_id,
+                board_id=board_id,
+                title="Paused task",
+                description="",
+                status="in_progress",
+            )
+            session.add(agent)
+            session.add(task)
+            session.add(
+                BoardMemory(
+                    board_id=board_id,
+                    content="/pause",
+                    is_chat=True,
+                )
+            )
+            await session.commit()
+
+            with pytest.raises(HTTPException) as exc:
+                await tasks_api._validate_task_comment_access(
+                    session,
+                    task=task,
+                    actor=ActorContext(actor_type="agent", agent=agent),
+                )
+
+            assert exc.value.status_code == 409
+            assert "paused" in str(exc.value.detail).lower()
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_validate_task_comment_access_allows_agent_after_resume() -> None:
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            org_id = uuid4()
+            gateway_id = uuid4()
+            board_id = uuid4()
+            agent_id = uuid4()
+            task_id = uuid4()
+
+            session.add(Organization(id=org_id, name="org"))
+            session.add(
+                Gateway(
+                    id=gateway_id,
+                    organization_id=org_id,
+                    name="gateway",
+                    url="https://gateway.local",
+                    workspace_root="/tmp/workspace",
+                ),
+            )
+            session.add(
+                Board(
+                    id=board_id,
+                    organization_id=org_id,
+                    name="board",
+                    slug="board",
+                    gateway_id=gateway_id,
+                ),
+            )
+            agent = Agent(
+                id=agent_id,
+                name="Worker",
+                board_id=board_id,
+                gateway_id=gateway_id,
+                status="online",
+            )
+            task = Task(
+                id=task_id,
+                board_id=board_id,
+                title="Resumed task",
+                description="",
+                status="in_progress",
+            )
+            session.add(agent)
+            session.add(task)
+            session.add(
+                BoardMemory(
+                    board_id=board_id,
+                    content="/pause",
+                    is_chat=True,
+                )
+            )
+            session.add(
+                BoardMemory(
+                    board_id=board_id,
+                    content="/resume",
+                    is_chat=True,
+                )
+            )
+            await session.commit()
+
+            await tasks_api._validate_task_comment_access(
+                session,
+                task=task,
+                actor=ActorContext(actor_type="agent", agent=agent),
+            )
     finally:
         await engine.dispose()

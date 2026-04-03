@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
 
 _CONTROL_COMMANDS = frozenset({"/pause", "/resume", "/new"})
+_PAUSE_STATE_COMMANDS = frozenset({"/pause", "/resume"})
 
 
 def _is_agent_offline(last_seen_at: datetime | None) -> bool:
@@ -139,9 +140,17 @@ class GatewayDispatchService(OpenClawDBService):
         agent: "Agent | None" = None,
         board: Board | None = None,
     ) -> None:
+        resolved_board = await self._resolve_board_for_pause_check(
+            board=board,
+            agent=agent,
+            session_key=session_key,
+        )
+        if await self._should_skip_for_paused_board(board=resolved_board, message=message):
+            raise OpenClawGatewayError("Board agents are paused. Send /resume to continue.")
+
         # Full re-provision wake for offline agents before delivering the notification.
         if agent is not None:
-            await self.wake_agent_if_offline(agent=agent, board=board)
+            await self.wake_agent_if_offline(agent=agent, board=resolved_board)
         await ensure_session(session_key, config=config, label=agent_name)
         await send_message(message, session_key=session_key, config=config, deliver=deliver)
 
@@ -157,7 +166,12 @@ class GatewayDispatchService(OpenClawDBService):
         board: Board | None = None,
         last_seen_at: datetime | None = None,  # legacy compat, prefer agent=
     ) -> OpenClawGatewayError | None:
-        if await self._should_skip_for_paused_board(board=board, message=message):
+        resolved_board = await self._resolve_board_for_pause_check(
+            board=board,
+            agent=agent,
+            session_key=session_key,
+        )
+        if await self._should_skip_for_paused_board(board=resolved_board, message=message):
             return OpenClawGatewayError("Board agents are paused. Send /resume to continue.")
 
         # Support legacy last_seen_at callers by synthesising a minimal wake check.
@@ -189,11 +203,38 @@ class GatewayDispatchService(OpenClawDBService):
                 message=message,
                 deliver=deliver,
                 agent=effective_agent,
-                board=board,
+                board=resolved_board,
             )
         except OpenClawGatewayError as exc:
             return exc
         return None
+
+    async def _resolve_board_for_pause_check(
+        self,
+        *,
+        board: Board | None,
+        agent: "Agent | None",
+        session_key: str,
+    ) -> Board | None:
+        if board is not None:
+            return board
+
+        if agent is not None and agent.board_id is not None:
+            resolved = await Board.objects.by_id(agent.board_id).first(self.session)
+            if resolved is not None:
+                return resolved
+
+        if not session_key:
+            return None
+
+        from app.models.agents import Agent as AgentModel
+
+        session_agent = await AgentModel.objects.filter_by(openclaw_session_id=session_key).first(
+            self.session,
+        )
+        if session_agent is None or session_agent.board_id is None:
+            return None
+        return await Board.objects.by_id(session_agent.board_id).first(self.session)
 
     async def _should_skip_for_paused_board(
         self,
@@ -213,7 +254,8 @@ class GatewayDispatchService(OpenClawDBService):
             select(BoardMemory.content)
             .where(col(BoardMemory.board_id) == board_id)
             .where(col(BoardMemory.is_chat).is_(True))
-            .where(func.lower(func.trim(col(BoardMemory.content))).in_(set(_CONTROL_COMMANDS)))
+            # `/new` is allowed while paused, but it must not toggle paused state.
+            .where(func.lower(func.trim(col(BoardMemory.content))).in_(set(_PAUSE_STATE_COMMANDS)))
             .order_by(col(BoardMemory.created_at).desc())
             .limit(1)
         )

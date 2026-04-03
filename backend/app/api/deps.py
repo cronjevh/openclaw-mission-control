@@ -23,10 +23,13 @@ from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, status
+from sqlalchemy import func
+from sqlmodel import col, select
 
 from app.core.agent_auth import get_agent_auth_context_optional
 from app.core.auth import AuthContext, get_auth_context, get_auth_context_optional
 from app.db.session import get_session
+from app.models.board_memory import BoardMemory
 from app.models.boards import Board
 from app.models.organizations import Organization
 from app.models.tasks import Task
@@ -93,6 +96,34 @@ async def require_user_or_agent(
 
 
 ACTOR_DEP = Depends(require_user_or_agent)
+
+
+async def _is_board_paused(session: AsyncSession, board_id: UUID) -> bool:
+    statement = (
+        select(BoardMemory.content)
+        .where(col(BoardMemory.board_id) == board_id)
+        .where(col(BoardMemory.is_chat).is_(True))
+        .where(func.lower(func.trim(col(BoardMemory.content))).in_({"/pause", "/resume"}))
+        .order_by(col(BoardMemory.created_at).desc())
+        .limit(1)
+    )
+    content = (await session.exec(statement)).first()
+    return isinstance(content, str) and content.strip().lower() == "/pause"
+
+
+async def require_agent_writes_unpaused(
+    *,
+    session: AsyncSession,
+    board: Board,
+    actor: ActorContext,
+) -> None:
+    if actor.actor_type != "agent" or actor.agent is None:
+        return
+    if await _is_board_paused(session, board.id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Board agents are paused. Send /resume to continue.",
+        )
 
 
 async def require_org_member(
@@ -169,6 +200,7 @@ async def get_board_for_actor_write(
     if actor.actor_type == "agent":
         if actor.agent and actor.agent.board_id and actor.agent.board_id != board.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+        await require_agent_writes_unpaused(session=session, board=board, actor=actor)
         return board
     if actor.user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)

@@ -10,6 +10,10 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+from sqlalchemy import func
+from sqlmodel import col, select
+
+from app.models.board_memory import BoardMemory
 from app.models.boards import Board
 from app.models.gateways import Gateway
 from app.services.openclaw.constants import OFFLINE_AFTER
@@ -25,6 +29,9 @@ from app.services.openclaw.gateway_rpc import OpenClawGatewayError, ensure_sessi
 
 if TYPE_CHECKING:
     from app.models.agents import Agent
+
+
+_CONTROL_COMMANDS = frozenset({"/pause", "/resume", "/new"})
 
 
 def _is_agent_offline(last_seen_at: datetime | None) -> bool:
@@ -150,6 +157,9 @@ class GatewayDispatchService(OpenClawDBService):
         board: Board | None = None,
         last_seen_at: datetime | None = None,  # legacy compat, prefer agent=
     ) -> OpenClawGatewayError | None:
+        if await self._should_skip_for_paused_board(board=board, message=message):
+            return OpenClawGatewayError("Board agents are paused. Send /resume to continue.")
+
         # Support legacy last_seen_at callers by synthesising a minimal wake check.
         effective_agent = agent
         if effective_agent is None and last_seen_at is not None and _is_agent_offline(last_seen_at):
@@ -184,6 +194,33 @@ class GatewayDispatchService(OpenClawDBService):
         except OpenClawGatewayError as exc:
             return exc
         return None
+
+    async def _should_skip_for_paused_board(
+        self,
+        *,
+        board: Board | None,
+        message: str,
+    ) -> bool:
+        if board is None:
+            return False
+        command = message.strip().lower()
+        if command in _CONTROL_COMMANDS:
+            return False
+        return await self._is_board_paused(board.id)
+
+    async def _is_board_paused(self, board_id: UUID) -> bool:
+        statement = (
+            select(BoardMemory.content)
+            .where(col(BoardMemory.board_id) == board_id)
+            .where(col(BoardMemory.is_chat).is_(True))
+            .where(func.lower(func.trim(col(BoardMemory.content))).in_(set(_CONTROL_COMMANDS)))
+            .order_by(col(BoardMemory.created_at).desc())
+            .limit(1)
+        )
+        content = (await self.session.exec(statement)).first()
+        if not isinstance(content, str):
+            return False
+        return content.strip().lower() == "/pause"
 
     @staticmethod
     def resolve_trace_id(correlation_id: str | None, *, prefix: str) -> str:

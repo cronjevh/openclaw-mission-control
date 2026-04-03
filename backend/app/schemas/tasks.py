@@ -12,6 +12,7 @@ from sqlmodel import Field, SQLModel
 from app.schemas.common import NonEmptyStr
 from app.schemas.tags import TagRef
 from app.schemas.task_custom_fields import TaskCustomFieldValues
+from app.schemas.task_evidence import TaskClass, TaskClosureMode
 
 TaskStatus = Literal["inbox", "in_progress", "review", "done", "blocked"]
 STATUS_REQUIRED_ERROR = "status is required"
@@ -29,6 +30,11 @@ class TaskBase(SQLModel):
     priority: str = "medium"
     due_at: datetime | None = None
     assigned_agent_id: UUID | None = None
+    task_class: TaskClass | None = None
+    closure_mode: TaskClosureMode | None = None
+    required_artifact_kinds: list[str] = Field(default_factory=list)
+    required_check_kinds: list[str] = Field(default_factory=list)
+    lead_spot_check_required: bool = False
     depends_on_task_ids: list[UUID] = Field(default_factory=list)
     tag_ids: list[UUID] = Field(default_factory=list)
 
@@ -49,10 +55,34 @@ class TaskUpdate(SQLModel):
     priority: str | None = None
     due_at: datetime | None = None
     assigned_agent_id: UUID | None = None
+    task_class: TaskClass | None = None
+    closure_mode: TaskClosureMode | None = None
+    required_artifact_kinds: list[str] | None = None
+    required_check_kinds: list[str] | None = None
+    lead_spot_check_required: bool | None = None
     depends_on_task_ids: list[UUID] | None = None
     tag_ids: list[UUID] | None = None
     custom_field_values: TaskCustomFieldValues | None = None
     comment: NonEmptyStr | None = None
+
+    @field_validator("required_artifact_kinds", "required_check_kinds", mode="before")
+    @classmethod
+    def normalize_required_kind_lists(cls, value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, list):
+            normalized: list[str] = []
+            seen: set[str] = set()
+            for item in value:
+                if not isinstance(item, str):
+                    continue
+                normalized_item = item.strip().lower()
+                if not normalized_item or normalized_item in seen:
+                    continue
+                seen.add(normalized_item)
+                normalized.append(normalized_item)
+            return normalized
+        return value
 
     @field_validator("comment", mode="before")
     @classmethod
@@ -80,7 +110,7 @@ class TaskRead(TaskBase):
     board_group_id: UUID | None = None
     created_by_user_id: UUID | None
     creator_name: str | None = None  # denormalized for display
-    assignee: str | None = None      # denormalized agent name for display
+    assignee: str | None = None  # denormalized agent name for display
     in_progress_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -106,4 +136,4 @@ class TaskCommentRead(SQLModel):
     created_at: datetime
     created_by_user_id: UUID | None = None
     author_name: str | None = None  # populated for human comments
-    agent_name: str | None = None   # populated for agent comments
+    agent_name: str | None = None  # populated for agent comments

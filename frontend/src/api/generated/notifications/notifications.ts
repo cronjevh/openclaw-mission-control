@@ -250,200 +250,6 @@ export function useListNotificationsApiV1NotificationsGet<
 }
 
 /**
- * Return the unread notification count for the current user.
- * @summary Unread Count
- */
-export type unreadCountApiV1NotificationsUnreadCountGetResponse200 = {
-  data: UnreadCountApiV1NotificationsUnreadCountGet200;
-  status: 200;
-};
-
-export type unreadCountApiV1NotificationsUnreadCountGetResponseSuccess =
-  unreadCountApiV1NotificationsUnreadCountGetResponse200 & {
-    headers: Headers;
-  };
-export type unreadCountApiV1NotificationsUnreadCountGetResponse =
-  unreadCountApiV1NotificationsUnreadCountGetResponseSuccess;
-
-export const getUnreadCountApiV1NotificationsUnreadCountGetUrl = () => {
-  return `/api/v1/notifications/unread-count`;
-};
-
-export const unreadCountApiV1NotificationsUnreadCountGet = async (
-  options?: RequestInit,
-): Promise<unreadCountApiV1NotificationsUnreadCountGetResponse> => {
-  return customFetch<unreadCountApiV1NotificationsUnreadCountGetResponse>(
-    getUnreadCountApiV1NotificationsUnreadCountGetUrl(),
-    {
-      ...options,
-      method: "GET",
-    },
-  );
-};
-
-export const getUnreadCountApiV1NotificationsUnreadCountGetQueryKey = () => {
-  return [`/api/v1/notifications/unread-count`] as const;
-};
-
-export const getUnreadCountApiV1NotificationsUnreadCountGetQueryOptions = <
-  TData = Awaited<
-    ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
-  >,
-  TError = unknown,
->(options?: {
-  query?: Partial<
-    UseQueryOptions<
-      Awaited<ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>>,
-      TError,
-      TData
-    >
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}) => {
-  const { query: queryOptions, request: requestOptions } = options ?? {};
-
-  const queryKey =
-    queryOptions?.queryKey ??
-    getUnreadCountApiV1NotificationsUnreadCountGetQueryKey();
-
-  const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>>
-  > = ({ signal }) =>
-    unreadCountApiV1NotificationsUnreadCountGet({ signal, ...requestOptions });
-
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>>,
-    TError,
-    TData
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-};
-
-export type UnreadCountApiV1NotificationsUnreadCountGetQueryResult =
-  NonNullable<
-    Awaited<ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>>
-  >;
-export type UnreadCountApiV1NotificationsUnreadCountGetQueryError = unknown;
-
-export function useUnreadCountApiV1NotificationsUnreadCountGet<
-  TData = Awaited<
-    ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
-  >,
-  TError = unknown,
->(
-  options: {
-    query: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        DefinedInitialDataOptions<
-          Awaited<
-            ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
-          >,
-          TError,
-          Awaited<
-            ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
-          >
-        >,
-        "initialData"
-      >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useUnreadCountApiV1NotificationsUnreadCountGet<
-  TData = Awaited<
-    ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
-  >,
-  TError = unknown,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>>,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        UndefinedInitialDataOptions<
-          Awaited<
-            ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
-          >,
-          TError,
-          Awaited<
-            ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
-          >
-        >,
-        "initialData"
-      >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useUnreadCountApiV1NotificationsUnreadCountGet<
-  TData = Awaited<
-    ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
-  >,
-  TError = unknown,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>>,
-        TError,
-        TData
-      >
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-/**
- * @summary Unread Count
- */
-
-export function useUnreadCountApiV1NotificationsUnreadCountGet<
-  TData = Awaited<
-    ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
-  >,
-  TError = unknown,
->(
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>>,
-        TError,
-        TData
-      >
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-} {
-  const queryOptions =
-    getUnreadCountApiV1NotificationsUnreadCountGetQueryOptions(options);
-
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
-    TData,
-    TError
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-/**
  * Mark all notifications as read for the current user.
  * @summary Mark All Read
  */
@@ -543,143 +349,6 @@ export const useMarkAllReadApiV1NotificationsReadAllPatch = <
 > => {
   return useMutation(
     getMarkAllReadApiV1NotificationsReadAllPatchMutationOptions(options),
-    queryClient,
-  );
-};
-/**
- * Mark a single notification as read.
- * @summary Mark One Read
- */
-export type markOneReadApiV1NotificationsNotificationIdReadPatchResponse200 = {
-  data: OkResponse;
-  status: 200;
-};
-
-export type markOneReadApiV1NotificationsNotificationIdReadPatchResponse422 = {
-  data: HTTPValidationError;
-  status: 422;
-};
-
-export type markOneReadApiV1NotificationsNotificationIdReadPatchResponseSuccess =
-  markOneReadApiV1NotificationsNotificationIdReadPatchResponse200 & {
-    headers: Headers;
-  };
-export type markOneReadApiV1NotificationsNotificationIdReadPatchResponseError =
-  markOneReadApiV1NotificationsNotificationIdReadPatchResponse422 & {
-    headers: Headers;
-  };
-
-export type markOneReadApiV1NotificationsNotificationIdReadPatchResponse =
-  | markOneReadApiV1NotificationsNotificationIdReadPatchResponseSuccess
-  | markOneReadApiV1NotificationsNotificationIdReadPatchResponseError;
-
-export const getMarkOneReadApiV1NotificationsNotificationIdReadPatchUrl = (
-  notificationId: string,
-) => {
-  return `/api/v1/notifications/${notificationId}/read`;
-};
-
-export const markOneReadApiV1NotificationsNotificationIdReadPatch = async (
-  notificationId: string,
-  options?: RequestInit,
-): Promise<markOneReadApiV1NotificationsNotificationIdReadPatchResponse> => {
-  return customFetch<markOneReadApiV1NotificationsNotificationIdReadPatchResponse>(
-    getMarkOneReadApiV1NotificationsNotificationIdReadPatchUrl(notificationId),
-    {
-      ...options,
-      method: "PATCH",
-    },
-  );
-};
-
-export const getMarkOneReadApiV1NotificationsNotificationIdReadPatchMutationOptions =
-  <TError = HTTPValidationError, TContext = unknown>(options?: {
-    mutation?: UseMutationOptions<
-      Awaited<
-        ReturnType<typeof markOneReadApiV1NotificationsNotificationIdReadPatch>
-      >,
-      TError,
-      { notificationId: string },
-      TContext
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  }): UseMutationOptions<
-    Awaited<
-      ReturnType<typeof markOneReadApiV1NotificationsNotificationIdReadPatch>
-    >,
-    TError,
-    { notificationId: string },
-    TContext
-  > => {
-    const mutationKey = [
-      "markOneReadApiV1NotificationsNotificationIdReadPatch",
-    ];
-    const { mutation: mutationOptions, request: requestOptions } = options
-      ? options.mutation &&
-        "mutationKey" in options.mutation &&
-        options.mutation.mutationKey
-        ? options
-        : { ...options, mutation: { ...options.mutation, mutationKey } }
-      : { mutation: { mutationKey }, request: undefined };
-
-    const mutationFn: MutationFunction<
-      Awaited<
-        ReturnType<typeof markOneReadApiV1NotificationsNotificationIdReadPatch>
-      >,
-      { notificationId: string }
-    > = (props) => {
-      const { notificationId } = props ?? {};
-
-      return markOneReadApiV1NotificationsNotificationIdReadPatch(
-        notificationId,
-        requestOptions,
-      );
-    };
-
-    return { mutationFn, ...mutationOptions };
-  };
-
-export type MarkOneReadApiV1NotificationsNotificationIdReadPatchMutationResult =
-  NonNullable<
-    Awaited<
-      ReturnType<typeof markOneReadApiV1NotificationsNotificationIdReadPatch>
-    >
-  >;
-
-export type MarkOneReadApiV1NotificationsNotificationIdReadPatchMutationError =
-  HTTPValidationError;
-
-/**
- * @summary Mark One Read
- */
-export const useMarkOneReadApiV1NotificationsNotificationIdReadPatch = <
-  TError = HTTPValidationError,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<
-        ReturnType<typeof markOneReadApiV1NotificationsNotificationIdReadPatch>
-      >,
-      TError,
-      { notificationId: string },
-      TContext
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<
-    ReturnType<typeof markOneReadApiV1NotificationsNotificationIdReadPatch>
-  >,
-  TError,
-  { notificationId: string },
-  TContext
-> => {
-  return useMutation(
-    getMarkOneReadApiV1NotificationsNotificationIdReadPatchMutationOptions(
-      options,
-    ),
     queryClient,
   );
 };
@@ -928,3 +597,335 @@ export function useStreamNotificationsApiV1NotificationsStreamGet<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Return the unread notification count for the current user.
+ * @summary Unread Count
+ */
+export type unreadCountApiV1NotificationsUnreadCountGetResponse200 = {
+  data: UnreadCountApiV1NotificationsUnreadCountGet200;
+  status: 200;
+};
+
+export type unreadCountApiV1NotificationsUnreadCountGetResponseSuccess =
+  unreadCountApiV1NotificationsUnreadCountGetResponse200 & {
+    headers: Headers;
+  };
+export type unreadCountApiV1NotificationsUnreadCountGetResponse =
+  unreadCountApiV1NotificationsUnreadCountGetResponseSuccess;
+
+export const getUnreadCountApiV1NotificationsUnreadCountGetUrl = () => {
+  return `/api/v1/notifications/unread-count`;
+};
+
+export const unreadCountApiV1NotificationsUnreadCountGet = async (
+  options?: RequestInit,
+): Promise<unreadCountApiV1NotificationsUnreadCountGetResponse> => {
+  return customFetch<unreadCountApiV1NotificationsUnreadCountGetResponse>(
+    getUnreadCountApiV1NotificationsUnreadCountGetUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getUnreadCountApiV1NotificationsUnreadCountGetQueryKey = () => {
+  return [`/api/v1/notifications/unread-count`] as const;
+};
+
+export const getUnreadCountApiV1NotificationsUnreadCountGetQueryOptions = <
+  TData = Awaited<
+    ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
+  >,
+  TError = unknown,
+>(options?: {
+  query?: Partial<
+    UseQueryOptions<
+      Awaited<ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>>,
+      TError,
+      TData
+    >
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getUnreadCountApiV1NotificationsUnreadCountGetQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>>
+  > = ({ signal }) =>
+    unreadCountApiV1NotificationsUnreadCountGet({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type UnreadCountApiV1NotificationsUnreadCountGetQueryResult =
+  NonNullable<
+    Awaited<ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>>
+  >;
+export type UnreadCountApiV1NotificationsUnreadCountGetQueryError = unknown;
+
+export function useUnreadCountApiV1NotificationsUnreadCountGet<
+  TData = Awaited<
+    ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
+  >,
+  TError = unknown,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<
+            ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
+          >,
+          TError,
+          Awaited<
+            ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useUnreadCountApiV1NotificationsUnreadCountGet<
+  TData = Awaited<
+    ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
+  >,
+  TError = unknown,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<
+            ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
+          >,
+          TError,
+          Awaited<
+            ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useUnreadCountApiV1NotificationsUnreadCountGet<
+  TData = Awaited<
+    ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
+  >,
+  TError = unknown,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary Unread Count
+ */
+
+export function useUnreadCountApiV1NotificationsUnreadCountGet<
+  TData = Awaited<
+    ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>
+  >,
+  TError = unknown,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof unreadCountApiV1NotificationsUnreadCountGet>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions =
+    getUnreadCountApiV1NotificationsUnreadCountGetQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Mark a single notification as read.
+ * @summary Mark One Read
+ */
+export type markOneReadApiV1NotificationsNotificationIdReadPatchResponse200 = {
+  data: OkResponse;
+  status: 200;
+};
+
+export type markOneReadApiV1NotificationsNotificationIdReadPatchResponse422 = {
+  data: HTTPValidationError;
+  status: 422;
+};
+
+export type markOneReadApiV1NotificationsNotificationIdReadPatchResponseSuccess =
+  markOneReadApiV1NotificationsNotificationIdReadPatchResponse200 & {
+    headers: Headers;
+  };
+export type markOneReadApiV1NotificationsNotificationIdReadPatchResponseError =
+  markOneReadApiV1NotificationsNotificationIdReadPatchResponse422 & {
+    headers: Headers;
+  };
+
+export type markOneReadApiV1NotificationsNotificationIdReadPatchResponse =
+  | markOneReadApiV1NotificationsNotificationIdReadPatchResponseSuccess
+  | markOneReadApiV1NotificationsNotificationIdReadPatchResponseError;
+
+export const getMarkOneReadApiV1NotificationsNotificationIdReadPatchUrl = (
+  notificationId: string,
+) => {
+  return `/api/v1/notifications/${notificationId}/read`;
+};
+
+export const markOneReadApiV1NotificationsNotificationIdReadPatch = async (
+  notificationId: string,
+  options?: RequestInit,
+): Promise<markOneReadApiV1NotificationsNotificationIdReadPatchResponse> => {
+  return customFetch<markOneReadApiV1NotificationsNotificationIdReadPatchResponse>(
+    getMarkOneReadApiV1NotificationsNotificationIdReadPatchUrl(notificationId),
+    {
+      ...options,
+      method: "PATCH",
+    },
+  );
+};
+
+export const getMarkOneReadApiV1NotificationsNotificationIdReadPatchMutationOptions =
+  <TError = HTTPValidationError, TContext = unknown>(options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<typeof markOneReadApiV1NotificationsNotificationIdReadPatch>
+      >,
+      TError,
+      { notificationId: string },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  }): UseMutationOptions<
+    Awaited<
+      ReturnType<typeof markOneReadApiV1NotificationsNotificationIdReadPatch>
+    >,
+    TError,
+    { notificationId: string },
+    TContext
+  > => {
+    const mutationKey = [
+      "markOneReadApiV1NotificationsNotificationIdReadPatch",
+    ];
+    const { mutation: mutationOptions, request: requestOptions } = options
+      ? options.mutation &&
+        "mutationKey" in options.mutation &&
+        options.mutation.mutationKey
+        ? options
+        : { ...options, mutation: { ...options.mutation, mutationKey } }
+      : { mutation: { mutationKey }, request: undefined };
+
+    const mutationFn: MutationFunction<
+      Awaited<
+        ReturnType<typeof markOneReadApiV1NotificationsNotificationIdReadPatch>
+      >,
+      { notificationId: string }
+    > = (props) => {
+      const { notificationId } = props ?? {};
+
+      return markOneReadApiV1NotificationsNotificationIdReadPatch(
+        notificationId,
+        requestOptions,
+      );
+    };
+
+    return { mutationFn, ...mutationOptions };
+  };
+
+export type MarkOneReadApiV1NotificationsNotificationIdReadPatchMutationResult =
+  NonNullable<
+    Awaited<
+      ReturnType<typeof markOneReadApiV1NotificationsNotificationIdReadPatch>
+    >
+  >;
+
+export type MarkOneReadApiV1NotificationsNotificationIdReadPatchMutationError =
+  HTTPValidationError;
+
+/**
+ * @summary Mark One Read
+ */
+export const useMarkOneReadApiV1NotificationsNotificationIdReadPatch = <
+  TError = HTTPValidationError,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<typeof markOneReadApiV1NotificationsNotificationIdReadPatch>
+      >,
+      TError,
+      { notificationId: string },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<
+    ReturnType<typeof markOneReadApiV1NotificationsNotificationIdReadPatch>
+  >,
+  TError,
+  { notificationId: string },
+  TContext
+> => {
+  return useMutation(
+    getMarkOneReadApiV1NotificationsNotificationIdReadPatchMutationOptions(
+      options,
+    ),
+    queryClient,
+  );
+};

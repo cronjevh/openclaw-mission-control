@@ -11,34 +11,36 @@ from fastapi.openapi.utils import get_openapi
 from fastapi_pagination import add_pagination
 
 from app.api.activity import router as activity_router
-from app.services.openclaw.agent_watchdog import watchdog_loop
 from app.api.agent import router as agent_router
 from app.api.agents import router as agents_router
 from app.api.approvals import router as approvals_router
 from app.api.auth import router as auth_router
+from app.api.board_documents import router as board_documents_router
 from app.api.board_group_memory import router as board_group_memory_router
 from app.api.board_groups import router as board_groups_router
 from app.api.board_memory import router as board_memory_router
 from app.api.board_onboarding import router as board_onboarding_router
-from app.api.board_documents import router as board_documents_router
+from app.api.board_secrets import router as board_secrets_router
 from app.api.board_webhooks import router as board_webhooks_router
 from app.api.boards import router as boards_router
 from app.api.gateway import router as gateway_router
 from app.api.gateways import router as gateways_router
+from app.api.global_search import router as global_search_router
 from app.api.metrics import router as metrics_router
+from app.api.notifications import router as notifications_router
 from app.api.organizations import router as organizations_router
+from app.api.search import router as search_router
 from app.api.skills_marketplace import router as skills_marketplace_router
 from app.api.souls_directory import router as souls_directory_router
 from app.api.tags import router as tags_router
 from app.api.task_custom_fields import router as task_custom_fields_router
+from app.api.task_evidence import router as task_evidence_router
 from app.api.tasks import router as tasks_router
+from app.api.temp_chat import group_router as temp_chat_group_router
+from app.api.temp_chat import router as temp_chat_router
 from app.api.users import router as users_router
-from app.api.workspace_files import router as workspace_files_router, group_router as group_workspace_files_router
-from app.api.board_secrets import router as board_secrets_router
-from app.api.notifications import router as notifications_router
-from app.api.search import router as search_router
-from app.api.global_search import router as global_search_router
-from app.api.temp_chat import router as temp_chat_router, group_router as temp_chat_group_router
+from app.api.workspace_files import group_router as group_workspace_files_router
+from app.api.workspace_files import router as workspace_files_router
 from app.core.config import settings
 from app.core.error_handling import install_error_handling
 from app.core.logging import configure_logging, get_logger
@@ -47,6 +49,7 @@ from app.core.rate_limit_backend import RateLimitBackend
 from app.core.security_headers import SecurityHeadersMiddleware
 from app.db.session import init_db
 from app.schemas.health import HealthStatusResponse
+from app.services.openclaw.agent_watchdog import watchdog_loop
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -575,6 +578,7 @@ api_v1.include_router(board_webhooks_router)
 api_v1.include_router(board_onboarding_router)
 api_v1.include_router(approvals_router)
 api_v1.include_router(tasks_router)
+api_v1.include_router(task_evidence_router)
 api_v1.include_router(task_custom_fields_router)
 api_v1.include_router(tags_router)
 api_v1.include_router(users_router)

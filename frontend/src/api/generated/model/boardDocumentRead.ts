@@ -9,13 +9,13 @@
  * Board document payload returned from read endpoints.
  */
 export interface BoardDocumentRead {
-  id: string;
   board_id: string;
-  title: string;
   content: string;
-  description?: string | null;
-  order: number;
-  created_by_user_id?: string | null;
   created_at: string;
+  created_by_user_id?: string | null;
+  description?: string | null;
+  id: string;
+  order: number;
+  title: string;
   updated_at: string;
 }

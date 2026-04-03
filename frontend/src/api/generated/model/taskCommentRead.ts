@@ -9,11 +9,12 @@
  * Task comment payload returned from read endpoints.
  */
 export interface TaskCommentRead {
-  id: string;
-  message: string | null;
   agent_id: string | null;
-  task_id: string | null;
+  agent_name?: string | null;
+  author_name?: string | null;
   created_at: string;
   created_by_user_id?: string | null;
-  author_name?: string | null;
+  id: string;
+  message: string | null;
+  task_id: string | null;
 }

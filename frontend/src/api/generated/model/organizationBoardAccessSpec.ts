@@ -9,8 +9,8 @@
  * Board access specification used in member/invite mutation payloads.
  */
 export interface OrganizationBoardAccessSpec {
-  board_id?: string | null;
   board_group_id?: string | null;
+  board_id?: string | null;
   can_read?: boolean;
   can_write?: boolean;
 }

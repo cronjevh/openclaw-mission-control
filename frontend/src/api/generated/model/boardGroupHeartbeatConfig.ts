@@ -9,6 +9,6 @@
  * Current heartbeat cadence for worker and lead agents in a group.
  */
 export interface BoardGroupHeartbeatConfig {
-  worker_every?: string | null;
   lead_every?: string | null;
+  worker_every?: string | null;
 }

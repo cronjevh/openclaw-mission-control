@@ -6,9 +6,13 @@
  */
 
 export interface WorkspaceFileEntry {
+  is_dir: boolean;
+  modified_at?: string | null;
   name: string;
   path: string;
-  is_dir: boolean;
+  relative_path: string;
   size?: number | null;
-  modified_at?: string | null;
+  workspace_agent_id?: string | null;
+  workspace_agent_name?: string | null;
+  workspace_root_key?: string | null;
 }

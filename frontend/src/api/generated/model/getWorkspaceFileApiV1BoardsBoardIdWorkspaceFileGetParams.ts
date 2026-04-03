@@ -7,8 +7,20 @@
 
 export type GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams = {
   /**
-   * File path relative to workspace root
+   * Display path from the list endpoint.
    */
-  path: string;
+  path?: string | null;
   agent_id?: string | null;
+  /**
+   * Path relative to the originating workspace root.
+   */
+  relative_path?: string | null;
+  /**
+   * Stable workspace root identity returned by the list endpoint.
+   */
+  workspace_root_key?: string | null;
+  /**
+   * Stable workspace agent identity returned by the list endpoint.
+   */
+  workspace_agent_id?: string | null;
 };

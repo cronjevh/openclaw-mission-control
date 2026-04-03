@@ -11,15 +11,15 @@ import type { OrganizationUserRead } from "./organizationUserRead";
  * Organization member payload including board-level access overrides.
  */
 export interface OrganizationMemberRead {
+  all_boards_read: boolean;
+  all_boards_write: boolean;
+  board_access?: OrganizationBoardAccessRead[];
+  created_at: string;
   id: string;
   organization_id: string;
   organization_name?: string | null;
-  user_id: string;
   role: string;
-  all_boards_read: boolean;
-  all_boards_write: boolean;
-  created_at: string;
   updated_at: string;
   user?: OrganizationUserRead | null;
-  board_access?: OrganizationBoardAccessRead[];
+  user_id: string;
 }

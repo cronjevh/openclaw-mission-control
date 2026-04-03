@@ -6,6 +6,6 @@
  */
 
 export interface BulkTaskStatusUpdate {
-  task_ids: string[];
   status: string;
+  task_ids: string[];
 }

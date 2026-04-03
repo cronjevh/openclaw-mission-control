@@ -9,7 +9,7 @@
  * Embedded user fields for board member payloads.
  */
 export interface BoardMemberUser {
-  id: string;
   email?: string | null;
+  id: string;
   name?: string | null;
 }

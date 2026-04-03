@@ -236,6 +236,136 @@ export function useListSecretsApiV1BoardsBoardIdSecretsGet<
 }
 
 /**
+ * Delete a secret. Re-provisions all board agents in background.
+ * @summary Delete Secret
+ */
+export type deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponse204 = {
+  data: void;
+  status: 204;
+};
+
+export type deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponse422 = {
+  data: HTTPValidationError;
+  status: 422;
+};
+
+export type deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponseSuccess =
+  deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponse204 & {
+    headers: Headers;
+  };
+export type deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponseError =
+  deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponse422 & {
+    headers: Headers;
+  };
+
+export type deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponse =
+  | deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponseSuccess
+  | deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponseError;
+
+export const getDeleteSecretApiV1BoardsBoardIdSecretsKeyDeleteUrl = (
+  boardId: string,
+  key: string,
+) => {
+  return `/api/v1/boards/${boardId}/secrets/${key}`;
+};
+
+export const deleteSecretApiV1BoardsBoardIdSecretsKeyDelete = async (
+  boardId: string,
+  key: string,
+  options?: RequestInit,
+): Promise<deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponse> => {
+  return customFetch<deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponse>(
+    getDeleteSecretApiV1BoardsBoardIdSecretsKeyDeleteUrl(boardId, key),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getDeleteSecretApiV1BoardsBoardIdSecretsKeyDeleteMutationOptions =
+  <TError = HTTPValidationError, TContext = unknown>(options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<typeof deleteSecretApiV1BoardsBoardIdSecretsKeyDelete>
+      >,
+      TError,
+      { boardId: string; key: string },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  }): UseMutationOptions<
+    Awaited<ReturnType<typeof deleteSecretApiV1BoardsBoardIdSecretsKeyDelete>>,
+    TError,
+    { boardId: string; key: string },
+    TContext
+  > => {
+    const mutationKey = ["deleteSecretApiV1BoardsBoardIdSecretsKeyDelete"];
+    const { mutation: mutationOptions, request: requestOptions } = options
+      ? options.mutation &&
+        "mutationKey" in options.mutation &&
+        options.mutation.mutationKey
+        ? options
+        : { ...options, mutation: { ...options.mutation, mutationKey } }
+      : { mutation: { mutationKey }, request: undefined };
+
+    const mutationFn: MutationFunction<
+      Awaited<
+        ReturnType<typeof deleteSecretApiV1BoardsBoardIdSecretsKeyDelete>
+      >,
+      { boardId: string; key: string }
+    > = (props) => {
+      const { boardId, key } = props ?? {};
+
+      return deleteSecretApiV1BoardsBoardIdSecretsKeyDelete(
+        boardId,
+        key,
+        requestOptions,
+      );
+    };
+
+    return { mutationFn, ...mutationOptions };
+  };
+
+export type DeleteSecretApiV1BoardsBoardIdSecretsKeyDeleteMutationResult =
+  NonNullable<
+    Awaited<ReturnType<typeof deleteSecretApiV1BoardsBoardIdSecretsKeyDelete>>
+  >;
+
+export type DeleteSecretApiV1BoardsBoardIdSecretsKeyDeleteMutationError =
+  HTTPValidationError;
+
+/**
+ * @summary Delete Secret
+ */
+export const useDeleteSecretApiV1BoardsBoardIdSecretsKeyDelete = <
+  TError = HTTPValidationError,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<typeof deleteSecretApiV1BoardsBoardIdSecretsKeyDelete>
+      >,
+      TError,
+      { boardId: string; key: string },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof deleteSecretApiV1BoardsBoardIdSecretsKeyDelete>>,
+  TError,
+  { boardId: string; key: string },
+  TContext
+> => {
+  return useMutation(
+    getDeleteSecretApiV1BoardsBoardIdSecretsKeyDeleteMutationOptions(options),
+    queryClient,
+  );
+};
+/**
  * Create or update a secret for a board. Re-provisions all board agents in background.
  * @summary Upsert Secret
  */
@@ -363,136 +493,6 @@ export const useUpsertSecretApiV1BoardsBoardIdSecretsKeyPut = <
 > => {
   return useMutation(
     getUpsertSecretApiV1BoardsBoardIdSecretsKeyPutMutationOptions(options),
-    queryClient,
-  );
-};
-/**
- * Delete a secret. Re-provisions all board agents in background.
- * @summary Delete Secret
- */
-export type deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponse204 = {
-  data: void;
-  status: 204;
-};
-
-export type deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponse422 = {
-  data: HTTPValidationError;
-  status: 422;
-};
-
-export type deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponseSuccess =
-  deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponse204 & {
-    headers: Headers;
-  };
-export type deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponseError =
-  deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponse422 & {
-    headers: Headers;
-  };
-
-export type deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponse =
-  | deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponseSuccess
-  | deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponseError;
-
-export const getDeleteSecretApiV1BoardsBoardIdSecretsKeyDeleteUrl = (
-  boardId: string,
-  key: string,
-) => {
-  return `/api/v1/boards/${boardId}/secrets/${key}`;
-};
-
-export const deleteSecretApiV1BoardsBoardIdSecretsKeyDelete = async (
-  boardId: string,
-  key: string,
-  options?: RequestInit,
-): Promise<deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponse> => {
-  return customFetch<deleteSecretApiV1BoardsBoardIdSecretsKeyDeleteResponse>(
-    getDeleteSecretApiV1BoardsBoardIdSecretsKeyDeleteUrl(boardId, key),
-    {
-      ...options,
-      method: "DELETE",
-    },
-  );
-};
-
-export const getDeleteSecretApiV1BoardsBoardIdSecretsKeyDeleteMutationOptions =
-  <TError = HTTPValidationError, TContext = unknown>(options?: {
-    mutation?: UseMutationOptions<
-      Awaited<
-        ReturnType<typeof deleteSecretApiV1BoardsBoardIdSecretsKeyDelete>
-      >,
-      TError,
-      { boardId: string; key: string },
-      TContext
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  }): UseMutationOptions<
-    Awaited<ReturnType<typeof deleteSecretApiV1BoardsBoardIdSecretsKeyDelete>>,
-    TError,
-    { boardId: string; key: string },
-    TContext
-  > => {
-    const mutationKey = ["deleteSecretApiV1BoardsBoardIdSecretsKeyDelete"];
-    const { mutation: mutationOptions, request: requestOptions } = options
-      ? options.mutation &&
-        "mutationKey" in options.mutation &&
-        options.mutation.mutationKey
-        ? options
-        : { ...options, mutation: { ...options.mutation, mutationKey } }
-      : { mutation: { mutationKey }, request: undefined };
-
-    const mutationFn: MutationFunction<
-      Awaited<
-        ReturnType<typeof deleteSecretApiV1BoardsBoardIdSecretsKeyDelete>
-      >,
-      { boardId: string; key: string }
-    > = (props) => {
-      const { boardId, key } = props ?? {};
-
-      return deleteSecretApiV1BoardsBoardIdSecretsKeyDelete(
-        boardId,
-        key,
-        requestOptions,
-      );
-    };
-
-    return { mutationFn, ...mutationOptions };
-  };
-
-export type DeleteSecretApiV1BoardsBoardIdSecretsKeyDeleteMutationResult =
-  NonNullable<
-    Awaited<ReturnType<typeof deleteSecretApiV1BoardsBoardIdSecretsKeyDelete>>
-  >;
-
-export type DeleteSecretApiV1BoardsBoardIdSecretsKeyDeleteMutationError =
-  HTTPValidationError;
-
-/**
- * @summary Delete Secret
- */
-export const useDeleteSecretApiV1BoardsBoardIdSecretsKeyDelete = <
-  TError = HTTPValidationError,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<
-        ReturnType<typeof deleteSecretApiV1BoardsBoardIdSecretsKeyDelete>
-      >,
-      TError,
-      { boardId: string; key: string },
-      TContext
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof deleteSecretApiV1BoardsBoardIdSecretsKeyDelete>>,
-  TError,
-  { boardId: string; key: string },
-  TContext
-> => {
-  return useMutation(
-    getDeleteSecretApiV1BoardsBoardIdSecretsKeyDeleteMutationOptions(options),
     queryClient,
   );
 };

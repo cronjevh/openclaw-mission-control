@@ -9,15 +9,15 @@
  * Serialized board webhook configuration.
  */
 export interface BoardWebhookRead {
-  id: string;
-  board_id: string;
   agent_id?: string | null;
+  board_id: string;
+  created_at: string;
   description: string;
   enabled: boolean;
-  has_secret?: boolean;
-  signature_header?: string | null;
   endpoint_path: string;
   endpoint_url?: string | null;
-  created_at: string;
+  has_secret?: boolean;
+  id: string;
+  signature_header?: string | null;
   updated_at: string;
 }

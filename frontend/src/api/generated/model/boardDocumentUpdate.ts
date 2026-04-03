@@ -9,8 +9,8 @@
  * Payload for updating a board document.
  */
 export interface BoardDocumentUpdate {
-  title?: string | null;
   content?: string | null;
   description?: string | null;
   order?: number | null;
+  title?: string | null;
 }

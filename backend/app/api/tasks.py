@@ -33,13 +33,13 @@ from app.models.agents import Agent
 from app.models.approval_task_links import ApprovalTaskLink
 from app.models.approvals import Approval
 from app.models.boards import Board
+from app.models.organization_members import OrganizationMember
 from app.models.tag_assignments import TagAssignment
 from app.models.task_custom_fields import (
     BoardTaskCustomField,
     TaskCustomFieldDefinition,
     TaskCustomFieldValue,
 )
-from app.models.organization_members import OrganizationMember
 from app.models.task_dependencies import TaskDependency
 from app.models.task_fingerprints import TaskFingerprint
 from app.models.tasks import Task
@@ -62,7 +62,7 @@ from app.services.approval_task_links import (
 from app.services.mentions import extract_mentions, matches_agent_mention
 from app.services.openclaw.gateway_dispatch import GatewayDispatchService
 from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
-from app.services.openclaw.gateway_rpc import OpenClawGatewayError
+from app.services.openclaw.gateway_rpc import OpenClawGatewayError, openclaw_call
 from app.services.openclaw.provisioning_db import AgentLifecycleService
 from app.services.organizations import require_board_access
 from app.services.tags import (
@@ -78,6 +78,11 @@ from app.services.task_dependencies import (
     dependent_task_ids,
     replace_task_dependencies,
     validate_dependency_update,
+)
+from app.services.task_evidence import (
+    EVIDENCE_BASED_CLOSURE_MODES,
+    PASSING_CHECKS_CLOSURE_MODE,
+    assess_task_evidence_for_done,
 )
 
 if TYPE_CHECKING:
@@ -103,6 +108,8 @@ SSE_SEEN_MAX = 2000
 TASK_SNIPPET_MAX_LEN = 500
 TASK_SNIPPET_TRUNCATED_LEN = 497
 TASK_EVENT_ROW_LEN = 2
+SESSION_REPLY_POLL_SECONDS = 2
+SESSION_REPLY_TIMEOUT_SECONDS = 45
 BOARD_READ_DEP = Depends(get_board_for_actor_read)
 ACTOR_DEP = Depends(require_user_or_agent)
 SINCE_QUERY = Query(default=None)
@@ -177,6 +184,17 @@ def _pending_approval_blocks_status_change_error() -> HTTPException:
         status_code=status.HTTP_409_CONFLICT,
         detail={
             "message": ("Task status cannot be changed while a linked approval is pending."),
+            "blocked_by_task_ids": [],
+        },
+    )
+
+
+def _evidence_required_for_done_error(message: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "message": message,
+            "code": "task_evidence_required_for_done",
             "blocked_by_task_ids": [],
         },
     )
@@ -302,6 +320,43 @@ async def _require_no_pending_approval_for_status_change_when_enabled(
         task_id=task_id,
     ):
         raise _pending_approval_blocks_status_change_error()
+
+
+async def _require_task_evidence_for_done_when_enabled(
+    session: AsyncSession,
+    *,
+    task: Task,
+    previous_status: str,
+    target_status: str,
+) -> None:
+    if previous_status == "done" or target_status != "done":
+        return
+
+    closure_mode = (task.closure_mode or "").strip().lower() or None
+    if closure_mode not in EVIDENCE_BASED_CLOSURE_MODES:
+        return
+
+    assessment = await assess_task_evidence_for_done(session, task=task)
+    if not assessment.has_packet:
+        raise _evidence_required_for_done_error(
+            "Task can only be marked done after a submitted evidence packet is attached.",
+        )
+    if assessment.missing_artifact_kinds:
+        required = ", ".join(assessment.missing_artifact_kinds)
+        raise _evidence_required_for_done_error(
+            f"Task evidence is missing required artifact kinds: {required}.",
+        )
+    if closure_mode == PASSING_CHECKS_CLOSURE_MODE:
+        if assessment.missing_check_kinds:
+            required = ", ".join(assessment.missing_check_kinds)
+            raise _evidence_required_for_done_error(
+                f"Task evidence is missing required check kinds: {required}.",
+            )
+        if assessment.failing_check_kinds:
+            failed = ", ".join(assessment.failing_check_kinds)
+            raise _evidence_required_for_done_error(
+                f"Task evidence has required checks that are not passing: {failed}.",
+            )
 
 
 def _truncate_snippet(value: str) -> str:
@@ -602,6 +657,136 @@ async def _send_agent_task_message(
         agent=agent,
         board=board,
     )
+
+
+def _extract_text_from_session_message(msg: dict[str, object]) -> str:
+    content = msg.get("content", "")
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text)
+        return "\n".join(parts).strip()
+    return str(content).strip()
+
+
+def _looks_like_command_payload(text: str) -> bool:
+    normalized = text.strip().lower()
+    if not normalized:
+        return True
+    command_markers = (
+        "reply_text=$(cat <<'eof'",
+        "auth_token=$(grep '^auth_token='",
+        "curl -fss -x post",
+        "curl -fss -xpost",
+        "x-agent-token:",
+        "--data-binary @-",
+        "jq -n --arg content",
+    )
+    return any(marker in normalized for marker in command_markers)
+
+
+def _max_seq_from_history(payload: object) -> int:
+    if not isinstance(payload, dict):
+        return 0
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return 0
+    max_seq = 0
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        seq = (msg.get("__openclaw") or {}).get("seq")
+        if isinstance(seq, (int, float)) and int(seq) > max_seq:
+            max_seq = int(seq)
+    return max_seq
+
+
+async def _baseline_session_seq(
+    *,
+    session_key: str,
+    config: GatewayClientConfig,
+) -> int:
+    try:
+        payload = await openclaw_call(
+            "chat.history",
+            {"sessionKey": session_key, "limit": 8},
+            config=config,
+        )
+    except OpenClawGatewayError:
+        return 0
+    return _max_seq_from_history(payload)
+
+
+async def _mirror_session_reply_to_task_comment(
+    *,
+    task_id: UUID,
+    board_id: UUID,
+    agent_id: UUID,
+    session_key: str,
+    config: GatewayClientConfig,
+    after_seq: int,
+) -> None:
+    deadline = asyncio.get_running_loop().time() + SESSION_REPLY_TIMEOUT_SECONDS
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            payload = await openclaw_call(
+                "chat.history",
+                {"sessionKey": session_key, "limit": 24},
+                config=config,
+            )
+        except OpenClawGatewayError:
+            await asyncio.sleep(SESSION_REPLY_POLL_SECONDS)
+            continue
+
+        messages = payload.get("messages") if isinstance(payload, dict) else None
+        if not isinstance(messages, list):
+            await asyncio.sleep(SESSION_REPLY_POLL_SECONDS)
+            continue
+
+        reply_text = ""
+        for msg in reversed(messages):
+            if not isinstance(msg, dict):
+                continue
+            seq = (msg.get("__openclaw") or {}).get("seq")
+            if not isinstance(seq, (int, float)) or int(seq) <= after_seq:
+                continue
+            if msg.get("role") != "assistant":
+                continue
+            candidate = _extract_text_from_session_message(msg)
+            if candidate:
+                reply_text = candidate
+                break
+
+        if reply_text and not _looks_like_command_payload(reply_text):
+            async with async_session_maker() as mirror_session:
+                recent_rows = list(
+                    await mirror_session.exec(
+                        select(ActivityEvent)
+                        .where(col(ActivityEvent.event_type) == "task.comment")
+                        .where(col(ActivityEvent.task_id) == task_id)
+                        .where(col(ActivityEvent.agent_id) == agent_id)
+                        .order_by(desc(col(ActivityEvent.created_at)))
+                        .limit(3)
+                    )
+                )
+                if any((row.message or "").strip() == reply_text for row in recent_rows):
+                    return
+                mirror_session.add(
+                    ActivityEvent(
+                        event_type="task.comment",
+                        message=reply_text,
+                        agent_id=agent_id,
+                        task_id=task_id,
+                        board_id=board_id,
+                    ),
+                )
+                await mirror_session.commit()
+            return
+
+        await asyncio.sleep(SESSION_REPLY_POLL_SECONDS)
 
 
 def _assignment_notification_message(*, board: Board, task: Task, agent: Agent) -> str:
@@ -1307,13 +1492,7 @@ async def _creator_names_by_user_id(
 
     if not user_ids:
         return {}
-    rows = list(
-        await session.exec(
-            select(User.id, User.name).where(
-                col(User.id).in_(user_ids)
-            )
-        )
-    )
+    rows = list(await session.exec(select(User.id, User.name).where(col(User.id).in_(user_ids))))
     result: dict[UUID, str] = {}
     for user_id, name in rows:
         result[user_id] = (name or "").strip() or "User"
@@ -1374,7 +1553,11 @@ async def _task_read_page(
                     "blocked_by_task_ids": blocked_by,
                     "is_blocked": bool(blocked_by),
                     "custom_field_values": custom_field_values_by_task_id.get(task.id, {}),
-                    "creator_name": creator_names.get(task.created_by_user_id) if task.created_by_user_id else None,
+                    "creator_name": (
+                        creator_names.get(task.created_by_user_id)
+                        if task.created_by_user_id
+                        else None
+                    ),
                 },
             ),
         )
@@ -1416,22 +1599,36 @@ async def _stream_task_state(
         board_id=board_id,
         task_ids=list({*task_ids}),
     )
-    creator_user_ids = list({
-        task.created_by_user_id
-        for _, task in rows
-        if task is not None and task.created_by_user_id is not None
-    })
+    creator_user_ids = list(
+        {
+            task.created_by_user_id
+            for _, task in rows
+            if task is not None and task.created_by_user_id is not None
+        }
+    )
     creator_name_by_user_id = await _creator_names_by_user_id(session, creator_user_ids)
 
     if not dep_ids:
-        return deps_map, {}, tag_state_by_task_id, custom_field_values_by_task_id, creator_name_by_user_id
+        return (
+            deps_map,
+            {},
+            tag_state_by_task_id,
+            custom_field_values_by_task_id,
+            creator_name_by_user_id,
+        )
 
     dep_status = await dependency_status_by_id(
         session,
         board_id=board_id,
         dependency_ids=list({*dep_ids}),
     )
-    return deps_map, dep_status, tag_state_by_task_id, custom_field_values_by_task_id, creator_name_by_user_id
+    return (
+        deps_map,
+        dep_status,
+        tag_state_by_task_id,
+        custom_field_values_by_task_id,
+        creator_name_by_user_id,
+    )
 
 
 def _task_event_payload(
@@ -1481,7 +1678,11 @@ def _task_event_payload(
                     task.id,
                     {},
                 ),
-                "creator_name": resolved_creator_name_by_user_id.get(task.created_by_user_id) if task.created_by_user_id else None,
+                "creator_name": (
+                    resolved_creator_name_by_user_id.get(task.created_by_user_id)
+                    if task.created_by_user_id
+                    else None
+                ),
             },
         )
         .model_dump(mode="json")
@@ -1505,12 +1706,16 @@ async def _task_event_generator(
 
         async with async_session_maker() as session:
             rows = await _fetch_task_events(session, board_id, last_seen)
-            deps_map, dep_status, tag_state_by_task_id, custom_field_values_by_task_id, creator_name_by_user_id = (
-                await _stream_task_state(
-                    session,
-                    board_id=board_id,
-                    rows=rows,
-                )
+            (
+                deps_map,
+                dep_status,
+                tag_state_by_task_id,
+                custom_field_values_by_task_id,
+                creator_name_by_user_id,
+            ) = await _stream_task_state(
+                session,
+                board_id=board_id,
+                rows=rows,
             )
 
         for event, task in rows:
@@ -1950,6 +2155,10 @@ async def _notify_task_comment_targets(
     for agent in request.targets.values():
         if not agent.openclaw_session_id:
             continue
+        baseline_seq = await _baseline_session_seq(
+            session_key=agent.openclaw_session_id,
+            config=config,
+        )
         mentioned = matches_agent_mention(agent, request.mention_names)
         header = "TASK MENTION" if mentioned else "NEW TASK COMMENT"
         action_line = (
@@ -1968,7 +2177,7 @@ async def _notify_task_comment_targets(
             "If you are mentioned but not assigned, reply in the task "
             "thread but do not change task status."
         )
-        await _send_agent_task_message(
+        error = await _send_agent_task_message(
             dispatch=dispatch,
             session_key=agent.openclaw_session_id,
             config=config,
@@ -1977,6 +2186,17 @@ async def _notify_task_comment_targets(
             agent=agent,
             board=board,
         )
+        if error is None:
+            asyncio.create_task(
+                _mirror_session_reply_to_task_comment(
+                    task_id=request.task.id,
+                    board_id=board.id,
+                    agent_id=agent.id,
+                    session_key=agent.openclaw_session_id,
+                    config=config,
+                    after_seq=baseline_seq,
+                ),
+            )
 
 
 @dataclass(slots=True)
@@ -2092,7 +2312,9 @@ async def _task_read_response(
             "blocked_by_task_ids": blocked_ids,
             "is_blocked": bool(blocked_ids),
             "custom_field_values": custom_field_values_by_task_id.get(task.id, {}),
-            "creator_name": creator_names.get(task.created_by_user_id) if task.created_by_user_id else None,
+            "creator_name": (
+                creator_names.get(task.created_by_user_id) if task.created_by_user_id else None
+            ),
         },
     )
 
@@ -2407,6 +2629,12 @@ async def _apply_lead_task_update(
         previous_status=update.previous_status,
         target_status=update.task.status,
     )
+    await _require_task_evidence_for_done_when_enabled(
+        session,
+        task=update.task,
+        previous_status=update.previous_status,
+        target_status=update.task.status,
+    )
 
     if normalized_tag_ids is not None:
         await replace_tags(
@@ -2629,9 +2857,7 @@ async def _record_task_comment_from_update(
             else None
         ),
         author_name=(
-            _comment_actor_name(update.actor)
-            if update.actor.actor_type == "user"
-            else None
+            _comment_actor_name(update.actor) if update.actor.actor_type == "user" else None
         ),
     )
     session.add(event)
@@ -2829,22 +3055,21 @@ async def _user_notify_comment(
     mention_tokens = extract_user_mention_names(comment_text)
     if not mention_tokens:
         return
-    member_user_ids_stmt = (
-        select(OrganizationMember.user_id)
-        .where(col(OrganizationMember.organization_id) == org_id)
+    member_user_ids_stmt = select(OrganizationMember.user_id).where(
+        col(OrganizationMember.organization_id) == org_id
     )
     member_user_ids = set((await session.exec(member_user_ids_stmt)).all())
     if not member_user_ids:
         return
-    user_rows = await session.exec(
-        select(User).where(col(User.id).in_(list(member_user_ids)))
-    )
+    user_rows = await session.exec(select(User).where(col(User.id).in_(list(member_user_ids))))
     notified: set[UUID] = {task.created_by_user_id}  # already notified above
     if commenter_user_id:
         notified.add(commenter_user_id)
     for user in user_rows.all():
         user_handle = (user.name or "").lower().replace(" ", "-")
-        if any(token == user_handle or token == (user.name or "").lower() for token in mention_tokens):
+        if any(
+            token == user_handle or token == (user.name or "").lower() for token in mention_tokens
+        ):
             if user.id in notified:
                 continue
             notified.add(user.id)
@@ -2885,6 +3110,12 @@ async def _finalize_updated_task(
         session,
         board_id=update.board_id,
         task_id=update.task.id,
+        previous_status=update.previous_status,
+        target_status=update.task.status,
+    )
+    await _require_task_evidence_for_done_when_enabled(
+        session,
+        task=update.task,
         previous_status=update.previous_status,
         target_status=update.task.status,
     )
@@ -2981,16 +3212,8 @@ async def create_task_comment(
         task_id=task.id,
         board_id=task.board_id,
         agent_id=_comment_actor_id(actor),
-        created_by_user_id=(
-            actor.user.id
-            if actor.actor_type == "user" and actor.user
-            else None
-        ),
-        author_name=(
-            _comment_actor_name(actor)
-            if actor.actor_type == "user"
-            else None
-        ),
+        created_by_user_id=(actor.user.id if actor.actor_type == "user" and actor.user else None),
+        author_name=(_comment_actor_name(actor) if actor.actor_type == "user" else None),
     )
     session.add(event)
     await session.commit()
@@ -3017,9 +3240,7 @@ async def create_task_comment(
             task=task,
             board_id=task.board_id,
             commenter_user_id=(
-                actor.user.id
-                if actor.actor_type == "user" and actor.user
-                else None
+                actor.user.id if actor.actor_type == "user" and actor.user else None
             ),
             comment_text=payload.message,
             author_name=_comment_actor_name(actor),

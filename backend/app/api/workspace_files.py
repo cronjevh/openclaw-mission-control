@@ -7,26 +7,24 @@ to resolve workspace root paths per agent/board.
 from __future__ import annotations
 
 import json
-import re
 import os
+import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlmodel import SQLModel
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import ACTOR_DEP, SESSION_DEP, ActorContext
 from app.models.boards import Board
-from fastapi import Depends
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 router = APIRouter(prefix="/boards/{board_id}/workspace", tags=["workspace-files"])
 
-OPENCLAW_CONFIG_PATH = Path(
-    os.environ.get("OPENCLAW_CONFIG_PATH", "/root/.openclaw/openclaw.json")
-)
+OPENCLAW_CONFIG_PATH = Path(os.environ.get("OPENCLAW_CONFIG_PATH", "/root/.openclaw/openclaw.json"))
 
 # Optional remap: "src_prefix=dst_prefix" e.g. "/root/.openclaw/workspace=/app/workspaces"
 # Allows container to access host workspace paths that are mounted at a different location.
@@ -48,13 +46,27 @@ def _apply_workspace_remap(path: Path) -> Path:
     src, dst = _WORKSPACE_REMAP
     s = str(path)
     if s == src or s.startswith(f"{src}/"):
-        return Path(dst + s[len(src):])
+        return Path(dst + s[len(src) :])
     return path
+
 
 # File extensions we consider safe to read as text
 _TEXT_EXTENSIONS = {
-    ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".py", ".js",
-    ".ts", ".tsx", ".jsx", ".html", ".css", ".sh", ".env",
+    ".md",
+    ".txt",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".py",
+    ".js",
+    ".ts",
+    ".tsx",
+    ".jsx",
+    ".html",
+    ".css",
+    ".sh",
+    ".env",
 }
 
 _MAX_FILE_SIZE = 512 * 1024  # 512 KB read limit
@@ -62,7 +74,11 @@ _MAX_FILE_SIZE = 512 * 1024  # 512 KB read limit
 
 class WorkspaceFileEntry(SQLModel):
     name: str
-    path: str  # relative to workspace root
+    path: str
+    relative_path: str
+    workspace_agent_id: UUID | None = None
+    workspace_agent_name: str | None = None
+    workspace_root_key: str | None = None
     is_dir: bool
     size: int | None = None
     modified_at: str | None = None  # ISO 8601 from file mtime
@@ -72,6 +88,14 @@ class WorkspaceFileContent(SQLModel):
     path: str
     content: str
     size: int
+
+
+@dataclass(frozen=True, slots=True)
+class _WorkspaceHandle:
+    agent_id: UUID | None
+    agent_name: str
+    root_key: str
+    root: Path
 
 
 def _openclaw_config_candidates() -> list[Path]:
@@ -159,19 +183,20 @@ def _workspace_root_for_agent(agent_id: UUID) -> Path | None:
     return _fallback_workspace_root_for_config_id(f"mc-{agent_id}")
 
 
-async def _workspace_roots_for_board(
+def _workspace_root_key_for_agent(agent_id: UUID) -> str:
+    return f"agent:{agent_id}"
+
+
+async def _workspace_handles_for_board(
     session: AsyncSession,
     board_id: UUID,
-) -> list[tuple[str, Path]]:
-    """Return workspace paths for all agents on a board using their session IDs."""
-    from sqlmodel import select, col
+) -> list[_WorkspaceHandle]:
+    """Return workspace handles for all agents on a board using their session IDs."""
+    from sqlmodel import col, select
+
     from app.models.agents import Agent as AgentModel
 
-    rows = list(
-        await session.exec(
-            select(AgentModel).where(col(AgentModel.board_id) == board_id)
-        )
-    )
+    rows = list(await session.exec(select(AgentModel).where(col(AgentModel.board_id) == board_id)))
     results: list[tuple[str, Path]] = []
     for agent in rows:
         if not agent.openclaw_session_id:
@@ -182,7 +207,14 @@ async def _workspace_roots_for_board(
         root = _workspace_root_for_config_id(config_id)
         try:
             if root and root.exists():
-                results.append((agent.name, root))
+                results.append(
+                    _WorkspaceHandle(
+                        agent_id=agent.id,
+                        agent_name=agent.name,
+                        root_key=_workspace_root_key_for_agent(agent.id),
+                        root=root,
+                    )
+                )
         except (PermissionError, OSError):
             pass
     return results
@@ -204,15 +236,27 @@ _OUTPUT_DIRS = {"deliverables", "output", "artifacts", "reports", "drafts"}
 
 # Root-level system files to always exclude
 _SYSTEM_FILES = {
-    "AGENTS.md", "BOOTSTRAP.md", "HEARTBEAT.md", "SOUL.md",
-    "TOOLS.md", "USER.md", "IDENTITY.md", "WORKFLOW.md",
-    "WORKFLOW_AUTO.md", "MEMORY.md",
+    "AGENTS.md",
+    "BOOTSTRAP.md",
+    "HEARTBEAT.md",
+    "SOUL.md",
+    "TOOLS.md",
+    "USER.md",
+    "IDENTITY.md",
+    "WORKFLOW.md",
+    "WORKFLOW_AUTO.md",
+    "MEMORY.md",
 }
 
 
-def _list_deliverables(root: Path, agent_name: str) -> list[WorkspaceFileEntry]:
-    """Return only output/deliverable files, prefixed with agent name to avoid collisions."""
-    entries = []
+def _display_workspace_path(handle: _WorkspaceHandle, relative_path: str) -> str:
+    return f"{handle.agent_name}/{relative_path}"
+
+
+def _list_deliverables(handle: _WorkspaceHandle) -> list[WorkspaceFileEntry]:
+    """Return output files with stable origin identity for later reads/downloads."""
+    root = handle.root
+    entries: list[WorkspaceFileEntry] = []
     for output_dir in _OUTPUT_DIRS:
         target = root / output_dir
         if not target.exists() or not target.is_dir():
@@ -220,7 +264,7 @@ def _list_deliverables(root: Path, agent_name: str) -> list[WorkspaceFileEntry]:
         for item in sorted(target.rglob("*")):
             if any(
                 part.startswith(".") or part.startswith("__")
-                for part in item.parts[len(root.parts):]
+                for part in item.parts[len(root.parts) :]
             ):
                 continue
             if item.is_file():
@@ -230,7 +274,11 @@ def _list_deliverables(root: Path, agent_name: str) -> list[WorkspaceFileEntry]:
                 entries.append(
                     WorkspaceFileEntry(
                         name=item.name,
-                        path=f"{agent_name}/{rel}",
+                        path=_display_workspace_path(handle, rel),
+                        relative_path=rel,
+                        workspace_agent_id=handle.agent_id,
+                        workspace_agent_name=handle.agent_name,
+                        workspace_root_key=handle.root_key,
                         is_dir=False,
                         size=stat.st_size,
                         modified_at=mtime_iso,
@@ -239,11 +287,97 @@ def _list_deliverables(root: Path, agent_name: str) -> list[WorkspaceFileEntry]:
     return entries
 
 
+def _relative_path_from_display_path(path: str) -> tuple[str | None, str]:
+    parts = path.split("/", 1)
+    if len(parts) == 2:
+        return parts[0], parts[1]
+    return None, path
+
+
+def _workspace_handle_by_root_key(
+    handles: list[_WorkspaceHandle],
+    root_key: str | None,
+) -> _WorkspaceHandle | None:
+    if not root_key:
+        return None
+    for handle in handles:
+        if handle.root_key == root_key:
+            return handle
+    return None
+
+
+def _workspace_handle_by_agent_id(
+    handles: list[_WorkspaceHandle],
+    agent_id: UUID | None,
+) -> _WorkspaceHandle | None:
+    if agent_id is None:
+        return None
+    for handle in handles:
+        if handle.agent_id == agent_id:
+            return handle
+    return None
+
+
+def _workspace_handle_by_name(
+    handles: list[_WorkspaceHandle],
+    agent_name: str | None,
+) -> _WorkspaceHandle | None:
+    if not agent_name:
+        return None
+    matches = [handle for handle in handles if handle.agent_name == agent_name]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _resolve_workspace_target(
+    *,
+    handles: list[_WorkspaceHandle],
+    path: str | None,
+    relative_path: str | None,
+    workspace_root_key: str | None,
+    workspace_agent_id: UUID | None,
+) -> tuple[_WorkspaceHandle, Path, str]:
+    rel_path = relative_path
+    agent_name_from_path: str | None = None
+    if path:
+        agent_name_from_path, parsed_rel_path = _relative_path_from_display_path(path)
+        if rel_path is None:
+            rel_path = parsed_rel_path
+    if rel_path is None or not rel_path.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="relative_path is required.",
+        )
+    rel_path = rel_path.strip()
+
+    handle = (
+        _workspace_handle_by_root_key(handles, workspace_root_key)
+        or _workspace_handle_by_agent_id(handles, workspace_agent_id)
+        or _workspace_handle_by_name(handles, agent_name_from_path)
+    )
+
+    if handle is not None:
+        target = _safe_path(handle.root, rel_path)
+        if target and target.exists() and target.is_file():
+            return handle, target, rel_path
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found.")
+
+    for candidate in handles:
+        target = _safe_path(candidate.root, rel_path)
+        if target and target.exists() and target.is_file():
+            return candidate, target, rel_path
+
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found.")
+
+
 @router.get("/files", response_model=list[WorkspaceFileEntry])
 async def list_workspace_files(
     board_id: str,
     agent_id: str | None = Query(default=None, description="Specific agent UUID"),
-    task_id: str | None = Query(default=None, description="Filter to files mentioned in this task's comments"),
+    task_id: str | None = Query(
+        default=None, description="Filter to files mentioned in this task's comments"
+    ),
     path: str = Query(default="", description="Sub-directory relative to workspace root"),
     actor: ActorContext = ACTOR_DEP,
     session: AsyncSession = SESSION_DEP,
@@ -260,27 +394,28 @@ async def list_workspace_files(
 
     if agent_id:
         agent_uuid = _parse_uuid(agent_id)
-        root = _workspace_root_for_agent(agent_uuid)
-        if not root or not root.exists():
+        handle = _workspace_handle_by_agent_id(
+            await _workspace_handles_for_board(session, board_uuid),
+            agent_uuid,
+        )
+        if handle is None:
             return []
-        entries = _list_deliverables(root, "agent")
+        entries = _list_deliverables(handle)
     else:
         # Return deliverables from all agents on this board, namespaced by agent name
         all_entries: list[WorkspaceFileEntry] = []
-        seen: set[str] = set()
-        for name, root in await _workspace_roots_for_board(session, board_uuid):
-            for entry in _list_deliverables(root, name):
-                if entry.path not in seen:
-                    seen.add(entry.path)
+        seen: set[tuple[str | None, str]] = set()
+        for handle in await _workspace_handles_for_board(session, board_uuid):
+            for entry in _list_deliverables(handle):
+                entry_key = (entry.workspace_root_key, entry.relative_path)
+                if entry_key not in seen:
+                    seen.add(entry_key)
                     all_entries.append(entry)
         entries = all_entries
 
     # Filter by task-mentioned paths if task_id was given
     if task_file_paths is not None:
-        entries = [
-            e for e in entries
-            if any(tp in e.path for tp in task_file_paths)
-        ]
+        entries = [e for e in entries if e.relative_path in task_file_paths]
 
     return entries
 
@@ -288,8 +423,17 @@ async def list_workspace_files(
 @router.get("/file", response_model=WorkspaceFileContent)
 async def get_workspace_file(
     board_id: str,
-    path: str = Query(..., description="File path relative to workspace root"),
+    path: str | None = Query(default=None, description="Display path from the list endpoint."),
     agent_id: str | None = Query(default=None),
+    relative_path: str | None = Query(
+        default=None, description="Path relative to the originating workspace root."
+    ),
+    workspace_root_key: str | None = Query(
+        default=None, description="Stable workspace root identity returned by the list endpoint."
+    ),
+    workspace_agent_id: str | None = Query(
+        default=None, description="Stable workspace agent identity returned by the list endpoint."
+    ),
     actor: ActorContext = ACTOR_DEP,
     session: AsyncSession = SESSION_DEP,
 ) -> WorkspaceFileContent:
@@ -297,49 +441,44 @@ async def get_workspace_file(
     board_uuid = _parse_uuid(board_id)
     await _require_board_read_access(session, actor=actor, board_id=board_uuid)
 
-    # path format from list endpoint: "{agent_name}/{rel_path}" e.g. "Copywriter 1/deliverables/foo.md"
-    # Strip the leading agent_name segment to get the actual relative path
-    parts = path.split("/", 1)
-    rel_path = parts[1] if len(parts) == 2 else path
-
-    agent_roots: list[tuple[str, Path]] = []
-    if agent_id:
-        r = _workspace_root_for_agent(_parse_uuid(agent_id))
-        if r:
-            agent_roots = [("agent", r)]
-    else:
-        agent_roots = await _workspace_roots_for_board(session, board_uuid)
-
-    for _name, root in agent_roots:
-        target = _safe_path(root, rel_path)
-        if target and target.exists() and target.is_file():
-            suffix = target.suffix.lower()
-            if suffix not in _TEXT_EXTENSIONS:
-                raise HTTPException(
-                    status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                    detail="Binary files are not supported.",
-                )
-            size = target.stat().st_size
-            if size > _MAX_FILE_SIZE:
-                raise HTTPException(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail=f"File too large ({size} bytes). Max {_MAX_FILE_SIZE} bytes.",
-                )
-            content = target.read_text(encoding="utf-8", errors="replace")
-            return WorkspaceFileContent(path=path, content=content, size=size)
-
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found.")
+    handle, target, rel_path = _resolve_workspace_target(
+        handles=await _workspace_handles_for_board(session, board_uuid),
+        path=path,
+        relative_path=relative_path,
+        workspace_root_key=workspace_root_key,
+        workspace_agent_id=(
+            _parse_uuid(workspace_agent_id)
+            if workspace_agent_id
+            else _parse_uuid(agent_id) if agent_id else None
+        ),
+    )
+    suffix = target.suffix.lower()
+    if suffix not in _TEXT_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Binary files are not supported.",
+        )
+    size = target.stat().st_size
+    if size > _MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File too large ({size} bytes). Max {_MAX_FILE_SIZE} bytes.",
+        )
+    content = target.read_text(encoding="utf-8", errors="replace")
+    display_path = path or _display_workspace_path(handle, rel_path)
+    return WorkspaceFileContent(path=display_path, content=content, size=size)
 
 
 _FILE_PATH_RE = re.compile(
-    r'\b(?:deliverables|output|artifacts|reports|drafts)/[\w\-./]+\.\w+',
+    r"\b(?:deliverables|output|artifacts|reports|drafts)/[\w\-./]+\.\w+",
     re.IGNORECASE,
 )
 
 
 async def _file_paths_from_task(session: AsyncSession, task_id: UUID) -> set[str]:
     """Scan task comments for file paths explicitly mentioned by agents."""
-    from sqlmodel import select, col
+    from sqlmodel import col, select
+
     from app.models.activity_events import ActivityEvent
 
     rows = list(
@@ -361,8 +500,19 @@ async def _file_paths_from_task(session: AsyncSession, task_id: UUID) -> set[str
 @router.get("/download")
 async def download_workspace_file(
     board_id: str,
-    path: str = Query(..., description="File path (agent_name/relative/path)"),
+    path: str | None = Query(
+        default=None, description="Display path returned by the list endpoint."
+    ),
     agent_id: str | None = Query(default=None),
+    relative_path: str | None = Query(
+        default=None, description="Path relative to the originating workspace root."
+    ),
+    workspace_root_key: str | None = Query(
+        default=None, description="Stable workspace root identity returned by the list endpoint."
+    ),
+    workspace_agent_id: str | None = Query(
+        default=None, description="Stable workspace agent identity returned by the list endpoint."
+    ),
     actor: ActorContext = ACTOR_DEP,
     session: AsyncSession = SESSION_DEP,
 ) -> Response:
@@ -371,32 +521,26 @@ async def download_workspace_file(
 
     board_uuid = _parse_uuid(board_id)
     await _require_board_read_access(session, actor=actor, board_id=board_uuid)
-
-    parts = path.split("/", 1)
-    rel_path = parts[1] if len(parts) == 2 else path
+    _handle, target, rel_path = _resolve_workspace_target(
+        handles=await _workspace_handles_for_board(session, board_uuid),
+        path=path,
+        relative_path=relative_path,
+        workspace_root_key=workspace_root_key,
+        workspace_agent_id=(
+            _parse_uuid(workspace_agent_id)
+            if workspace_agent_id
+            else _parse_uuid(agent_id) if agent_id else None
+        ),
+    )
     filename = Path(rel_path).name
-
-    agent_roots: list[tuple[str, Path]] = []
-    if agent_id:
-        r = _workspace_root_for_agent(_parse_uuid(agent_id))
-        if r:
-            agent_roots = [("agent", r)]
-    else:
-        agent_roots = await _workspace_roots_for_board(session, board_uuid)
-
-    for _name, root in agent_roots:
-        target = _safe_path(root, rel_path)
-        if target and target.exists() and target.is_file():
-            content = target.read_bytes()
-            suffix = target.suffix.lower()
-            mime = "text/markdown" if suffix == ".md" else "text/plain"
-            return FastAPIResponse(
-                content=content,
-                media_type=mime,
-                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-            )
-
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found.")
+    content = target.read_bytes()
+    suffix = target.suffix.lower()
+    mime = "text/markdown" if suffix == ".md" else "text/plain"
+    return FastAPIResponse(
+        content=content,
+        media_type=mime,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _parse_uuid(value: str) -> UUID:
@@ -433,10 +577,14 @@ async def _require_board_read_access(
 group_router = APIRouter(prefix="/board-groups/{group_id}/workspace", tags=["workspace-files"])
 
 
-async def _workspace_roots_for_group(
+def _workspace_root_key_for_group_agent(agent_id: UUID) -> str:
+    return f"group-agent:{agent_id}"
+
+
+async def _workspace_handles_for_group(
     session: AsyncSession,
     group_id: UUID,
-) -> list[tuple[str, Path]]:
+) -> list[_WorkspaceHandle]:
     """Return workspace paths for the group lead agent.
 
     Uses the session key to derive config_id (same as _config_id_from_session_id) but
@@ -480,7 +628,14 @@ async def _workspace_roots_for_group(
                 root = candidate2
 
     if root and root.exists():
-        return [(agent.name, root)]
+        return [
+            _WorkspaceHandle(
+                agent_id=agent.id,
+                agent_name=agent.name,
+                root_key=_workspace_root_key_for_group_agent(agent.id),
+                root=root,
+            )
+        ]
     return []
 
 
@@ -490,11 +645,12 @@ async def _require_group_read_access(
     actor: ActorContext,
     group_id: UUID,
 ) -> None:
-    from app.models.board_groups import BoardGroup
-    from app.services.organizations import get_active_membership
     from sqlalchemy import or_
-    from sqlmodel import select, col
+    from sqlmodel import col, select
+
+    from app.models.board_groups import BoardGroup
     from app.models.organization_board_access import OrganizationBoardAccess
+    from app.services.organizations import get_active_membership
 
     group = await BoardGroup.objects.by_id(group_id).first(session)
     if group is None:
@@ -506,6 +662,7 @@ async def _require_group_read_access(
             return
         if actor.agent.board_id is not None:
             from app.models.boards import Board
+
             board = await Board.objects.by_id(actor.agent.board_id).first(session)
             if board and board.board_group_id == group_id:
                 return
@@ -521,16 +678,18 @@ async def _require_group_read_access(
     if member.all_boards_read or member.all_boards_write:
         return
 
-    access = (await session.exec(
-        select(OrganizationBoardAccess).where(
-            col(OrganizationBoardAccess.organization_member_id) == member.id,
-            col(OrganizationBoardAccess.board_group_id) == group_id,
-            or_(
-                col(OrganizationBoardAccess.can_read).is_(True),
-                col(OrganizationBoardAccess.can_write).is_(True),
-            ),
+    access = (
+        await session.exec(
+            select(OrganizationBoardAccess).where(
+                col(OrganizationBoardAccess.organization_member_id) == member.id,
+                col(OrganizationBoardAccess.board_group_id) == group_id,
+                or_(
+                    col(OrganizationBoardAccess.can_read).is_(True),
+                    col(OrganizationBoardAccess.can_write).is_(True),
+                ),
+            )
         )
-    )).first()
+    ).first()
     if access is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
 
@@ -538,7 +697,9 @@ async def _require_group_read_access(
 @group_router.get("/files", response_model=list[WorkspaceFileEntry])
 async def list_group_workspace_files(
     group_id: str,
-    task_id: str | None = Query(default=None, description="Filter to files mentioned in this task's comments"),
+    task_id: str | None = Query(
+        default=None, description="Filter to files mentioned in this task's comments"
+    ),
     actor: ActorContext = ACTOR_DEP,
     session: AsyncSession = SESSION_DEP,
 ) -> list[WorkspaceFileEntry]:
@@ -552,18 +713,16 @@ async def list_group_workspace_files(
         task_file_paths = await _file_paths_from_task(session, task_uuid)
 
     all_entries: list[WorkspaceFileEntry] = []
-    seen: set[str] = set()
-    for name, root in await _workspace_roots_for_group(session, group_uuid):
-        for entry in _list_deliverables(root, name):
-            if entry.path not in seen:
-                seen.add(entry.path)
+    seen: set[tuple[str | None, str]] = set()
+    for handle in await _workspace_handles_for_group(session, group_uuid):
+        for entry in _list_deliverables(handle):
+            entry_key = (entry.workspace_root_key, entry.relative_path)
+            if entry_key not in seen:
+                seen.add(entry_key)
                 all_entries.append(entry)
 
     if task_file_paths is not None:
-        all_entries = [
-            e for e in all_entries
-            if any(tp in e.path for tp in task_file_paths)
-        ]
+        all_entries = [e for e in all_entries if e.relative_path in task_file_paths]
 
     return all_entries
 
@@ -571,32 +730,56 @@ async def list_group_workspace_files(
 @group_router.get("/file", response_model=WorkspaceFileContent)
 async def get_group_workspace_file(
     group_id: str,
-    path: str = Query(..., description="File path (agent_name/relative/path)"),
+    path: str | None = Query(
+        default=None, description="Display path returned by the list endpoint."
+    ),
+    relative_path: str | None = Query(
+        default=None, description="Path relative to the originating workspace root."
+    ),
+    workspace_root_key: str | None = Query(
+        default=None, description="Stable workspace root identity returned by the list endpoint."
+    ),
+    workspace_agent_id: str | None = Query(
+        default=None, description="Stable workspace agent identity returned by the list endpoint."
+    ),
     actor: ActorContext = ACTOR_DEP,
     session: AsyncSession = SESSION_DEP,
 ) -> WorkspaceFileContent:
     """Read a single workspace file from the group lead agent workspace."""
     group_uuid = _parse_uuid(group_id)
     await _require_group_read_access(session, actor=actor, group_id=group_uuid)
-
-    parts = path.split("/", 1)
-    rel_path = parts[1] if len(parts) == 2 else path
-
-    for _name, root in await _workspace_roots_for_group(session, group_uuid):
-        target = _safe_path(root, rel_path)
-        if target and target.exists() and target.is_file():
-            suffix = target.suffix.lower()
-            if suffix not in _TEXT_EXTENSIONS:
-                raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
-            return WorkspaceFileContent(path=path, content=target.read_text(errors="replace"), size=target.stat().st_size)
-
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found.")
+    handle, target, rel_path = _resolve_workspace_target(
+        handles=await _workspace_handles_for_group(session, group_uuid),
+        path=path,
+        relative_path=relative_path,
+        workspace_root_key=workspace_root_key,
+        workspace_agent_id=_parse_uuid(workspace_agent_id) if workspace_agent_id else None,
+    )
+    suffix = target.suffix.lower()
+    if suffix not in _TEXT_EXTENSIONS:
+        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
+    return WorkspaceFileContent(
+        path=path or _display_workspace_path(handle, rel_path),
+        content=target.read_text(errors="replace"),
+        size=target.stat().st_size,
+    )
 
 
 @group_router.get("/download")
 async def download_group_workspace_file(
     group_id: str,
-    path: str = Query(..., description="File path (agent_name/relative/path)"),
+    path: str | None = Query(
+        default=None, description="Display path returned by the list endpoint."
+    ),
+    relative_path: str | None = Query(
+        default=None, description="Path relative to the originating workspace root."
+    ),
+    workspace_root_key: str | None = Query(
+        default=None, description="Stable workspace root identity returned by the list endpoint."
+    ),
+    workspace_agent_id: str | None = Query(
+        default=None, description="Stable workspace agent identity returned by the list endpoint."
+    ),
     actor: ActorContext = ACTOR_DEP,
     session: AsyncSession = SESSION_DEP,
 ) -> Response:
@@ -605,21 +788,19 @@ async def download_group_workspace_file(
 
     group_uuid = _parse_uuid(group_id)
     await _require_group_read_access(session, actor=actor, group_id=group_uuid)
-
-    parts = path.split("/", 1)
-    rel_path = parts[1] if len(parts) == 2 else path
+    _handle, target, rel_path = _resolve_workspace_target(
+        handles=await _workspace_handles_for_group(session, group_uuid),
+        path=path,
+        relative_path=relative_path,
+        workspace_root_key=workspace_root_key,
+        workspace_agent_id=_parse_uuid(workspace_agent_id) if workspace_agent_id else None,
+    )
     filename = Path(rel_path).name
-
-    for _name, root in await _workspace_roots_for_group(session, group_uuid):
-        target = _safe_path(root, rel_path)
-        if target and target.exists() and target.is_file():
-            content = target.read_bytes()
-            suffix = target.suffix.lower()
-            mime = "text/markdown" if suffix == ".md" else "text/plain"
-            return FastAPIResponse(
-                content=content,
-                media_type=mime,
-                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-            )
-
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found.")
+    content = target.read_bytes()
+    suffix = target.suffix.lower()
+    mime = "text/markdown" if suffix == ".md" else "text/plain"
+    return FastAPIResponse(
+        content=content,
+        media_type=mime,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

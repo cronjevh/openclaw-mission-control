@@ -10,12 +10,13 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlmodel import col, select
 
 from app.models.board_memory import BoardMemory
 from app.models.boards import Board
 from app.models.gateways import Gateway
+from app.models.tasks import Task
 from app.services.openclaw.constants import OFFLINE_AFTER
 from app.services.openclaw.db_service import OpenClawDBService
 from app.services.openclaw.gateway_resolver import (
@@ -148,9 +149,24 @@ class GatewayDispatchService(OpenClawDBService):
         if await self._should_skip_for_paused_board(board=resolved_board, message=message):
             raise OpenClawGatewayError("Board agents are paused. Send /resume to continue.")
 
+        # Resolve agent if not provided (for task check and waking)
+        resolved_agent = agent
+        if resolved_agent is None and resolved_board is not None:
+            from app.models.agents import Agent as AgentModel
+            resolved_agent = await AgentModel.objects.filter_by(openclaw_session_id=session_key).first(
+                self.session,
+            )
+
+        # Only allow LLM-triggering messages if agent has attention tasks
+        if resolved_agent is not None and resolved_board is not None:
+            command = message.strip().lower()
+            if command not in _CONTROL_COMMANDS:
+                if not await self._agent_has_attention_tasks(resolved_board, resolved_agent):
+                    raise OpenClawGatewayError("Agent has no tasks requiring attention")
+
         # Full re-provision wake for offline agents before delivering the notification.
-        if agent is not None:
-            await self.wake_agent_if_offline(agent=agent, board=resolved_board)
+        if resolved_agent is not None:
+            await self.wake_agent_if_offline(agent=resolved_agent, board=resolved_board)
         await ensure_session(session_key, config=config, label=agent_name)
         await send_message(message, session_key=session_key, config=config, deliver=deliver)
 
@@ -263,6 +279,22 @@ class GatewayDispatchService(OpenClawDBService):
         if not isinstance(content, str):
             return False
         return content.strip().lower() == "/pause"
+
+    async def _agent_has_attention_tasks(self, board: Board, agent: Agent) -> bool:
+        """Check if the agent has any tasks requiring its attention on this board."""
+        query = select(Task.id).where(col(Task.board_id) == board.id).where(col(Task.status) != "done")
+        if agent.is_board_lead:
+            # Lead cares about unassigned inbox tasks and tasks assigned to them
+            query = query.where(
+                or_(
+                    col(Task.assigned_agent_id) == agent.id,
+                    (col(Task.assigned_agent_id).is_(None) & (col(Task.status) == "inbox")),
+                )
+            )
+        else:
+            query = query.where(col(Task.assigned_agent_id) == agent.id)
+        result = await self.session.exec(query.limit(1))
+        return result.first() is not None
 
     @staticmethod
     def resolve_trace_id(correlation_id: str | None, *, prefix: str) -> str:

@@ -452,6 +452,13 @@ async def send_board_temp_chat(
     board_uuid = _parse_uuid(board_id)
     board, lead, config = await _board_lead_and_config(session, board_uuid, actor)
 
+    # Enforce guard: board must be unpaused and agent must have attention tasks
+    dispatch = GatewayDispatchService(session)
+    if await dispatch._is_board_paused(board.id):
+        raise HTTPException(status_code=403, detail="Board agents are paused. Send /resume to continue.")
+    if not await dispatch._agent_has_attention_tasks(board, lead):
+        raise HTTPException(status_code=403, detail="Agent has no tasks requiring attention.")
+
     body = await request.json()
     message: str = (body.get("message") or "").strip()
     if not message:

@@ -44,91 +44,67 @@ curl -fsS -o /dev/null "{{ base_url }}/api/v1/board-groups/{{ group_id }}/tasks"
 3) If healthz passes but tasks returns 401 — token is stale. Re-read TOOLS.md (step 1) and retry once.
 4) If still failing after retry, stop and wait for next heartbeat.
 
-## Pre-LLM Gate (Deterministic — Runs Before Any LLM Work)
+## Pre-LLM Gate (Deterministic — No LLM Calls Beyond This Point)
 
 Run these checks before entering the group-lead loop. If any check triggers an
 early exit, do NOT proceed to work. This gate prevents wasted LLM cycles on paused
 or idle groups.
 
-### Gate 1 — Pause Detection
-
-Group leads operate across multiple boards. Check each board in the group for pause state.
-If ANY governed board is paused, skip LLM work for the entire group.
-
-Fetch group snapshot to discover board IDs:
+### Gate 1: Group Pause Check
+Group leads must check each board in the group for pause state. If any board
+the group lead would operate on is paused, skip LLM work for that board.
+Since group leads operate across boards, check the group task list instead:
 ```bash
-GATE_SNAPSHOT=$(curl -fsS "{{ base_url }}/api/v1/board-groups/{{ group_id }}/snapshot" \
-  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null) || { echo "GATE: API failure reading group snapshot"; exit 0; }
-GATE_BOARD_IDS=$(echo "$GATE_SNAPSHOT" | jq -r '(.boards // .data // [])[]?.board_id // empty' 2>/dev/null)
+GATE_LATEST_CHAT=$(curl -fsS "{{ base_url }}/api/v1/agent/boards/$BOARD_ID/memory?is_chat=true&limit=1" \
+  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null)
+GATE_PAUSE_CONTENT=$(echo "$GATE_LATEST_CHAT" | jq -r '.items[0].content // empty' 2>/dev/null | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
 ```
-
-Check each board for pause state:
-```bash
-GATE_ANY_PAUSED="false"
-for GATE_BID in $GATE_BOARD_IDS; do
-  GATE_CHAT_RAW=$(curl -fsS "{{ base_url }}/api/v1/agent/boards/$GATE_BID/memory?is_chat=true&limit=20" \
-    -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null) || continue
-  GATE_PAUSE_STATE=$(echo "$GATE_CHAT_RAW" | jq -r '
-    [.items[] | select(.content != null) | .content | ascii_downcase | gsub("^\\s+|\\s+$";"")]
-    | map(select(. == "/pause" or . == "/resume"))
-    | .[0] // "none"
-  ' 2>/dev/null) || continue
-  if [ "$GATE_PAUSE_STATE" = "/pause" ]; then
-    GATE_ANY_PAUSED="true"
-    break
-  fi
-done
-```
-
-If any board is paused:
-- Signal `online` via heartbeat endpoint.
-- **Return HEARTBEAT_OK. Do not enter the group-lead loop.**
-- Only a `/resume` chat message (from a gateway-main agent or human) unpauses a board.
+If any governed board is paused, treat the group as paused:
+- Post heartbeat `online`.
+- **Return `HEARTBEAT_OK`. Do not enter the group-lead loop.**
+- Only a `/resume` chat message (sent by a gateway-main agent or human) unpauses.
 
 ```bash
-if [ "$GATE_ANY_PAUSED" = "true" ]; then
+if [ "$GATE_PAUSE_CONTENT" = "/pause" ]; then
   curl -fsS -X POST "{{ base_url }}/api/v1/agent/heartbeat" \
     -H "X-Agent-Token: $AUTH_TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"status": "online"}' >/dev/null 2>&1 || true
-  echo "GATE: SKIP_PAUSED — one or more boards in the group are paused"
-  # Return HEARTBEAT_OK and stop all further processing.
+    -d '{"status": "online"}'
+  echo "GATE: board paused — exiting heartbeat cycle"
 fi
 ```
 
-### Gate 2 — Actionable Task Count
-
+### Gate 2: Actionable Task Count
 ```bash
 GATE_TASKS=$(curl -fsS "{{ base_url }}/api/v1/board-groups/{{ group_id }}/tasks?limit=1" \
-  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null | jq '.total // 0') || GATE_TASKS=0
+  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null | jq '.total // 0')
 ```
 
 If `GATE_TASKS` is zero:
-- Signal `online` via heartbeat endpoint.
-- **Return HEARTBEAT_OK. Do not enter the group-lead loop.**
+- Post heartbeat `online`.
+- **Return `HEARTBEAT_OK`. Do not enter the group-lead loop.**
 
 ```bash
 if [ "$GATE_TASKS" -eq 0 ] 2>/dev/null; then
   curl -fsS -X POST "{{ base_url }}/api/v1/agent/heartbeat" \
     -H "X-Agent-Token: $AUTH_TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"status": "online"}' >/dev/null 2>&1 || true
-  echo "GATE: SKIP_IDLE — no actionable group tasks"
-  # Return HEARTBEAT_OK and stop all further processing.
+    -d '{"status": "online"}'
+  echo "GATE: no actionable tasks — exiting heartbeat cycle"
 fi
 ```
 
 ### Gate Summary
 
-| Check | Condition | Outcome |
+| Check | Condition | Action |
 |---|---|---|
-| 1 — Pause | Any board in group has latest chat command `/pause` | SKIP_PAUSED: signal online, return HEARTBEAT_OK |
-| 2 — Idle | Zero group tasks | SKIP_IDLE: signal online, return HEARTBEAT_OK |
-| Pass | No paused boards AND tasks exist | PROCEED: continue to Group Lead Loop |
+| Pause | Any governed board has `/pause` in latest chat | Signal `online`, return `HEARTBEAT_OK` |
+| Idle | Zero group tasks | Signal `online`, return `HEARTBEAT_OK` |
+| Active | No paused boards AND tasks exist | Continue to group-lead loop |
 
-**Failure handling**: if any curl or jq fails, the gate defaults to skipping (fail-closed). Do not proceed on errors.
+**Agents on a paused board must not execute any LLM calls, task mutations, or comments.** Only a gateway-main agent or human sending `/resume` in chat may unpause the board.
 
-**Pause policy**: Group lead agents must not execute any LLM calls, task mutations, or comments while any board in the group is paused. Only a gateway-main agent or human sending `/resume` in board chat may unpause a board.
+
 ## Group Lead Loop
 
 ### 0. Signal Working Status

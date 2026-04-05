@@ -226,109 +226,94 @@ curl -fsS -o /dev/null "http://localhost:8002/api/v1/agent/boards/$BOARD_ID/task
 ```
 - If task list returns 404, treat as route-family mismatch — do not continue until request path is corrected to `/api/v1/agent/boards/$BOARD_ID/tasks`.
 
-## Pre-LLM Gate (Deterministic — Runs Before Any LLM Work)
+## Pre-LLM Gate (Deterministic — No LLM Calls Beyond This Point)
 
-This gate runs after pre-flight checks but BEFORE any status=working write.
-If the gate returns SKIP, do not proceed to the role-specific loop.
+Run these checks before entering the role-specific loop. If any check triggers an
+early exit, do NOT proceed to work. This gate prevents wasted LLM cycles on paused
+or idle boards.
 
-### Gate Order
-
-1. Pause detection → skip if board is paused
-2. Actionable task count → skip if no actionable work
-3. If both pass → PROCEED to Signal Working Status
-
-### Gate 1 — Pause Detection
-
-Scan recent board chat memory for the latest `/pause` or `/resume` command.
-The board is paused if the most recent matching command is `/pause`.
-Use `limit=20` to cover cases where non-command chat appears between commands.
-
+### Gate 1: Board Pause Check
+Fetch the latest chat memory entry and check for `/pause`.
 ```bash
-GATE_CHAT_RAW=$(curl -fsS "{{ base_url }}/api/v1/agent/boards/$BOARD_ID/memory?is_chat=true&limit=20" \
-  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null) || { echo "GATE: API failure reading board memory"; exit 0; }
+GATE_LATEST_CHAT=$(curl -fsS "{{ base_url }}/api/v1/agent/boards/$BOARD_ID/memory?is_chat=true&limit=1" \
+  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null)
+GATE_PAUSE_CONTENT=$(echo "$GATE_LATEST_CHAT" | jq -r '.items[0].content // empty' 2>/dev/null | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
 ```
-
-Parse the entries and find the latest `/pause` or `/resume`:
-```bash
-GATE_PAUSE_STATE=$(echo "$GATE_CHAT_RAW" | jq -r '
-  [.items[] | select(.content != null) | .content | ascii_downcase | gsub("^\\s+|\\s+$";"")]
-  | map(select(. == "/pause" or . == "/resume"))
-  | .[0] // "none"
-' 2>/dev/null) || GATE_PAUSE_STATE="none"
-```
-
-If `GATE_PAUSE_STATE` equals `/pause`:
-- Signal `online` via heartbeat endpoint.
-- **Return HEARTBEAT_OK. Do not enter the role-specific loop.**
-- Do not read tasks, post comments, write memory, or take any board action.
-- Only a `/resume` chat message (from a gateway-main agent or human) unpauses the board.
+If `GATE_PAUSE_CONTENT` equals `/pause`:
+- Post heartbeat `online`.
+- **Return `HEARTBEAT_OK`. Do not enter the role-specific loop.**
+- Do not read tasks, post comments, or take any board action.
+- Only a `/resume` chat message (sent by a gateway-main agent or human) unpauses the board.
 
 ```bash
-if [ "$GATE_PAUSE_STATE" = "/pause" ]; then
+if [ "$GATE_PAUSE_CONTENT" = "/pause" ]; then
   curl -fsS -X POST "{{ base_url }}/api/v1/agent/heartbeat" \
     -H "X-Agent-Token: $AUTH_TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"status": "online"}' >/dev/null 2>&1 || true
-  echo "GATE: SKIP_PAUSED — board is paused"
-  # Return HEARTBEAT_OK and stop all further processing.
+    -d '{"status": "online"}'
+  echo "GATE: board paused — exiting heartbeat cycle"
 fi
 ```
 
-### Gate 2 — Actionable Task Count
+### Gate 2: Actionable Task Count
+If the board is not paused, count actionable tasks. If none exist, skip the LLM cycle.
 
 {% if is_lead %}
-**Lead actionable work**: any in_progress, review, unassigned inbox, or lead-assigned inbox tasks.
-
 ```bash
-GATE_IP_TOTAL=$(curl -fsS "{{ base_url }}/api/v1/agent/boards/$BOARD_ID/tasks?status=in_progress&limit=1" \
-  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null | jq '.total // 0') || GATE_IP_TOTAL=0
-GATE_RV_TOTAL=$(curl -fsS "{{ base_url }}/api/v1/agent/boards/$BOARD_ID/tasks?status=review&limit=1" \
-  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null | jq '.total // 0') || GATE_RV_TOTAL=0
-GATE_UA_TOTAL=$(curl -fsS "{{ base_url }}/api/v1/agent/boards/$BOARD_ID/tasks?status=inbox&unassigned=true&limit=1" \
-  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null | jq '.total // 0') || GATE_UA_TOTAL=0
-GATE_LI_TOTAL=$(curl -fsS "{{ base_url }}/api/v1/agent/boards/$BOARD_ID/tasks?status=inbox&assigned_agent_id={{ agent_id }}&limit=1" \
-  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null | jq '.total // 0') || GATE_LI_TOTAL=0
-GATE_TOTAL=$((GATE_IP_TOTAL + GATE_RV_TOTAL + GATE_UA_TOTAL + GATE_LI_TOTAL))
+GATE_INBOX=$(curl -fsS "{{ base_url }}/api/v1/agent/boards/$BOARD_ID/tasks?status=inbox&limit=1" \
+  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null | jq '.total // 0')
+GATE_INPROGRESS=$(curl -fsS "{{ base_url }}/api/v1/agent/boards/$BOARD_ID/tasks?status=in_progress&limit=1" \
+  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null | jq '.total // 0')
+GATE_REVIEW=$(curl -fsS "{{ base_url }}/api/v1/agent/boards/$BOARD_ID/tasks?status=review&limit=1" \
+  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null | jq '.total // 0')
 ```
 {% else %}
-**Worker actionable work**: only tasks assigned to this worker.
-Unassigned inbox and assist-mode opportunities do NOT count as actionable.
-
 ```bash
-GATE_IP_TOTAL=$(curl -fsS "{{ base_url }}/api/v1/agent/boards/$BOARD_ID/tasks?status=in_progress&assigned_agent_id={{ agent_id }}&limit=1" \
-  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null | jq '.total // 0') || GATE_IP_TOTAL=0
-GATE_IB_TOTAL=$(curl -fsS "{{ base_url }}/api/v1/agent/boards/$BOARD_ID/tasks?status=inbox&assigned_agent_id={{ agent_id }}&limit=1" \
-  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null | jq '.total // 0') || GATE_IB_TOTAL=0
-GATE_TOTAL=$((GATE_IP_TOTAL + GATE_IB_TOTAL))
+GATE_INBOX=$(curl -fsS "{{ base_url }}/api/v1/agent/boards/$BOARD_ID/tasks?status=inbox&assigned_agent_id={{ agent_id }}&limit=1" \
+  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null | jq '.total // 0')
+GATE_INPROGRESS=$(curl -fsS "{{ base_url }}/api/v1/agent/boards/$BOARD_ID/tasks?status=in_progress&assigned_agent_id={{ agent_id }}&limit=1" \
+  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null | jq '.total // 0')
+GATE_REVIEW=$(curl -fsS "{{ base_url }}/api/v1/agent/boards/$BOARD_ID/tasks?status=review&assigned_agent_id={{ agent_id }}&limit=1" \
+  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null | jq '.total // 0')
+GATE_UNASSIGNED=$(curl -fsS "{{ base_url }}/api/v1/agent/boards/$BOARD_ID/tasks?status=inbox&unassigned=true&limit=1" \
+  -H "X-Agent-Token: $AUTH_TOKEN" 2>/dev/null | jq '.total // 0')
 ```
 {% endif %}
 
-If `GATE_TOTAL` is zero:
-- Signal `online` via heartbeat endpoint.
-- **Return HEARTBEAT_OK. Do not enter the role-specific loop.**
+If all counts are zero:
+- Post heartbeat `online`.
+- **Return `HEARTBEAT_OK`. Do not enter the role-specific loop.**
+
+{% if is_lead %}
+```bash
+GATE_TOTAL=$((GATE_INBOX + GATE_INPROGRESS + GATE_REVIEW))
+```
+{% else %}
+```bash
+GATE_TOTAL=$((GATE_INBOX + GATE_INPROGRESS + GATE_REVIEW + GATE_UNASSIGNED))
+```
+{% endif %}
 
 ```bash
 if [ "$GATE_TOTAL" -eq 0 ] 2>/dev/null; then
   curl -fsS -X POST "{{ base_url }}/api/v1/agent/heartbeat" \
     -H "X-Agent-Token: $AUTH_TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"status": "online"}' >/dev/null 2>&1 || true
-  echo "GATE: SKIP_IDLE — no actionable tasks"
-  # Return HEARTBEAT_OK and stop all further processing.
+    -d '{"status": "online"}'
+  echo "GATE: no actionable tasks — exiting heartbeat cycle"
 fi
 ```
 
 ### Gate Summary
 
-| Check | Condition | Outcome |
+| Check | Condition | Action |
 |---|---|---|
-| 1 — Pause | Latest chat command is `/pause` | SKIP_PAUSED: signal online, return HEARTBEAT_OK |
-| 2 — Idle | Zero actionable tasks | SKIP_IDLE: signal online, return HEARTBEAT_OK |
-| Pass | Not paused AND tasks exist | PROCEED: continue to Signal Working Status |
+| Pause | Latest chat memory is `/pause` | Signal `online`, return `HEARTBEAT_OK` |
+| Idle | Zero actionable tasks | Signal `online`, return `HEARTBEAT_OK` |
+| Active | Board not paused AND tasks exist | Continue to role-specific loop |
 
-**Failure handling**: if any curl or jq fails, the gate defaults to skipping (fail-closed). Do not proceed on errors.
+**Agents on a paused board must not execute any LLM calls, task mutations, or comments.** Only a gateway-main agent or human sending `/resume` in chat may unpause the board.
 
-**Pause policy**: Board agents must not execute any LLM calls, task mutations, or comments while the board is paused. Only a gateway-main agent or human sending `/resume` in board chat may unpause the board.
 ## Signal Working Status
 Before doing real work, set status to `working`:
 ```bash

@@ -176,3 +176,48 @@ curl -s "http://localhost:8000/api/v1/agent/boards/<board-id>/tasks?status=inbox
   - creating/updating tasks + comments
   - board memory streaming
   - approvals workflow
+
+
+## Heartbeat gate endpoints
+
+The pre-LLM heartbeat gate in agent workspace templates queries these endpoints
+to decide whether to proceed with LLM work or skip the cycle:
+
+### Pause detection
+
+```
+GET /api/v1/agent/boards/{board_id}/memory?is_chat=true&limit=20
+```
+
+Returns `.items[]` with chat memory entries. The gate scans for the latest
+`/pause` or `/resume` content (case-insensitive, whitespace-trimmed).
+
+### Board task counts
+
+```
+GET /api/v1/agent/boards/{board_id}/tasks?status={status}&limit=1
+GET /api/v1/agent/boards/{board_id}/tasks?status={status}&assigned_agent_id={agent_id}&limit=1
+GET /api/v1/agent/boards/{board_id}/tasks?status=inbox&unassigned=true&limit=1
+```
+
+Returns `.total` for counting. Lead queries use broader filters; worker queries
+include `assigned_agent_id` to scope to their own work.
+
+### Group task counts
+
+```
+GET /api/v1/board-groups/{group_id}/tasks?limit=1
+GET /api/v1/board-groups/{group_id}/snapshot
+```
+
+Group leads use the snapshot to discover board IDs, then check each board
+for pause state individually.
+
+### Heartbeat signal
+
+```
+POST /api/v1/agent/heartbeat
+```
+
+Used by the gate to signal `online` on skip (paused or idle).
+

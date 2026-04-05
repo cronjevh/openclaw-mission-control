@@ -52,7 +52,7 @@ Defined in `backend/app/services/openclaw/provisioning.py` (`_template_env()`):
 Example:
 
 ```bash
-python backend/scripts/sync_gateway_templates.py --gateway-id <uuid>
+cd backend && uv run python scripts/sync_gateway_templates.py --gateway-id <uuid>
 ```
 
 ## Files included in sync
@@ -89,6 +89,50 @@ Lead-only stale template files are cleaned up during sync by:
 - `BoardAgentLifecycleManager._stale_file_candidates()`
 
 ## HEARTBEAT.md selection logic
+
+
+## Pre-LLM Heartbeat Gate
+
+Both `BOARD_HEARTBEAT.md.j2` and `GROUP_LEAD_HEARTBEAT.md.j2` contain a deterministic
+pre-LLM gate that runs after pre-flight checks but **before** any `status=working` write
+or LLM-guided work loop.
+
+### Gate order
+
+1. **Pause detection** — skip if the board (or any board in a group) is paused
+2. **Actionable task count** — skip if no actionable work exists for this role
+3. If both pass → `PROCEED` to Signal Working Status
+
+### Pause detection
+
+Pause state is derived from board chat memory — the latest `/pause` or `/resume`
+command among the 20 most recent chat entries. There is no `board.is_paused` field
+on any public schema.
+
+Endpoint: `GET /api/v1/agent/boards/{board_id}/memory?is_chat=true&limit=20`
+
+### Actionable work by role
+
+| Role | Counts as actionable |
+|---|---|
+| Board lead | any in_progress, review, unassigned inbox, lead-assigned inbox |
+| Board worker | assigned in_progress, assigned inbox only |
+| Group lead | any group-level tasks (via `/api/v1/board-groups/{group_id}/tasks`) |
+
+### Main agent
+
+Main agents have **no gate** — they are not tied to any board.
+
+### Fail-closed behavior
+
+If any curl or jq call fails (auth error, 5xx, parse failure), the gate defaults to
+skipping the heartbeat cycle. Agents do not proceed on errors.
+
+### Automated coverage
+
+Template rendering tests live in `backend/tests/test_heartbeat_gate.py` (32 tests)
+and verify gate content, role-specific queries, ordering, and StrictUndefined safety.
+
 
 All agent types (main + board lead + board non-lead) render `HEARTBEAT.md` from:
 

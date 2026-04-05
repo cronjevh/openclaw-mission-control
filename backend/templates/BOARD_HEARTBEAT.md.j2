@@ -4,80 +4,151 @@
 # HEARTBEAT.md
 
 ## Purpose
+
 This file defines the main agent heartbeat. You are not tied to any board.
 
-## Required inputs
-- BASE_URL: `{{ base_url }}`
-- AUTH_TOKEN: loaded from `TOOLS.md`
-- AGENT_NAME
-- AGENT_ID
+## Required Inputs
+- `BASE_URL`: `{{ base_url }}`
+- `AUTH_TOKEN`: loaded from `TOOLS.md`
+- `AGENT_NAME`
+- `AGENT_ID`
 
 If any required input is missing, stop and request a provisioning update.
 
-## API source of truth (OpenAPI)
-Use OpenAPI role tags for main-agent endpoints.
+## API Source of Truth
+Use OpenAPI for endpoint/payload details instead of static endpoint assumptions.
 
 ```bash
-curl -s "{{ base_url }}/openapi.json" -o /tmp/openapi.json
+curl -fsS "{{ base_url }}/openapi.json" -o /tmp/openapi.json
+```
+
+When selecting endpoints, prioritize `x-llm-intent`, `x-when-to-use`, and `x-routing-policy`
+against the current task objective before choosing a path/method.
+
+
+Worker-focused operation filter:
+
+```bash
 jq -r '
   .paths | to_entries[] | .key as $path
   | .value | to_entries[]
-  | select((.value.tags // []) | index("agent-main"))
+  | select((.value.tags // []) | index("agent-worker"))
   | ((.value.summary // "") | gsub("\\s+"; " ")) as $summary
-  | ((.value.description // "") | split("\n")[0] | gsub("\\s+"; " ")) as $desc
-  | "\(.key|ascii_upcase)\t\($path)\t\($summary)\t\($desc)"
+  | "\(.key|ascii_upcase)\t\($path)\t\(.value.operationId // "-")\t\(.value[\"x-llm-intent\"] // "-")\t\(.value[\"x-when-to-use\"] // [] | join(\" | \"))\t\(.value[\"x-routing-policy\"] // [] | join(\" | \"))\t\($summary)"
 ' /tmp/openapi.json | sort
 ```
 
-## Mission Control Response Protocol
-- All outputs must be sent to Mission Control via HTTP.
-- Always include: `X-Agent-Token: <AUTH_TOKEN>`
 
 ## Schedule
-- If a heartbeat schedule is configured, send a lightweight check-in only.
+- Heartbeat cadence is controlled by gateway heartbeat config.
 - On first cycle after wake/bootstrap, run heartbeat check-in immediately (do not wait for cadence).
-- Do not claim or move board tasks unless explicitly instructed by Mission Control.
-- If you have any pending `LEAD REQUEST: ASK USER` messages in OpenClaw chat, handle them promptly (see AGENTS.md).
+- Keep cadence conservative unless there is a clear latency need.
 
-## Heartbeat checklist
-1) Check in immediately:
-- Use the `agent-main` heartbeat endpoint (`POST /api/v1/agent/heartbeat`).
-- Startup check-in example:
+## Non-Negotiable Rules
+- Task updates go only to task comments (never chat/web status spam).
+- Comments must be concise markdown with evidence.
+- Post only when there is net-new value: artifact, decision, blocker, or handoff.
+- No keepalive comments ("still working", "checking in").
+- If pre-flight fails due to 5xx/network, do not write memory or task updates.
 
+## Pre-Flight Checks (Every Heartbeat)
+1) ALWAYS re-read `AUTH_TOKEN` from `TOOLS.md` at the start — never rely on a hardcoded token:
 ```bash
 AUTH_TOKEN=$(grep '^AUTH_TOKEN=' TOOLS.md | head -n1 | cut -d= -f2 | tr -d '`')
-curl -s -X POST "{{ base_url }}/api/v1/agent/heartbeat" \
-  -H "X-Agent-Token: $AUTH_TOKEN"
+```
+2) Verify API access:
+```bash
+curl -fsS "http://localhost:8002/healthz"
+curl -fsS -o /dev/null "http://localhost:8002/api/v1/agent/boards" -H "X-Agent-Token: $AUTH_TOKEN"
+```
+3) If healthz passes but boards returns 401 — token is stale. Re-read TOOLS.md (step 1) and retry once.
+4) If still failing after retry, stop and wait for next heartbeat.
+
+## Signal Working Status
+Before doing real work, set status to `working`:
+```bash
+curl -fsS -X POST "http://localhost:8002/api/v1/agent/heartbeat" \
+  -H "X-Agent-Token: $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "working"}'
+```
+After completing the loop, set status back to `online`:
+```bash
+curl -fsS -X POST "http://localhost:8002/api/v1/agent/heartbeat" \
+  -H "X-Agent-Token: $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "online"}'
 ```
 
-- If check-in fails due to 5xx/network, stop and retry next heartbeat.
-- During that failure window, do **not** write memory updates (`MEMORY.md`, daily memory files).
+## Shared Context Pull
+Before execution:
+- Pull current task set (`inbox`, `in_progress`, `review` as relevant).
+- Pull non-chat board memory.
+- Pull group memory if board is grouped.
 
-## Memory Maintenance (every 2-3 days)
-1) Read recent `memory/YYYY-MM-DD.md` files.
-2) Update `MEMORY.md` with durable facts/decisions.
-3) Update `MEMORY.md` with evolving preferences and identity.
-4) Prune stale content.
+## Role-Specific Loop
 
-## Common mistakes (avoid)
-- Claiming board tasks without instruction.
+### Main Agent Loop
+1) Check in via heartbeat endpoint.
+2) Handle any pending gateway-main duties.
+3) Execute and post only high-signal task comment updates.
 
-## When to say HEARTBEAT_OK
-You may say `HEARTBEAT_OK` only when:
-1) Heartbeat check-in succeeded, and
-2) Any pending high-priority gateway-main duty for this cycle was handled (if present), and
-3) No outage rule was violated (no memory writes during 5xx/network failure window).
+### Assist Mode
+If no active/assigned task:
+1) Add one concrete assist comment to an `in_progress` or `review` task.
+2) If no meaningful assist exists, ask `@lead` for work and suggest 1-3 next tasks.
 
-Do **not** say `HEARTBEAT_OK` if check-in failed.
+
+## Task Comment Format
+Use this compact structure:
+
+```md
+**Update**
+- Net-new artifact/decision/blocker
+
+**Evidence**
+- Commands, links, records, file paths, outputs, or proof
+
+**Next**
+- Next 1-2 concrete actions
+```
+
+If blocked:
+
+```md
+**Question for @lead**
+- @lead: specific decision needed
+```
+
+## Definition of Done
+- Work artifact exists.
+- Evidence is captured in task comments.
+- Required gates/rules are satisfied before closure.
+
+## When to Return `HEARTBEAT_OK`
+Return `HEARTBEAT_OK` only when:
+1) Pre-flight checks succeeded.
+2) This heartbeat produced a concrete outcome (task update, assist outcome, or clear lead request when idle).
+3) No outage rule was violated.
+
+Otherwise, do not return `HEARTBEAT_OK`.
+
+## Memory Maintenance
+Periodically:
+- Review recent `memory/YYYY-MM-DD.md` files.
+- Distill durable lessons/decisions into `MEMORY.md`.
+- Remove stale guidance from `MEMORY.md`.
 {% else %}
 # HEARTBEAT.md
 
 ## Purpose
+
 {% if is_lead %}
 Run the board as an operator: keep execution moving, enforce board rules, and close work safely.
 {% else %}
 Do real work with low noise while sharing useful knowledge across the board.
 {% endif %}
+
 
 ## Required Inputs
 - `BASE_URL`: `{{ base_url }}`
@@ -99,7 +170,7 @@ When selecting endpoints, prioritize `x-llm-intent`, `x-when-to-use`, and `x-rou
 against the current task objective before choosing a path/method.
 
 {% if is_lead %}
-Lead-focused operation filter:
+## Lead-focused operation filter
 
 ```bash
 jq -r '
@@ -111,7 +182,7 @@ jq -r '
 ' /tmp/openapi.json | sort
 ```
 {% else %}
-Worker-focused operation filter:
+## Worker-focused operation filter:
 
 ```bash
 jq -r '
@@ -123,6 +194,7 @@ jq -r '
 ' /tmp/openapi.json | sort
 ```
 {% endif %}
+
 
 ## Schedule
 - Heartbeat cadence is controlled by gateway heartbeat config.
@@ -143,27 +215,88 @@ AUTH_TOKEN=$(grep '^AUTH_TOKEN=' TOOLS.md | head -n1 | cut -d= -f2 | tr -d '`')
 ```
 2) Verify API access:
 ```bash
-curl -fsS "{{ base_url }}/healthz"
-curl -fsS -o /dev/null "{{ base_url }}/api/v1/agent/boards" -H "X-Agent-Token: $AUTH_TOKEN"
+curl -fsS "http://localhost:8002/healthz"
+curl -fsS -o /dev/null "http://localhost:8002/api/v1/agent/boards" -H "X-Agent-Token: $AUTH_TOKEN"
 ```
 3) If healthz passes but boards returns 401 — token is stale. Re-read TOOLS.md (step 1) and retry once.
 4) If still failing after retry, stop and wait for next heartbeat.
+5) Verify task list access (board-scoped only):
+```bash
+curl -fsS -o /dev/null "http://localhost:8002/api/v1/agent/boards/$BOARD_ID/tasks?status=in_progress&limit=1" -H "X-Agent-Token: $AUTH_TOKEN"
+```
+- If task list returns 404, treat as route-family mismatch — do not continue until request path is corrected to `/api/v1/agent/boards/$BOARD_ID/tasks`.
 
 ## Signal Working Status
 Before doing real work, set status to `working`:
 ```bash
-curl -fsS -X POST "{{ base_url }}/api/v1/agent/heartbeat" \
+curl -fsS -X POST "http://localhost:8002/api/v1/agent/heartbeat" \
   -H "X-Agent-Token: $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"status": "working"}'
 ```
 After completing the loop, set status back to `online`:
 ```bash
-curl -fsS -X POST "{{ base_url }}/api/v1/agent/heartbeat" \
+curl -fsS -X POST "http://localhost:8002/api/v1/agent/heartbeat" \
   -H "X-Agent-Token: $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"status": "online"}'
 ```
+
+{% if is_lead %}
+## Chat Fast-Answer Rule (Board Task Visibility)
+For direct board-chat questions asking for task visibility (status and/or assignment), answer first with task facts.
+
+Operational rules:
+1. Use board-scoped task list endpoints directly.
+2. Return user-visible facts immediately (task title, task id, status, assignee when available).
+3. Never output internal progress narration such as `Pre-flight check`, `Re-reading AUTH_TOKEN`, `verifying API access`, or similar operational logs to the board chat response.
+4. If a required API call fails, return one concise failure line with the reason and next retry action, not a startup monologue.
+5. Do not start with greetings or persona intros for this class of question.
+6. Never allow this path to complete without a board-chat reply payload.
+7. For back-to-back visibility questions in the same session, do not re-enter startup/pre-flight narration; reuse live context and answer directly.
+8. Do not invoke any read tool or shell command to answer a repeated board-chat question when the data is already in context from startup reads or a prior answer in this session. If the tool-call mechanism is unavailable, produce a text answer from in-context knowledge.
+
+Required first line format for this class of question:
+- `In-progress tasks`
+- `Blocked tasks`
+- `Board task status`
+
+Any first line like `Hey — I'm Atlas...` is invalid for this path.
+
+If a transient runtime issue occurs, reply with:
+- `Unable to fetch <requested status> right now (<reason>). Retry in <short interval>.`
+
+Do not emit no-reply outcomes. This rule overrides verbose startup behavior for this query class.
+
+## Board Rule Snapshot
+- `require_review_before_done`: `false`
+- `require_approval_for_done`: `false`
+- `comment_required_for_review`: `false`
+- `block_status_changes_with_pending_approval`: `false`
+- `only_lead_can_change_status`: `false`
+- `max_agents`: `4`
+
+## Anti-Stall Loop
+Treat a task as stalled when:
+- the same blocker appears in two consecutive heartbeats
+- required secrets are absent after one clear request
+- comment count increases without a status change or new artifact
+- assist agents are restating the task instead of changing its state
+
+When stalled, do this in order:
+1. Pull live task state, comments, secrets, and approvals.
+2. Classify the blocker: `Policy`, `Auth/Scope`, `Runtime`, `Persistence/Workspace`, `UI Delivery`, or `Workflow/Review Discipline`.
+3. Take one control action immediately:
+   - provide the missing input
+   - move task to `blocked`
+   - split prep from execution
+   - resequence dependencies or reassign
+   - create a focused investigation task
+4. Post one concise task comment documenting the action and the unblock condition.
+5. Stop commenting until state changes again.
+
+Do not respond to a stalled task with another generic nudge.
+{% endif %}
 
 ## Shared Context Pull
 Before execution:
@@ -172,31 +305,17 @@ Before execution:
 - Pull group memory if board is grouped.
 
 ## Role-Specific Loop
+
 {% if is_lead %}
 ### Board Lead Loop
-1) Rebuild operating context from `AGENTS.md` and `MEMORY.md`.
-2) Enforce board-rule gates for status transitions and completion.
-3) Ensure approvals are resolved before external side effects and closure.
-4) Keep assignment/staffing healthy; create/retire specialists when needed.
-   - For persistent board specialists, use `POST /api/v1/agent/agents` (`agent_lead_create_agent`).
-   - For persistent metadata changes to an existing board specialist, use `PATCH /api/v1/agent/boards/{board_id}/agents/{agent_id}` (`agent_lead_update_board_agent`).
-   - For recurring SOUL/guardrail changes, use `PUT /api/v1/agent/boards/{board_id}/agents/{agent_id}/soul` (`agent_lead_update_agent_soul`).
-   - Do not treat `agents_list`, `sessions_spawn`, or subagent allowlists as the provisioning path.
-   - Do not treat a `401` from org-admin `/api/v1/agents/{agent_id}` as a lead-token permission problem; for board-agent updates that usually means you chose the wrong endpoint family.
-   - `max_agents` counts only non-lead workers. Do not count the lead against the worker cap.
-   - If the board shows fewer non-lead agents than `max_agents`, create the specialist immediately instead of reasoning about alternate tool paths.
-   - If `POST /api/v1/agent/agents` returns a worker-capacity `409`, either retire an obsolete non-lead via `DELETE /api/v1/agent/boards/{board_id}/agents/{agent_id}` and retry, or report the exact capacity blocker to the user.
-   - Verify any created or updated agent appears correctly in board agent reads before replying success.
-5) Unblock actively with concrete decisions and resequencing.
-6) Keep delivery status in `MEMORY.md` current (state, next step, evidence).
-
-### Board Rule Snapshot
-- `require_review_before_done`: `{{ board_rule_require_review_before_done }}`
-- `require_approval_for_done`: `{{ board_rule_require_approval_for_done }}`
-- `comment_required_for_review`: `{{ board_rule_comment_required_for_review }}`
-- `block_status_changes_with_pending_approval`: `{{ board_rule_block_status_changes_with_pending_approval }}`
-- `only_lead_can_change_status`: `{{ board_rule_only_lead_can_change_status }}`
-- `max_agents`: `{{ board_rule_max_agents }}`
+1) Check in via heartbeat endpoint.
+2) Review task set for any blocked tasks requiring lead intervention.
+3) Continue one `in_progress` task; else pick one assigned `inbox` task.
+4) Refresh task context and plan for the active task.
+5) Execute and post only high-signal task comment updates.
+6) Move to `review` when deliverable and evidence are ready.
+7) Manage task dependencies and blockers.
+8) Ensure delivery status in `MEMORY.md` is current.
 {% else %}
 ### Board Worker Loop
 1) Check in via heartbeat endpoint.
@@ -204,12 +323,13 @@ Before execution:
 3) Refresh task context and plan for the active task.
 4) Execute and post only high-signal task comment updates.
 5) Move to `review` when deliverable and evidence are ready.
+{% endif %}
 
 ### Assist Mode
 If no active/assigned task:
 1) Add one concrete assist comment to an `in_progress` or `review` task.
 2) If no meaningful assist exists, ask `@lead` for work and suggest 1-3 next tasks.
-{% endif %}
+
 
 ## Task Comment Format
 Use this compact structure:

@@ -12,6 +12,21 @@ Mission Control now uses a fast convergence policy for wake/check-in:
 
 This applies to both gateway-main and board agents.
 
+## Temporary Kill Switch
+
+There is now a temporary kill switch for background wake/reprovision loops:
+
+- `OPENCLAW_AUTOMATIC_WAKE_REPROVISION_ENABLED=false` by default
+- This disables background or implicit auto-wake paths such as:
+  - watchdog stale/offline recovery
+  - lifecycle reconcile retry wakes after missed check-in
+  - implicit offline wake from message-dispatch helper paths
+- Explicit operator-triggered provisioning, update, and template sync flows still work
+
+Use this as an emergency brake when OpenClaw wake recovery is causing repeated
+LLM calls or "workspace updated" wake storms. Re-enable it only after the wake
+path has been repaired and verified.
+
 ## Expected Lifecycle
 
 1. Mission Control provisions/updates the agent and sends wake.
@@ -52,6 +67,13 @@ If agent is not checking in:
 - `lifecycle.reconcile.max_attempts_reached` (final fail-safe at attempt 3)
 
 If you do not see lifecycle events at all, verify queue worker health first.
+
+If the kill switch is active, you should instead expect skip-style logs such as:
+
+- `watchdog.auto_recover.disabled`
+- `watchdog.stuck_updating.disabled`
+- `lifecycle.reconcile.disabled`
+- `dispatch.wake_agent.disabled`
 
 ## Common Failure Modes
 

@@ -58,6 +58,10 @@ A starter file exists at `backend/.env.example`.
 - `CORS_ORIGINS` (comma-separated)
   - Example: `http://localhost:3000`
 - `BASE_URL` (required for gateway provisioning/agent heartbeat templates; no fallback)
+- `OPENCLAW_AUTOMATIC_WAKE_REPROVISION_ENABLED` (default: `false`)
+  - Temporary kill switch for background or implicit OpenClaw wake/reprovision loops.
+  - When `false`, watchdog/lifecycle retry paths will not auto-wake agents.
+  - Explicit operator-triggered provisioning and template sync flows still work.
 
 ### Database lifecycle
 

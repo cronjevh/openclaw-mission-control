@@ -83,6 +83,9 @@ class Settings(BaseSettings):
 
     # OpenClaw gateway runtime compatibility
     gateway_min_version: str = "2026.02.9"
+    # Temporary emergency brake for background wake/reprovision loops.
+    # Explicit operator-triggered provisioning still works.
+    openclaw_automatic_wake_reprovision_enabled: bool = False
 
     # Logging
     log_level: str = "INFO"

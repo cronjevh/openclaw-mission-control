@@ -26,10 +26,6 @@ from app.services.openclaw.gateway_resolver import (
 )
 from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
 from app.services.openclaw.gateway_rpc import OpenClawGatewayError, ensure_session, send_message
-from app.services.openclaw.auto_wake import (
-    automatic_wake_reprovision_disabled_reason,
-    automatic_wake_reprovision_enabled,
-)
 
 if TYPE_CHECKING:
     from app.models.agents import Agent
@@ -77,16 +73,6 @@ class GatewayDispatchService(OpenClawDBService):
         Falls back to a bare send_message if the board/gateway context is missing.
         """
         if not _is_agent_offline(agent.last_seen_at):
-            return
-        if not automatic_wake_reprovision_enabled():
-            _get_logger().info(
-                "dispatch.wake_agent.disabled",
-                extra={
-                    "agent_name": agent.name,
-                    "agent_id": str(agent.id),
-                    "reason": automatic_wake_reprovision_disabled_reason(),
-                },
-            )
             return
 
         logger = _get_logger()

@@ -30,10 +30,6 @@ from app.services.openclaw.constants import MAX_WAKE_ATTEMPTS_WITHOUT_CHECKIN, O
 from app.services.openclaw.gateway_resolver import optional_gateway_client_config
 from app.services.openclaw.gateway_rpc import OpenClawGatewayError, openclaw_call
 from app.services.openclaw.internal.agent_key import agent_key
-from app.services.openclaw.auto_wake import (
-    automatic_wake_reprovision_disabled_reason,
-    automatic_wake_reprovision_enabled,
-)
 from app.services.openclaw.gateway_dispatch import GatewayDispatchService
 from app.services.openclaw.lifecycle_orchestrator import AgentLifecycleOrchestrator
 from app.services.openclaw.provisioning import OpenClawGatewayControlPlane
@@ -156,13 +152,6 @@ async def _recover_unchecked_agents(now: datetime) -> int:
 
 async def _recover_single_agent(*, agent_id: UUID, now: datetime) -> bool:
     """Recover one agent in its own session to allow bounded concurrency."""
-    if not automatic_wake_reprovision_enabled():
-        logger.info(
-            "watchdog.auto_recover.disabled",
-            extra={"reason": automatic_wake_reprovision_disabled_reason()},
-        )
-        return False
-
     async with async_session_maker() as db:
         agent = await db.get(Agent, agent_id)
         if agent is None or not _needs_auto_recover(agent, now=now):
@@ -265,13 +254,6 @@ async def _recover_single_agent(*, agent_id: UUID, now: datetime) -> bool:
 
 async def _recover_stuck_updating(now: datetime) -> int:
     """Reset agents stuck in 'updating' → 'online' and send a wake message."""
-    if not automatic_wake_reprovision_enabled():
-        logger.info(
-            "watchdog.stuck_updating.disabled",
-            extra={"reason": automatic_wake_reprovision_disabled_reason()},
-        )
-        return 0
-
     cutoff = now - STUCK_UPDATING_AFTER
     recovered = 0
 

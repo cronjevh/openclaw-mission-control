@@ -50,6 +50,7 @@ from app.core.security_headers import SecurityHeadersMiddleware
 from app.db.session import init_db
 from app.schemas.health import HealthStatusResponse
 from app.services.openclaw.agent_watchdog import watchdog_loop
+from app.services.openclaw.auto_wake import automatic_wake_reprovision_enabled
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -275,14 +276,18 @@ def _example_from_schema(schema: dict[str, Any], *, components: dict[str, Any]) 
             for key, property_schema in properties.items():
                 if not isinstance(property_schema, dict):
                     continue
-                property_example = _example_from_schema(property_schema, components=components)
+                property_example = _example_from_schema(
+                    property_schema, components=components
+                )
                 if property_example is not None:
                     output[key] = property_example
         if output:
             return output
         additional_properties = resolved.get("additionalProperties")
         if isinstance(additional_properties, dict):
-            value_example = _example_from_schema(additional_properties, components=components)
+            value_example = _example_from_schema(
+                additional_properties, components=components
+            )
             if value_example is not None:
                 return {"key": value_example}
         return {}
@@ -368,7 +373,10 @@ def _normalize_operation_docs(
         if not isinstance(response, dict):
             continue
         existing_description = str(response.get("description", "")).strip()
-        if not existing_description or existing_description in _GENERIC_RESPONSE_DESCRIPTIONS:
+        if (
+            not existing_description
+            or existing_description in _GENERIC_RESPONSE_DESCRIPTIONS
+        ):
             response["description"] = _HTTP_RESPONSE_DESCRIPTIONS.get(
                 str(status_code),
                 "Request processed.",
@@ -402,7 +410,9 @@ def _inject_tagged_operation_openapi_docs(openapi_schema: dict[str, Any]) -> Non
             if isinstance(request_body, dict):
                 request_content = request_body.get("content")
                 if isinstance(request_content, dict):
-                    _inject_json_content_example(content=request_content, components=components)
+                    _inject_json_content_example(
+                        content=request_content, components=components
+                    )
 
             responses = operation.get("responses")
             if isinstance(responses, dict):
@@ -458,18 +468,23 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     else:
         logger.info("app.lifecycle.rate_limit backend=memory")
 
-    watchdog_task = asyncio.create_task(watchdog_loop(), name="agent-watchdog")
-    logger.info("app.lifecycle.watchdog.started")
+    watchdog_task = None
+    if automatic_wake_reprovision_enabled():
+        watchdog_task = asyncio.create_task(watchdog_loop(), name="agent-watchdog")
+        logger.info("app.lifecycle.watchdog.started")
+    else:
+        logger.info("app.lifecycle.watchdog.skilled_kill_switch_active")
 
     logger.info("app.lifecycle.started")
     try:
         yield
     finally:
-        watchdog_task.cancel()
-        try:
-            await watchdog_task
-        except asyncio.CancelledError:
-            pass
+        if watchdog_task is not None:
+            watchdog_task.cancel()
+            try:
+                await watchdog_task
+            except asyncio.CancelledError:
+                pass
         logger.info("app.lifecycle.stopped")
 
 

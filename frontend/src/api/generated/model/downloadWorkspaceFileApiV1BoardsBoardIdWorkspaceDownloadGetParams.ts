@@ -8,8 +8,20 @@
 export type DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams =
   {
     /**
-     * File path (agent_name/relative/path)
+     * Display path returned by the list endpoint.
      */
-    path: string;
+    path?: string | null;
     agent_id?: string | null;
+    /**
+     * Path relative to the originating workspace root.
+     */
+    relative_path?: string | null;
+    /**
+     * Stable workspace root identity returned by the list endpoint.
+     */
+    workspace_root_key?: string | null;
+    /**
+     * Stable workspace agent identity returned by the list endpoint.
+     */
+    workspace_agent_id?: string | null;
   };

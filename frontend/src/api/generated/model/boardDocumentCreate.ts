@@ -9,8 +9,8 @@
  * Payload for creating a board document.
  */
 export interface BoardDocumentCreate {
-  title: string;
   content: string;
   description?: string | null;
   order?: number;
+  title: string;
 }

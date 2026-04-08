@@ -418,6 +418,156 @@ export const useCreateApprovalApiV1BoardsBoardIdApprovalsPost = <
   );
 };
 /**
+ * Resolve all pending approvals for the given task ids in one call.
+ * @summary Bulk approve or reject pending approvals by task ids
+ */
+export type bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponse200 =
+  {
+    data: BulkApprovalResult;
+    status: 200;
+  };
+
+export type bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponse422 =
+  {
+    data: HTTPValidationError;
+    status: 422;
+  };
+
+export type bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponseSuccess =
+  bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponse200 & {
+    headers: Headers;
+  };
+export type bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponseError =
+  bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponse422 & {
+    headers: Headers;
+  };
+
+export type bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponse =
+  | bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponseSuccess
+  | bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponseError;
+
+export const getBulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostUrl = (
+  boardId: string,
+) => {
+  return `/api/v1/boards/${boardId}/approvals/bulk`;
+};
+
+export const bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost = async (
+  boardId: string,
+  bulkApprovalAction: BulkApprovalAction,
+  options?: RequestInit,
+): Promise<bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponse> => {
+  return customFetch<bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponse>(
+    getBulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostUrl(boardId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(bulkApprovalAction),
+    },
+  );
+};
+
+export const getBulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostMutationOptions =
+  <TError = HTTPValidationError, TContext = unknown>(options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<
+          typeof bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost
+        >
+      >,
+      TError,
+      { boardId: string; data: BulkApprovalAction },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  }): UseMutationOptions<
+    Awaited<
+      ReturnType<typeof bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost>
+    >,
+    TError,
+    { boardId: string; data: BulkApprovalAction },
+    TContext
+  > => {
+    const mutationKey = [
+      "bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost",
+    ];
+    const { mutation: mutationOptions, request: requestOptions } = options
+      ? options.mutation &&
+        "mutationKey" in options.mutation &&
+        options.mutation.mutationKey
+        ? options
+        : { ...options, mutation: { ...options.mutation, mutationKey } }
+      : { mutation: { mutationKey }, request: undefined };
+
+    const mutationFn: MutationFunction<
+      Awaited<
+        ReturnType<
+          typeof bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost
+        >
+      >,
+      { boardId: string; data: BulkApprovalAction }
+    > = (props) => {
+      const { boardId, data } = props ?? {};
+
+      return bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost(
+        boardId,
+        data,
+        requestOptions,
+      );
+    };
+
+    return { mutationFn, ...mutationOptions };
+  };
+
+export type BulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostMutationResult =
+  NonNullable<
+    Awaited<
+      ReturnType<typeof bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost>
+    >
+  >;
+export type BulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostMutationBody =
+  BulkApprovalAction;
+export type BulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostMutationError =
+  HTTPValidationError;
+
+/**
+ * @summary Bulk approve or reject pending approvals by task ids
+ */
+export const useBulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost = <
+  TError = HTTPValidationError,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<
+          typeof bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost
+        >
+      >,
+      TError,
+      { boardId: string; data: BulkApprovalAction },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<
+    ReturnType<typeof bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost>
+  >,
+  TError,
+  { boardId: string; data: BulkApprovalAction },
+  TContext
+> => {
+  return useMutation(
+    getBulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostMutationOptions(
+      options,
+    ),
+    queryClient,
+  );
+};
+/**
  * Stream approval updates for a board using server-sent events.
  * @summary Stream Approvals
  */
@@ -855,156 +1005,6 @@ export const useUpdateApprovalApiV1BoardsBoardIdApprovalsApprovalIdPatch = <
 > => {
   return useMutation(
     getUpdateApprovalApiV1BoardsBoardIdApprovalsApprovalIdPatchMutationOptions(
-      options,
-    ),
-    queryClient,
-  );
-};
-/**
- * Resolve all pending approvals for the given task ids in one call.
- * @summary Bulk approve or reject pending approvals by task ids
- */
-export type bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponse200 =
-  {
-    data: BulkApprovalResult;
-    status: 200;
-  };
-
-export type bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponse422 =
-  {
-    data: HTTPValidationError;
-    status: 422;
-  };
-
-export type bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponseSuccess =
-  bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponse200 & {
-    headers: Headers;
-  };
-export type bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponseError =
-  bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponse422 & {
-    headers: Headers;
-  };
-
-export type bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponse =
-  | bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponseSuccess
-  | bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponseError;
-
-export const getBulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostUrl = (
-  boardId: string,
-) => {
-  return `/api/v1/boards/${boardId}/approvals/bulk`;
-};
-
-export const bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost = async (
-  boardId: string,
-  bulkApprovalAction: BulkApprovalAction,
-  options?: RequestInit,
-): Promise<bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponse> => {
-  return customFetch<bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostResponse>(
-    getBulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostUrl(boardId),
-    {
-      ...options,
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...options?.headers },
-      body: JSON.stringify(bulkApprovalAction),
-    },
-  );
-};
-
-export const getBulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostMutationOptions =
-  <TError = HTTPValidationError, TContext = unknown>(options?: {
-    mutation?: UseMutationOptions<
-      Awaited<
-        ReturnType<
-          typeof bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost
-        >
-      >,
-      TError,
-      { boardId: string; data: BulkApprovalAction },
-      TContext
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  }): UseMutationOptions<
-    Awaited<
-      ReturnType<typeof bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost>
-    >,
-    TError,
-    { boardId: string; data: BulkApprovalAction },
-    TContext
-  > => {
-    const mutationKey = [
-      "bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost",
-    ];
-    const { mutation: mutationOptions, request: requestOptions } = options
-      ? options.mutation &&
-        "mutationKey" in options.mutation &&
-        options.mutation.mutationKey
-        ? options
-        : { ...options, mutation: { ...options.mutation, mutationKey } }
-      : { mutation: { mutationKey }, request: undefined };
-
-    const mutationFn: MutationFunction<
-      Awaited<
-        ReturnType<
-          typeof bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost
-        >
-      >,
-      { boardId: string; data: BulkApprovalAction }
-    > = (props) => {
-      const { boardId, data } = props ?? {};
-
-      return bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost(
-        boardId,
-        data,
-        requestOptions,
-      );
-    };
-
-    return { mutationFn, ...mutationOptions };
-  };
-
-export type BulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostMutationResult =
-  NonNullable<
-    Awaited<
-      ReturnType<typeof bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost>
-    >
-  >;
-export type BulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostMutationBody =
-  BulkApprovalAction;
-export type BulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostMutationError =
-  HTTPValidationError;
-
-/**
- * @summary Bulk approve or reject pending approvals by task ids
- */
-export const useBulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost = <
-  TError = HTTPValidationError,
-  TContext = unknown,
->(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<
-        ReturnType<
-          typeof bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost
-        >
-      >,
-      TError,
-      { boardId: string; data: BulkApprovalAction },
-      TContext
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<
-    ReturnType<typeof bulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPost>
-  >,
-  TError,
-  { boardId: string; data: BulkApprovalAction },
-  TContext
-> => {
-  return useMutation(
-    getBulkUpdateApprovalsApiV1BoardsBoardIdApprovalsBulkPostMutationOptions(
       options,
     ),
     queryClient,

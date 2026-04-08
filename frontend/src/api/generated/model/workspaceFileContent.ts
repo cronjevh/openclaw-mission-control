@@ -6,7 +6,7 @@
  */
 
 export interface WorkspaceFileContent {
-  path: string;
   content: string;
+  path: string;
   size: number;
 }

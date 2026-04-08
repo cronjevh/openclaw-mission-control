@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID, uuid4
 
+from sqlalchemy import JSON, Column
 from sqlmodel import Field
 
 from app.core.time import utcnow
@@ -42,6 +43,18 @@ class Task(TenantScoped, table=True):
     )
     auto_created: bool = Field(default=False)
     auto_reason: str | None = None
+
+    task_class: str | None = Field(default=None, index=True)
+    closure_mode: str | None = Field(default=None, index=True)
+    required_artifact_kinds: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False),
+    )
+    required_check_kinds: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False),
+    )
+    lead_spot_check_required: bool = Field(default=False)
 
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

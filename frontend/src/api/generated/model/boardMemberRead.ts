@@ -10,15 +10,15 @@ import type { BoardMemberUser } from "./boardMemberUser";
  * Board member with effective access permissions for a specific board.
  */
 export interface BoardMemberRead {
-  id: string;
-  organization_id: string;
-  user_id: string;
-  role: string;
   all_boards_read: boolean;
   all_boards_write: boolean;
   can_read: boolean;
   can_write: boolean;
   created_at: string;
+  id: string;
+  organization_id: string;
+  role: string;
   updated_at: string;
   user?: BoardMemberUser | null;
+  user_id: string;
 }

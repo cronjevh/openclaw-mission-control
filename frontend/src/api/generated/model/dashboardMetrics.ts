@@ -14,12 +14,12 @@ import type { DashboardWipSeriesSet } from "./dashboardWipSeriesSet";
  * Complete dashboard metrics response payload.
  */
 export interface DashboardMetrics {
-  range: DashboardMetricsRange;
-  generated_at: string;
-  kpis: DashboardKpis;
-  throughput: DashboardSeriesSet;
   cycle_time: DashboardSeriesSet;
   error_rate: DashboardSeriesSet;
-  wip: DashboardWipSeriesSet;
+  generated_at: string;
+  kpis: DashboardKpis;
   pending_approvals: DashboardPendingApprovals;
+  range: DashboardMetricsRange;
+  throughput: DashboardSeriesSet;
+  wip: DashboardWipSeriesSet;
 }

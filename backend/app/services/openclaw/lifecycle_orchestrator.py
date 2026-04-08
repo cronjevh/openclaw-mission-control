@@ -38,6 +38,7 @@ from app.services.openclaw.lifecycle_queue import (
     QueuedAgentLifecycleReconcile,
     enqueue_lifecycle_reconcile,
 )
+from app.services.openclaw.auto_wake import automatic_wake_reprovision_enabled
 from app.services.openclaw.provisioning import OpenClawGatewayProvisioner
 from app.services.organizations import get_org_owner_user
 from app.core.logging import get_logger
@@ -279,7 +280,11 @@ class AgentLifecycleOrchestrator(OpenClawDBService):
         self.session.add(locked)
         await self.session.commit()
         await self.session.refresh(locked)
-        if wake and locked.checkin_deadline_at is not None:
+        if (
+            wake
+            and locked.checkin_deadline_at is not None
+            and automatic_wake_reprovision_enabled()
+        ):
             enqueue_lifecycle_reconcile(
                 QueuedAgentLifecycleReconcile(
                     agent_id=locked.id,

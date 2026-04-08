@@ -9,9 +9,9 @@
  * Payload for partial user profile updates.
  */
 export interface UserUpdate {
+  context?: string | null;
   name?: string | null;
+  notes?: string | null;
   pronouns?: string | null;
   timezone?: string | null;
-  notes?: string | null;
-  context?: string | null;
 }

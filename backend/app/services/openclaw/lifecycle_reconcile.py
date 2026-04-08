@@ -15,6 +15,10 @@ from app.services.openclaw.constants import MAX_WAKE_ATTEMPTS_WITHOUT_CHECKIN
 from app.services.openclaw.gateway_resolver import optional_gateway_client_config
 from app.services.openclaw.gateway_rpc import OpenClawGatewayError
 from app.services.openclaw.internal.agent_key import agent_key
+from app.services.openclaw.auto_wake import (
+    automatic_wake_reprovision_disabled_reason,
+    automatic_wake_reprovision_enabled,
+)
 from app.services.openclaw.lifecycle_orchestrator import AgentLifecycleOrchestrator
 from app.services.openclaw.lifecycle_queue import decode_lifecycle_task, defer_lifecycle_reconcile
 from app.services.openclaw.provisioning import OpenClawGatewayControlPlane
@@ -63,6 +67,13 @@ async def _resolve_reconcile_auth_token(*, gateway: Gateway, agent: Agent) -> st
 
 async def process_lifecycle_queue_task(task: QueuedTask) -> None:
     """Re-run lifecycle provisioning when an agent misses post-provision check-in."""
+    if not automatic_wake_reprovision_enabled():
+        logger.info(
+            "lifecycle.reconcile.disabled",
+            extra={"reason": automatic_wake_reprovision_disabled_reason()},
+        )
+        return
+
     payload = decode_lifecycle_task(task)
     now = utcnow()
 

@@ -12,27 +12,37 @@ import type { TaskCardReadStatus } from "./taskCardReadStatus";
  * Task read model enriched with assignee and approval counters.
  */
 export interface TaskCardRead {
-  title: string;
-  description?: string | null;
-  status?: TaskCardReadStatus;
-  priority?: string;
-  due_at?: string | null;
-  assigned_agent_id?: string | null;
-  depends_on_task_ids?: string[];
-  tag_ids?: string[];
-  id: string;
-  board_id: string | null;
-  board_group_id?: string | null;
-  created_by_user_id: string | null;
-  creator_name?: string | null;
-  in_progress_at: string | null;
-  created_at: string;
-  updated_at: string;
-  blocked_by_task_ids?: string[];
-  is_blocked?: boolean;
-  tags?: TagRef[];
-  custom_field_values?: TaskCardReadCustomFieldValues;
-  assignee?: string | null;
   approvals_count?: number;
   approvals_pending_count?: number;
+  assigned_agent_id?: string | null;
+  assignee?: string | null;
+  blocked_by_task_ids?: string[];
+  board_group_id?: string | null;
+  board_id: string | null;
+  closure_mode?: "manual_review" | "evidence_packet" | "passing_checks" | null;
+  created_at: string;
+  created_by_user_id: string | null;
+  creator_name?: string | null;
+  custom_field_values?: TaskCardReadCustomFieldValues;
+  depends_on_task_ids?: string[];
+  description?: string | null;
+  due_at?: string | null;
+  id: string;
+  in_progress_at: string | null;
+  is_blocked?: boolean;
+  lead_spot_check_required?: boolean;
+  priority?: string;
+  required_artifact_kinds?: string[];
+  required_check_kinds?: string[];
+  status?: TaskCardReadStatus;
+  tag_ids?: string[];
+  tags?: TagRef[];
+  task_class?:
+    | "code_deterministic"
+    | "design_exploratory"
+    | "ops_integration"
+    | "docs_content"
+    | null;
+  title: string;
+  updated_at: string;
 }

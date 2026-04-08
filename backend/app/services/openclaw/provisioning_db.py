@@ -64,6 +64,7 @@ from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConf
 from app.services.openclaw.gateway_rpc import (
     OpenClawGatewayError,
     ensure_session,
+    get_chat_history,
     send_message,
 )
 from app.services.openclaw.internal.agent_key import agent_key as _agent_key
@@ -1625,6 +1626,62 @@ class AgentLifecycleService(OpenClawDBService):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
         await self.require_agent_access(agent=agent, ctx=ctx, write=False)
         return self.to_agent_read(self.with_computed_status(agent))
+
+    async def get_agent_session_log_jsonl(
+        self,
+        *,
+        agent_id: str,
+        ctx: OrganizationContext,
+        limit: int,
+    ) -> str:
+        agent = await Agent.objects.by_id(agent_id).first(self.session)
+        if agent is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        await self.require_agent_access(agent=agent, ctx=ctx, write=False)
+        if not agent.openclaw_session_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Agent session not found",
+            )
+
+        gateway = await Gateway.objects.by_id(agent.gateway_id).first(self.session)
+        OpenClawAuthorizationPolicy.require_gateway_in_org(
+            gateway=gateway,
+            organization_id=ctx.organization.id,
+        )
+        if gateway is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Gateway not found",
+            )
+        config = optional_gateway_client_config(gateway)
+        if config is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Gateway is not configured",
+            )
+
+        try:
+            history = await get_chat_history(agent.openclaw_session_id, config=config, limit=limit)
+        except OpenClawGatewayError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=str(exc),
+            ) from exc
+
+        if isinstance(history, dict) and isinstance(history.get("messages"), list):
+            messages = history.get("messages")
+        else:
+            messages = self.as_object_list(history)
+
+        lines = [
+            json.dumps(message, ensure_ascii=True, sort_keys=True)
+            for message in messages
+            if isinstance(message, dict)
+        ]
+        if not lines:
+            return ""
+        return "\n".join(lines) + "\n"
 
     async def update_agent(
         self,

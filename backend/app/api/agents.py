@@ -7,9 +7,10 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import PlainTextResponse
 from sse_starlette.sse import EventSourceResponse
 
-from app.api.deps import ActorContext, require_org_admin, require_user_or_agent
+from app.api.deps import ActorContext, require_org_admin, require_org_member, require_user_or_agent
 from app.core.auth import AuthContext, get_auth_context
 from app.db.session import get_session
 from app.schemas.agents import (
@@ -35,6 +36,7 @@ GATEWAY_ID_QUERY = Query(default=None)
 SINCE_QUERY = Query(default=None)
 SESSION_DEP = Depends(get_session)
 ORG_ADMIN_DEP = Depends(require_org_admin)
+ORG_MEMBER_DEP = Depends(require_org_member)
 ACTOR_DEP = Depends(require_user_or_agent)
 AUTH_DEP = Depends(get_auth_context)
 
@@ -112,6 +114,23 @@ async def get_agent(
     """Get a single agent by id."""
     service = AgentLifecycleService(session)
     return await service.get_agent(agent_id=agent_id, ctx=ctx)
+
+
+@router.get("/{agent_id}/session-log", response_class=PlainTextResponse)
+async def get_agent_session_log(
+    agent_id: str,
+    limit: int = Query(default=200, ge=1, le=1000),
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = ORG_MEMBER_DEP,
+) -> PlainTextResponse:
+    """Return latest gateway chat history for an agent as JSONL text."""
+    service = AgentLifecycleService(session)
+    content = await service.get_agent_session_log_jsonl(
+        agent_id=agent_id,
+        ctx=ctx,
+        limit=limit,
+    )
+    return PlainTextResponse(content=content)
 
 
 @router.patch("/{agent_id}", response_model=AgentRead)

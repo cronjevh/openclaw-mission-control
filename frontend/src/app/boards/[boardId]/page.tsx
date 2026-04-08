@@ -83,9 +83,7 @@ import {
   type getMyMembershipApiV1OrganizationsMeMemberGetResponse,
   useGetMyMembershipApiV1OrganizationsMeMemberGet,
 } from "@/api/generated/organizations/organizations";
-import {
-  useListBoardMembersApiV1BoardsBoardIdMembersGet,
-} from "@/api/generated/boards/boards";
+import { useListBoardMembersApiV1BoardsBoardIdMembersGet } from "@/api/generated/boards/boards";
 import {
   createTaskApiV1BoardsBoardIdTasksPost,
   createTaskCommentApiV1BoardsBoardIdTasksTaskIdCommentsPost,
@@ -123,10 +121,7 @@ import {
   parseApiDatetime,
   toLocalDateInput,
 } from "@/lib/datetime";
-import {
-  DEFAULT_HUMAN_LABEL,
-  resolveHumanActorName,
-} from "@/lib/display-name";
+import { DEFAULT_HUMAN_LABEL, resolveHumanActorName } from "@/lib/display-name";
 import { AGENT_EMOJI_GLYPHS } from "@/lib/agent-emoji";
 import { cn } from "@/lib/utils";
 import { usePageActive } from "@/hooks/usePageActive";
@@ -168,6 +163,74 @@ type TaskComment = TaskCommentRead;
 type Approval = ApprovalRead & { status: string };
 
 type BoardChatMessage = BoardMemoryRead;
+
+type WorkspaceFile = {
+  name: string;
+  path: string;
+  relative_path: string;
+  workspace_agent_id: string | null;
+  workspace_agent_name: string | null;
+  workspace_root_key: string | null;
+  is_dir: boolean;
+  size: number | null;
+  modified_at: string | null;
+};
+
+type TaskEvidenceArtifact = {
+  id: string;
+  packet_id: string;
+  task_id: string;
+  kind: string;
+  label: string;
+  workspace_agent_id: string | null;
+  workspace_agent_name: string | null;
+  workspace_root_key: string | null;
+  relative_path: string | null;
+  display_path: string | null;
+  origin_kind: string | null;
+  is_primary: boolean;
+  created_at: string;
+};
+
+type TaskEvidenceCheck = {
+  id: string;
+  packet_id: string;
+  task_id: string;
+  kind: string;
+  label: string;
+  status: "passed" | "failed" | "not_run";
+  command: string | null;
+  result_summary: string | null;
+  created_at: string;
+};
+
+type TaskEvidencePacket = {
+  id: string;
+  board_id: string;
+  task_id: string;
+  created_by_agent_id: string | null;
+  created_by_user_id: string | null;
+  task_class:
+    | "code_deterministic"
+    | "design_exploratory"
+    | "ops_integration"
+    | "docs_content"
+    | null;
+  status: "draft" | "submitted" | "accepted" | "rejected";
+  summary: string | null;
+  implementation_delta: string | null;
+  review_notes: string | null;
+  primary_artifact_id: string | null;
+  primary_artifact: TaskEvidenceArtifact | null;
+  artifacts: TaskEvidenceArtifact[];
+  checks: TaskEvidenceCheck[];
+  submitted_at: string | null;
+  reviewed_at: string | null;
+  reviewed_by_agent_id: string | null;
+  reviewed_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
 type LiveFeedEventType =
   | "task.comment"
@@ -548,6 +611,32 @@ const formatShortTimestamp = (value: string) => {
   });
 };
 
+const EVIDENCE_ORIGIN_LABELS: Record<string, string> = {
+  original_worker_output: "Original worker output",
+  lead_copy: "Lead copy",
+  backfill: "Backfill",
+  derived_summary: "Derived summary",
+};
+
+const formatEvidenceOriginLabel = (originKind: string | null | undefined) =>
+  originKind
+    ? (EVIDENCE_ORIGIN_LABELS[originKind] ?? originKind.replace(/_/g, " "))
+    : "Unspecified";
+
+const formatEvidenceKindLabel = (value: string | null | undefined) =>
+  value ? value.replace(/_/g, " ") : "unknown";
+
+const evidenceCheckToneClass = (status: TaskEvidenceCheck["status"]) => {
+  switch (status) {
+    case "passed":
+      return "bg-[color:var(--success-soft)] text-success";
+    case "failed":
+      return "bg-[color:var(--danger-soft)] text-danger";
+    default:
+      return "bg-[color:var(--surface-strong)] text-quiet";
+  }
+};
+
 type ToastMessage = {
   id: number;
   message: string;
@@ -654,6 +743,7 @@ const LiveFeedCard = memo(function LiveFeedCard({
   item,
   taskTitle,
   authorName,
+  authorHref,
   authorRole,
   authorAvatar,
   onViewTask,
@@ -662,6 +752,7 @@ const LiveFeedCard = memo(function LiveFeedCard({
   item: LiveFeedItem;
   taskTitle: string;
   authorName: string;
+  authorHref?: string;
   authorRole?: string | null;
   authorAvatar: string;
   onViewTask?: () => void;
@@ -715,7 +806,19 @@ const LiveFeedCard = memo(function LiveFeedCard({
             >
               {eventLabel}
             </span>
-            <span className="font-medium text-muted">{authorName}</span>
+            {authorHref ? (
+              <a
+                href={authorHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-muted underline-offset-2 hover:underline"
+                title="Open latest session log"
+              >
+                {authorName}
+              </a>
+            ) : (
+              <span className="font-medium text-muted">{authorName}</span>
+            )}
             {authorRole ? (
               <>
                 <span className="text-quiet">·</span>
@@ -767,8 +870,11 @@ export default function BoardDetailPage() {
     undefined,
     { query: { enabled: Boolean(isSignedIn && boardId) } },
   );
-  const orgMembers = useMemo(
-    () => (membersQuery.data?.status === 200 ? (membersQuery.data.data.items ?? []) : []),
+  const orgMembers = useMemo<OrganizationMemberRead[]>(
+    () =>
+      membersQuery.data?.status === 200
+        ? (membersQuery.data.data.items ?? [])
+        : [],
     [membersQuery.data],
   );
 
@@ -838,7 +944,10 @@ export default function BoardDetailPage() {
   const [hasLoadedBoardSnapshot, setHasLoadedBoardSnapshot] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [selectedFilter, setSelectedFilter] = useState<{ type: "agent" | "human"; id: string } | null>(null);
+  const [selectedFilter, setSelectedFilter] = useState<{
+    type: "agent" | "human";
+    id: string;
+  } | null>(null);
   const selectedTaskIdRef = useRef<string | null>(null);
   const openedTaskIdFromUrlRef = useRef<string | null>(null);
   const [comments, setComments] = useState<TaskComment[]>([]);
@@ -858,10 +967,21 @@ export default function BoardDetailPage() {
   const [commentsError, setCommentsError] = useState<string | null>(null);
   const [isPostingComment, setIsPostingComment] = useState(false);
   const [postCommentError, setPostCommentError] = useState<string | null>(null);
-  const [workspaceFiles, setWorkspaceFiles] = useState<{ name: string; path: string; is_dir: boolean; size: number | null; modified_at: string | null }[]>([]);
+  const [taskEvidencePackets, setTaskEvidencePackets] = useState<
+    TaskEvidencePacket[]
+  >([]);
+  const [isTaskEvidenceLoading, setIsTaskEvidenceLoading] = useState(false);
+  const [taskEvidenceError, setTaskEvidenceError] = useState<string | null>(
+    null,
+  );
+  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([]);
   const [isWorkspaceFilesOpen, setIsWorkspaceFilesOpen] = useState(true);
-  const [workspaceFileContent, setWorkspaceFileContent] = useState<string | null>(null);
-  const [workspaceFileViewPath, setWorkspaceFileViewPath] = useState<string | null>(null);
+  const [workspaceFileContent, setWorkspaceFileContent] = useState<
+    string | null
+  >(null);
+  const [workspaceFileViewPath, setWorkspaceFileViewPath] = useState<
+    string | null
+  >(null);
   const [isWorkspaceFileLoading, setIsWorkspaceFileLoading] = useState(false);
   const [fileViewRichText, setFileViewRichText] = useState(true);
   const [fileViewCopied, setFileViewCopied] = useState(false);
@@ -878,9 +998,16 @@ export default function BoardDetailPage() {
   const [approvalsUpdatingId, setApprovalsUpdatingId] = useState<string | null>(
     null,
   );
-  const [taskMemoryEntries, setTaskMemoryEntries] = useState<{ id: string; content: string; tags: string[] | null; created_at: string }[]>([]);
+  const [taskMemoryEntries, setTaskMemoryEntries] = useState<
+    { id: string; content: string; tags: string[] | null; created_at: string }[]
+  >([]);
   const [isTaskMemoryLoading, setIsTaskMemoryLoading] = useState(false);
-  const [memoryViewEntry, setMemoryViewEntry] = useState<{ id: string; content: string; tags: string[] | null; created_at: string } | null>(null);
+  const [memoryViewEntry, setMemoryViewEntry] = useState<{
+    id: string;
+    content: string;
+    tags: string[] | null;
+    created_at: string;
+  } | null>(null);
   const [memoryViewCopied, setMemoryViewCopied] = useState(false);
   const [memoryViewRichText, setMemoryViewRichText] = useState(true);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -892,7 +1019,9 @@ export default function BoardDetailPage() {
 
   // Temp chat state
   const [isTempChatOpen, setIsTempChatOpen] = useState(false);
-  const [tempChatMessages, setTempChatMessages] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+  const [tempChatMessages, setTempChatMessages] = useState<
+    { role: "user" | "assistant"; text: string }[]
+  >([]);
   const [isTempChatSending, setIsTempChatSending] = useState(false);
   const [tempChatError, setTempChatError] = useState<string | null>(null);
   const tempChatEndRef = useRef<HTMLDivElement | null>(null);
@@ -913,6 +1042,74 @@ export default function BoardDetailPage() {
   const isLiveFeedOpenRef = useRef(false);
   const toastIdRef = useRef(0);
   const toastTimersRef = useRef<Record<number, number>>({});
+  const canonicalTaskEvidencePacket = useMemo(
+    () => taskEvidencePackets[0] ?? null,
+    [taskEvidencePackets],
+  );
+  const supportingEvidenceArtifacts = useMemo(
+    () =>
+      canonicalTaskEvidencePacket?.artifacts.filter(
+        (artifact) =>
+          artifact.id !== canonicalTaskEvidencePacket.primary_artifact_id,
+      ) ?? [],
+    [canonicalTaskEvidencePacket],
+  );
+
+  const buildWorkspaceArtifactQuery = useCallback(
+    (artifact: {
+      path?: string | null;
+      relative_path?: string | null;
+      workspace_root_key?: string | null;
+      workspace_agent_id?: string | null;
+      display_path?: string | null;
+    }) => {
+      const params = new URLSearchParams();
+      const displayPath = artifact.path ?? artifact.display_path;
+      if (displayPath) {
+        params.set("path", displayPath);
+      }
+      if (artifact.relative_path) {
+        params.set("relative_path", artifact.relative_path);
+      }
+      if (artifact.workspace_root_key) {
+        params.set("workspace_root_key", artifact.workspace_root_key);
+      }
+      if (artifact.workspace_agent_id) {
+        params.set("workspace_agent_id", artifact.workspace_agent_id);
+      }
+      return params.toString();
+    },
+    [],
+  );
+
+  const resolveWorkspaceArtifactPath = useCallback(
+    (artifact: {
+      path?: string | null;
+      display_path?: string | null;
+      relative_path?: string | null;
+      label?: string | null;
+    }) =>
+      artifact.path ??
+      artifact.display_path ??
+      artifact.relative_path ??
+      artifact.label ??
+      "workspace artifact",
+    [],
+  );
+
+  const isWorkspaceArtifactOpenable = useCallback(
+    (artifact: {
+      relative_path?: string | null;
+      workspace_root_key?: string | null;
+      workspace_agent_id?: string | null;
+    }) =>
+      Boolean(
+        artifact.relative_path &&
+        (artifact.workspace_root_key || artifact.workspace_agent_id),
+      ),
+    [],
+  );
+
   const pushLiveFeed = useCallback((item: LiveFeedItem) => {
     const alreadySeen = liveFeedRef.current.some(
       (existing) => existing.id === item.id,
@@ -1158,12 +1355,13 @@ export default function BoardDetailPage() {
   const [isSavingTask, setIsSavingTask] = useState(false);
   const [saveTaskError, setSaveTaskError] = useState<string | null>(null);
 
-  const isSidePanelOpen = isDetailOpen || isChatOpen || isLiveFeedOpen || isTempChatOpen;
+  const isSidePanelOpen =
+    isDetailOpen || isChatOpen || isLiveFeedOpen || isTempChatOpen;
   const defaultCreateCustomFieldValues = useMemo(
     () => boardCustomFieldValues(boardCustomFieldDefinitions, {}),
     [boardCustomFieldDefinitions],
   );
-  const selectedTaskCustomFieldValues = useMemo(
+  const _selectedTaskCustomFieldValues = useMemo(
     () =>
       boardCustomFieldValues(
         boardCustomFieldDefinitions,
@@ -1348,7 +1546,10 @@ export default function BoardDetailPage() {
   useEffect(() => {
     if (!isTempChatOpen) return;
     const timeout = window.setTimeout(() => {
-      tempChatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      tempChatEndRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "end",
+      });
     }, 50);
     return () => window.clearTimeout(timeout);
   }, [tempChatMessages, isTempChatOpen]);
@@ -2394,74 +2595,144 @@ export default function BoardDetailPage() {
     [boardId, isSignedIn],
   );
 
-  const loadTaskMemory = useCallback(async (taskId: string) => {
-    if (!isSignedIn || !boardId) return;
-    setIsTaskMemoryLoading(true);
-    try {
-      const res = await customFetch<{ data: { items?: { id: string; content: string; tags: string[] | null; created_at: string }[] } }>(
-        `/api/v1/boards/${boardId}/memory?task_id=${encodeURIComponent(taskId)}&is_chat=false&limit=50`,
-        { method: "GET" },
-      );
-      setTaskMemoryEntries(res.data?.items ?? []);
-    } catch {
-      setTaskMemoryEntries([]);
-    } finally {
-      setIsTaskMemoryLoading(false);
-    }
-  }, [boardId, isSignedIn]);
+  const loadTaskMemory = useCallback(
+    async (taskId: string) => {
+      if (!isSignedIn || !boardId) return;
+      setIsTaskMemoryLoading(true);
+      try {
+        const res = await customFetch<{
+          data: {
+            items?: {
+              id: string;
+              content: string;
+              tags: string[] | null;
+              created_at: string;
+            }[];
+          };
+        }>(
+          `/api/v1/boards/${boardId}/memory?task_id=${encodeURIComponent(taskId)}&is_chat=false&limit=50`,
+          { method: "GET" },
+        );
+        setTaskMemoryEntries(res.data?.items ?? []);
+      } catch {
+        setTaskMemoryEntries([]);
+      } finally {
+        setIsTaskMemoryLoading(false);
+      }
+    },
+    [boardId, isSignedIn],
+  );
 
-  const loadWorkspaceFiles = useCallback(async (taskId?: string) => {
-    if (!isSignedIn || !boardId) return;
-    try {
-      const qs = taskId ? `?task_id=${encodeURIComponent(taskId)}` : "";
-      const res = await customFetch<{ data: { name: string; path: string; is_dir: boolean; size: number | null; modified_at: string | null }[] }>(
-        `/api/v1/boards/${boardId}/workspace/files${qs}`,
-        { method: "GET" },
-      );
-      setWorkspaceFiles(res.data ?? []);
-    } catch {
-      setWorkspaceFiles([]);
-    }
-  }, [boardId, isSignedIn]);
+  const loadTaskEvidence = useCallback(
+    async (taskId: string) => {
+      if (!isSignedIn || !boardId) return;
+      setIsTaskEvidenceLoading(true);
+      setTaskEvidenceError(null);
+      try {
+        const res = await customFetch<{ data: TaskEvidencePacket[] }>(
+          `/api/v1/boards/${boardId}/tasks/${taskId}/evidence-packets`,
+          { method: "GET" },
+        );
+        setTaskEvidencePackets(res.data ?? []);
+      } catch (err) {
+        setTaskEvidencePackets([]);
+        setTaskEvidenceError(
+          formatActionError(err, "Failed to load evidence."),
+        );
+      } finally {
+        setIsTaskEvidenceLoading(false);
+      }
+    },
+    [boardId, isSignedIn],
+  );
 
-  const downloadWorkspaceFile = useCallback(async (filePath: string) => {
-    if (!boardId) return;
-    try {
-      const res = await customFetch<{ data: string }>(
-        `/api/v1/boards/${boardId}/workspace/download?path=${encodeURIComponent(filePath)}`,
-        { method: "GET" },
-      );
-      const content = typeof res === "string" ? res : (res as { data?: string }).data ?? "";
-      const blob = new Blob([content], { type: "text/markdown" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filePath.split("/").pop() ?? "file.md";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch {
-      // silent fail
-    }
-  }, [boardId]);
+  const loadWorkspaceFiles = useCallback(
+    async (taskId?: string) => {
+      if (!isSignedIn || !boardId) return;
+      try {
+        const qs = taskId ? `?task_id=${encodeURIComponent(taskId)}` : "";
+        const res = await customFetch<{ data: WorkspaceFile[] }>(
+          `/api/v1/boards/${boardId}/workspace/files${qs}`,
+          { method: "GET" },
+        );
+        setWorkspaceFiles(res.data ?? []);
+      } catch {
+        setWorkspaceFiles([]);
+      }
+    },
+    [boardId, isSignedIn],
+  );
 
-  const loadWorkspaceFileContent = useCallback(async (filePath: string) => {
-    if (!isSignedIn || !boardId) return;
-    setIsWorkspaceFileLoading(true);
-    setWorkspaceFileViewPath(filePath);
-    try {
-      const res = await customFetch<{ data: { path: string; content: string; size: number } }>(
-        `/api/v1/boards/${boardId}/workspace/file?path=${encodeURIComponent(filePath)}`,
-        { method: "GET" },
-      );
-      setWorkspaceFileContent(res.data?.content ?? "");
-    } catch {
-      setWorkspaceFileContent("Failed to load file content.");
-    } finally {
-      setIsWorkspaceFileLoading(false);
-    }
-  }, [boardId, isSignedIn]);
+  const downloadWorkspaceFile = useCallback(
+    async (artifact: {
+      path?: string | null;
+      display_path?: string | null;
+      relative_path?: string | null;
+      workspace_root_key?: string | null;
+      workspace_agent_id?: string | null;
+      label?: string | null;
+    }) => {
+      if (!boardId) return;
+      try {
+        const query = buildWorkspaceArtifactQuery(artifact);
+        const res = await customFetch<{ data: string }>(
+          `/api/v1/boards/${boardId}/workspace/download?${query}`,
+          { method: "GET" },
+        );
+        const content =
+          typeof res === "string"
+            ? res
+            : ((res as { data?: string }).data ?? "");
+        const blob = new Blob([content], { type: "text/markdown" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download =
+          resolveWorkspaceArtifactPath(artifact).split("/").pop() ?? "file.md";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch {
+        // silent fail
+      }
+    },
+    [boardId, buildWorkspaceArtifactQuery, resolveWorkspaceArtifactPath],
+  );
+
+  const loadWorkspaceFileContent = useCallback(
+    async (artifact: {
+      path?: string | null;
+      display_path?: string | null;
+      relative_path?: string | null;
+      workspace_root_key?: string | null;
+      workspace_agent_id?: string | null;
+      label?: string | null;
+    }) => {
+      if (!isSignedIn || !boardId) return;
+      setIsWorkspaceFileLoading(true);
+      setWorkspaceFileViewPath(resolveWorkspaceArtifactPath(artifact));
+      try {
+        const query = buildWorkspaceArtifactQuery(artifact);
+        const res = await customFetch<{
+          data: { path: string; content: string; size: number };
+        }>(`/api/v1/boards/${boardId}/workspace/file?${query}`, {
+          method: "GET",
+        });
+        setWorkspaceFileContent(res.data?.content ?? "");
+      } catch {
+        setWorkspaceFileContent("Failed to load file content.");
+      } finally {
+        setIsWorkspaceFileLoading(false);
+      }
+    },
+    [
+      boardId,
+      buildWorkspaceArtifactQuery,
+      isSignedIn,
+      resolveWorkspaceArtifactPath,
+    ],
+  );
 
   const openComments = useCallback(
     (task: { id: string }) => {
@@ -2482,10 +2753,19 @@ export default function BoardDetailPage() {
       setSelectedTask(fullTask);
       setIsDetailOpen(true);
       void loadComments(task.id);
+      void loadTaskEvidence(task.id);
       void loadWorkspaceFiles(task.id);
       void loadTaskMemory(task.id);
     },
-    [loadComments, loadTaskMemory, loadWorkspaceFiles, pathname, router, searchParams],
+    [
+      loadComments,
+      loadTaskEvidence,
+      loadTaskMemory,
+      loadWorkspaceFiles,
+      pathname,
+      router,
+      searchParams,
+    ],
   );
 
   const selectedTaskDependencies = useMemo<DependencyBannerDependency[]>(() => {
@@ -2578,7 +2858,10 @@ export default function BoardDetailPage() {
     setCommentsError(null);
     setPostCommentError(null);
     setIsEditDialogOpen(false);
+    setTaskEvidencePackets([]);
+    setTaskEvidenceError(null);
     setTaskMemoryEntries([]);
+    setWorkspaceFiles([]);
   };
 
   const openBoardChat = () => {
@@ -2606,35 +2889,54 @@ export default function BoardDetailPage() {
     setTempChatError(null);
   };
 
-  const handleSendTempChat = useCallback(async (message: string): Promise<boolean> => {
-    const trimmed = message.trim();
-    if (!trimmed || !boardId) return false;
-    setIsTempChatSending(true);
-    setTempChatError(null);
-    setTempChatMessages((prev) => [...prev, { role: "user", text: trimmed }]);
+  const handleSendTempChat = useCallback(
+    async (message: string): Promise<boolean> => {
+      const trimmed = message.trim();
+      if (!trimmed || !boardId) return false;
+      setIsTempChatSending(true);
+      setTempChatError(null);
+      setTempChatMessages((prev) => [...prev, { role: "user", text: trimmed }]);
 
-    // Fire off the request but don't block the composer — return true immediately
-    // so the input clears. The reply will appear asynchronously.
-    customFetch<unknown>(
-      `/api/v1/boards/${boardId}/temp-chat`,
-      { method: "POST", body: JSON.stringify({ message: trimmed }) },
-    ).then((res) => {
-      const raw = res as Record<string, unknown>;
-      const data = (raw?.data ?? raw) as Record<string, unknown>;
-      const text = String(data?.text ?? data?.message ?? data?.content ?? "");
-      setTempChatMessages((prev) => [...prev, { role: "assistant", text: text || "(No response — the agent may still be waking up. Try again.)" }]);
-    }).catch((err) => {
-      const msg = err instanceof Error && err.message && !err.message.includes("<html")
-        ? err.message
-        : "The request timed out — the lead agent is waking up. Please try again in a moment.";
-      setTempChatError(msg);
-      setTempChatMessages((prev) => prev.slice(0, -1));
-    }).finally(() => {
-      setIsTempChatSending(false);
-    });
+      // Fire off the request but don't block the composer — return true immediately
+      // so the input clears. The reply will appear asynchronously.
+      customFetch<unknown>(`/api/v1/boards/${boardId}/temp-chat`, {
+        method: "POST",
+        body: JSON.stringify({ message: trimmed }),
+      })
+        .then((res) => {
+          const raw = res as Record<string, unknown>;
+          const data = (raw?.data ?? raw) as Record<string, unknown>;
+          const text = String(
+            data?.text ?? data?.message ?? data?.content ?? "",
+          );
+          setTempChatMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              text:
+                text ||
+                "(No response — the agent may still be waking up. Try again.)",
+            },
+          ]);
+        })
+        .catch((err) => {
+          const msg =
+            err instanceof Error &&
+            err.message &&
+            !err.message.includes("<html")
+              ? err.message
+              : "The request timed out — the lead agent is waking up. Please try again in a moment.";
+          setTempChatError(msg);
+          setTempChatMessages((prev) => prev.slice(0, -1));
+        })
+        .finally(() => {
+          setIsTempChatSending(false);
+        });
 
-    return true;
-  }, [boardId]);
+      return true;
+    },
+    [boardId],
+  );
 
   const handleClearTempChat = useCallback(() => {
     setTempChatMessages([]);
@@ -2935,7 +3237,9 @@ export default function BoardDetailPage() {
       if (!boardId) return;
       const previousTasks = tasksRef.current;
       setTasks((prev) =>
-        prev.map((t) => taskIds.includes(t.id) ? { ...t, status: newStatus } : t),
+        prev.map((t) =>
+          taskIds.includes(t.id) ? { ...t, status: newStatus } : t,
+        ),
       );
       try {
         await customFetch(`/api/v1/boards/${boardId}/tasks/bulk/status`, {
@@ -2963,9 +3267,7 @@ export default function BoardDetailPage() {
         // Refresh approvals count on affected tasks
         setTasks((prev) =>
           prev.map((t) =>
-            taskIds.includes(t.id)
-              ? { ...t, approvals_pending_count: 0 }
-              : t,
+            taskIds.includes(t.id) ? { ...t, approvals_pending_count: 0 } : t,
           ),
         );
       } catch (err) {
@@ -3225,9 +3527,7 @@ export default function BoardDetailPage() {
       </SignedOut>
       <SignedIn>
         <DashboardSidebar />
-        <main
-          className="h-full flex flex-col overflow-hidden bg-[color:var(--bg)]"
-        >
+        <main className="h-full flex flex-col overflow-hidden bg-[color:var(--bg)]">
           <div className="shrink-0 border-b border-[color:var(--border)] bg-[color:var(--surface)] shadow-sm">
             <div className="px-8 py-6">
               <div className="flex flex-wrap items-center justify-between gap-4">
@@ -3345,7 +3645,8 @@ export default function BoardDetailPage() {
                     onClick={openTempChat}
                     className={cn(
                       "h-9 w-9 p-0",
-                      isTempChatOpen && "border-[color:var(--brand)] text-[color:var(--brand)]"
+                      isTempChatOpen &&
+                        "border-[color:var(--brand)] text-[color:var(--brand)]",
                     )}
                     aria-label="Temp chat"
                     title="Temporary chat (not stored)"
@@ -3435,8 +3736,10 @@ export default function BoardDetailPage() {
                     </div>
                   ) : (
                     sortedAgents.map((agent) => {
-                      const isWorking = workingAgentIds.has(agent.id);
-                      const isSelected = selectedFilter?.type === "agent" && selectedFilter.id === agent.id;
+                      const _isWorking = workingAgentIds.has(agent.id);
+                      const isSelected =
+                        selectedFilter?.type === "agent" &&
+                        selectedFilter.id === agent.id;
                       return (
                         <button
                           key={agent.id}
@@ -3448,7 +3751,11 @@ export default function BoardDetailPage() {
                               : "border-transparent hover:border-[color:var(--border)] hover:bg-[color:var(--surface-strong)]",
                           )}
                           onClick={() =>
-                            setSelectedFilter(isSelected ? null : { type: "agent", id: agent.id })
+                            setSelectedFilter(
+                              isSelected
+                                ? null
+                                : { type: "agent", id: agent.id },
+                            )
                           }
                         >
                           <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--surface)] text-xs font-semibold text-strong border border-[color:var(--border-strong)]">
@@ -3479,13 +3786,29 @@ export default function BoardDetailPage() {
                       <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-quiet">
                         Humans
                       </p>
-                      {orgMembers.map((member: any) => {
-                        const isSelected = selectedFilter?.type === "human" && selectedFilter.id === member.user_id;
-                        const name = member.user?.name ?? member.user?.email ?? "Unknown";
-                        const initials = name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
-                        // Use effective access from API (can_read/can_write) if available
-                        const hasWrite = member.can_write ?? member.all_boards_write;
-                        const accessLabel = hasWrite ? "read-write" : "read-only";
+                      {orgMembers.map((member) => {
+                        const isSelected =
+                          selectedFilter?.type === "human" &&
+                          selectedFilter.id === member.user_id;
+                        const name =
+                          member.user?.name ?? member.user?.email ?? "Unknown";
+                        const initials = name
+                          .split(" ")
+                          .map((w: string) => w[0])
+                          .join("")
+                          .toUpperCase()
+                          .slice(0, 2);
+                        const boardAccessEntry = boardId
+                          ? member.board_access?.find(
+                              (access) => access.board_id === boardId,
+                            )
+                          : null;
+                        const hasWrite =
+                          boardAccessEntry?.can_write ??
+                          member.all_boards_write;
+                        const accessLabel = hasWrite
+                          ? "read-write"
+                          : "read-only";
                         return (
                           <button
                             key={member.user_id}
@@ -3497,7 +3820,11 @@ export default function BoardDetailPage() {
                                 : "border-transparent hover:border-[color:var(--border)] hover:bg-[color:var(--surface-strong)]",
                             )}
                             onClick={() =>
-                              setSelectedFilter(isSelected ? null : { type: "human", id: member.user_id })
+                              setSelectedFilter(
+                                isSelected
+                                  ? null
+                                  : { type: "human", id: member.user_id },
+                              )
                             }
                           >
                             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[color:var(--accent)] to-[color:var(--accent-strong)] text-xs font-semibold text-white">
@@ -3507,7 +3834,9 @@ export default function BoardDetailPage() {
                               <p className="truncate text-sm font-medium text-strong">
                                 {name}
                               </p>
-                              <p className="text-[11px] text-quiet">{accessLabel}</p>
+                              <p className="text-[11px] text-quiet">
+                                {accessLabel}
+                              </p>
                             </div>
                           </button>
                         );
@@ -3518,7 +3847,8 @@ export default function BoardDetailPage() {
               </aside>
             ) : null}
 
-            <div className={cn(
+            <div
+              className={cn(
                 "min-w-0 flex-1 min-h-0",
                 // Board view: flex column so TaskBoard can be a flex-1 item with a real
                 // defined height — h-full % on children of a stretched flex item is
@@ -3526,7 +3856,8 @@ export default function BoardDetailPage() {
                 viewMode === "board"
                   ? "h-full flex flex-col overflow-hidden"
                   : "space-y-6 overflow-y-auto",
-              )}>
+              )}
+            >
               {error && (
                 <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-3 text-sm text-muted shadow-sm">
                   {error}
@@ -3766,7 +4097,9 @@ export default function BoardDetailPage() {
                       tasks={filteredTasks}
                       onTaskSelect={openComments}
                       onTaskMove={canWrite ? handleTaskMove : undefined}
-                      onBulkStatusChange={canWrite ? handleBulkStatusChange : undefined}
+                      onBulkStatusChange={
+                        canWrite ? handleBulkStatusChange : undefined
+                      }
                       onBulkDelete={canWrite ? handleBulkDelete : undefined}
                       onBulkApprove={canWrite ? handleBulkApprove : undefined}
                       readOnly={!canWrite}
@@ -3922,7 +4255,9 @@ export default function BoardDetailPage() {
                 {selectedTask && (
                   <button
                     type="button"
-                    onClick={() => navigator.clipboard.writeText(selectedTask.id)}
+                    onClick={() =>
+                      navigator.clipboard.writeText(selectedTask.id)
+                    }
                     className="cursor-pointer rounded bg-[color:var(--surface-strong)] px-2 py-0.5 font-mono text-xs text-quiet transition hover:bg-[color:var(--surface-muted)]"
                     title="Click to copy task ID"
                   >
@@ -3966,9 +4301,7 @@ export default function BoardDetailPage() {
                   />
                 </div>
               ) : (
-                <p className="text-sm text-quiet">
-                  No description provided.
-                </p>
+                <p className="text-sm text-quiet">No description provided.</p>
               )}
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -3976,19 +4309,27 @@ export default function BoardDetailPage() {
                 <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
                   Created by
                 </p>
-                <p className="text-sm text-muted">{selectedTask?.creator_name ?? "—"}</p>
+                <p className="text-sm text-muted">
+                  {selectedTask?.creator_name ?? "—"}
+                </p>
               </div>
               <div className="space-y-1">
                 <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
                   Assigned
                 </p>
-                <p className="text-sm text-muted">{selectedTask?.assignee ?? "Unassigned"}</p>
+                <p className="text-sm text-muted">
+                  {selectedTask?.assignee ?? "Unassigned"}
+                </p>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               {boardCustomFieldDefinitions.some((def) => {
-                const value = selectedTask?.custom_field_values?.[def.field_key];
-                return isCustomFieldVisible(def, value) && isCustomFieldValueSet(value);
+                const value =
+                  selectedTask?.custom_field_values?.[def.field_key];
+                return (
+                  isCustomFieldVisible(def, value) &&
+                  isCustomFieldValueSet(value)
+                );
               }) && (
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
@@ -3998,7 +4339,11 @@ export default function BoardDetailPage() {
                     {boardCustomFieldDefinitions.map((def) => {
                       const value =
                         selectedTask?.custom_field_values?.[def.field_key];
-                      if (!isCustomFieldVisible(def, value) || !isCustomFieldValueSet(value)) return null;
+                      if (
+                        !isCustomFieldVisible(def, value) ||
+                        !isCustomFieldValueSet(value)
+                      )
+                        return null;
                       return (
                         <div key={def.id} className="flex items-start gap-2">
                           <span className="min-w-[100px] text-xs font-medium text-quiet">
@@ -4048,18 +4393,21 @@ export default function BoardDetailPage() {
               const isDependencyModeBlocked = hasDependencies
                 ? selectedTask?.is_blocked === true
                 : false;
-              const bannerVariant =
-                isDependencyModeBlocked ? "blocked" : "resolved";
-              const displayedDependencies = hasDependencies && selectedTask
-                ? selectedTaskDependencies
-                : selectedTaskResolvedDependencies;
-              const childrenMessage = hasDependencies && selectedTask?.is_blocked
-                ? "Blocked by incomplete dependencies."
-                : hasDependencies
-                  ? "Dependencies resolved."
-                  : hasResolvedDependencies
-                    ? "This task resolves these tasks."
-                    : null;
+              const bannerVariant = isDependencyModeBlocked
+                ? "blocked"
+                : "resolved";
+              const displayedDependencies =
+                hasDependencies && selectedTask
+                  ? selectedTaskDependencies
+                  : selectedTaskResolvedDependencies;
+              const childrenMessage =
+                hasDependencies && selectedTask?.is_blocked
+                  ? "Blocked by incomplete dependencies."
+                  : hasDependencies
+                    ? "Dependencies resolved."
+                    : hasResolvedDependencies
+                      ? "This task resolves these tasks."
+                      : null;
               return (
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
@@ -4176,6 +4524,302 @@ export default function BoardDetailPage() {
                 </div>
               )}
             </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
+                  Evidence
+                </p>
+                {canonicalTaskEvidencePacket?.status ? (
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                      canonicalTaskEvidencePacket.status === "accepted"
+                        ? "bg-[color:var(--success-soft)] text-success"
+                        : canonicalTaskEvidencePacket.status === "rejected"
+                          ? "bg-[color:var(--danger-soft)] text-danger"
+                          : canonicalTaskEvidencePacket.status === "submitted"
+                            ? "bg-[color:var(--info-soft)] text-[color:var(--info-text)]"
+                            : "bg-[color:var(--surface-strong)] text-quiet",
+                    )}
+                  >
+                    {canonicalTaskEvidencePacket.status.replace(/_/g, " ")}
+                  </span>
+                ) : null}
+              </div>
+              {isTaskEvidenceLoading ? (
+                <p className="text-sm text-quiet">Loading evidence…</p>
+              ) : taskEvidenceError ? (
+                <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-3 text-xs text-quiet">
+                  {taskEvidenceError}
+                </div>
+              ) : canonicalTaskEvidencePacket ? (
+                <div className="space-y-3 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-3">
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-quiet">
+                    {canonicalTaskEvidencePacket.task_class ? (
+                      <span className="rounded bg-[color:var(--surface-strong)] px-2 py-0.5 text-quiet">
+                        {formatEvidenceKindLabel(
+                          canonicalTaskEvidencePacket.task_class,
+                        )}
+                      </span>
+                    ) : null}
+                    <span>
+                      Submitted{" "}
+                      {formatShortTimestamp(
+                        canonicalTaskEvidencePacket.submitted_at ??
+                          canonicalTaskEvidencePacket.created_at,
+                      )}
+                    </span>
+                    <span>
+                      {taskEvidencePackets.length} packet
+                      {taskEvidencePackets.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  {canonicalTaskEvidencePacket.summary ? (
+                    <div className="space-y-1">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-quiet">
+                        Summary
+                      </p>
+                      <div className="rounded-lg bg-[color:var(--surface)] p-3 text-sm text-strong">
+                        <Markdown
+                          content={canonicalTaskEvidencePacket.summary}
+                          variant="basic"
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+                  {canonicalTaskEvidencePacket.implementation_delta ? (
+                    <div className="space-y-1">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-quiet">
+                        Implementation Delta
+                      </p>
+                      <div className="rounded-lg bg-[color:var(--surface)] p-3 text-sm text-strong">
+                        <Markdown
+                          content={
+                            canonicalTaskEvidencePacket.implementation_delta
+                          }
+                          variant="basic"
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+                  {canonicalTaskEvidencePacket.primary_artifact ? (
+                    <div className="space-y-1">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-quiet">
+                        Primary Artifact
+                      </p>
+                      <div className="flex items-start gap-2 rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-3">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void loadWorkspaceFileContent(
+                              canonicalTaskEvidencePacket.primary_artifact ??
+                                {},
+                            )
+                          }
+                          disabled={
+                            !isWorkspaceArtifactOpenable(
+                              canonicalTaskEvidencePacket.primary_artifact,
+                            )
+                          }
+                          className={cn(
+                            "flex min-w-0 flex-1 flex-col gap-1 text-left",
+                            isWorkspaceArtifactOpenable(
+                              canonicalTaskEvidencePacket.primary_artifact,
+                            )
+                              ? "cursor-pointer"
+                              : "cursor-default",
+                          )}
+                        >
+                          <span
+                            className="font-mono text-xs text-muted"
+                            title={
+                              canonicalTaskEvidencePacket.primary_artifact
+                                .display_path ??
+                              canonicalTaskEvidencePacket.primary_artifact
+                                .relative_path ??
+                              canonicalTaskEvidencePacket.primary_artifact.label
+                            }
+                          >
+                            {canonicalTaskEvidencePacket.primary_artifact
+                              .display_path ??
+                              canonicalTaskEvidencePacket.primary_artifact
+                                .relative_path ??
+                              canonicalTaskEvidencePacket.primary_artifact
+                                .label}
+                          </span>
+                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-quiet">
+                            <span>
+                              {formatEvidenceKindLabel(
+                                canonicalTaskEvidencePacket.primary_artifact
+                                  .kind,
+                              )}
+                            </span>
+                            <span>
+                              {formatEvidenceOriginLabel(
+                                canonicalTaskEvidencePacket.primary_artifact
+                                  .origin_kind,
+                              )}
+                            </span>
+                            {canonicalTaskEvidencePacket.primary_artifact
+                              .workspace_agent_name ? (
+                              <span>
+                                {
+                                  canonicalTaskEvidencePacket.primary_artifact
+                                    .workspace_agent_name
+                                }
+                              </span>
+                            ) : null}
+                          </div>
+                        </button>
+                        {isWorkspaceArtifactOpenable(
+                          canonicalTaskEvidencePacket.primary_artifact,
+                        ) ? (
+                          <button
+                            type="button"
+                            title="Download primary artifact"
+                            onClick={() =>
+                              void downloadWorkspaceFile(
+                                canonicalTaskEvidencePacket.primary_artifact ??
+                                  {},
+                              )
+                            }
+                            className="mt-0.5 shrink-0 rounded p-1 text-quiet hover:bg-[color:var(--surface-strong)] hover:text-muted"
+                          >
+                            <Download size={12} />
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-[color:var(--border)] bg-[color:var(--surface)] p-3 text-sm text-quiet">
+                      No primary artifact declared on the canonical packet.
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-quiet">
+                      Supporting Artifacts
+                    </p>
+                    {supportingEvidenceArtifacts.length > 0 ? (
+                      <div className="space-y-2">
+                        {supportingEvidenceArtifacts.map((artifact) => (
+                          <div
+                            key={artifact.id}
+                            className="flex items-start gap-2 rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-3"
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void loadWorkspaceFileContent(artifact)
+                              }
+                              disabled={!isWorkspaceArtifactOpenable(artifact)}
+                              className={cn(
+                                "flex min-w-0 flex-1 flex-col gap-1 text-left",
+                                isWorkspaceArtifactOpenable(artifact)
+                                  ? "cursor-pointer"
+                                  : "cursor-default",
+                              )}
+                            >
+                              <span
+                                className="font-mono text-xs text-muted"
+                                title={
+                                  artifact.display_path ??
+                                  artifact.relative_path ??
+                                  artifact.label
+                                }
+                              >
+                                {artifact.display_path ??
+                                  artifact.relative_path ??
+                                  artifact.label}
+                              </span>
+                              <div className="flex flex-wrap items-center gap-2 text-[11px] text-quiet">
+                                <span>
+                                  {formatEvidenceKindLabel(artifact.kind)}
+                                </span>
+                                <span>
+                                  {formatEvidenceOriginLabel(
+                                    artifact.origin_kind,
+                                  )}
+                                </span>
+                                {artifact.workspace_agent_name ? (
+                                  <span>{artifact.workspace_agent_name}</span>
+                                ) : null}
+                              </div>
+                            </button>
+                            {isWorkspaceArtifactOpenable(artifact) ? (
+                              <button
+                                type="button"
+                                title="Download supporting artifact"
+                                onClick={() =>
+                                  void downloadWorkspaceFile(artifact)
+                                }
+                                className="mt-0.5 shrink-0 rounded p-1 text-quiet hover:bg-[color:var(--surface-strong)] hover:text-muted"
+                              >
+                                <Download size={12} />
+                              </button>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-[color:var(--border)] bg-[color:var(--surface)] p-3 text-sm text-quiet">
+                        No supporting artifacts attached to the canonical
+                        packet.
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-quiet">
+                      Checks
+                    </p>
+                    {canonicalTaskEvidencePacket.checks.length > 0 ? (
+                      <div className="space-y-2">
+                        {canonicalTaskEvidencePacket.checks.map((check) => (
+                          <div
+                            key={check.id}
+                            className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-3"
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium text-strong">
+                                {check.label}
+                              </span>
+                              <span
+                                className={cn(
+                                  "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                                  evidenceCheckToneClass(check.status),
+                                )}
+                              >
+                                {check.status.replace(/_/g, " ")}
+                              </span>
+                              <span className="text-[11px] text-quiet">
+                                {formatEvidenceKindLabel(check.kind)}
+                              </span>
+                            </div>
+                            {check.result_summary ? (
+                              <p className="mt-2 text-sm text-strong">
+                                {check.result_summary}
+                              </p>
+                            ) : null}
+                            {check.command ? (
+                              <p className="mt-2 font-mono text-[11px] text-quiet">
+                                {check.command}
+                              </p>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-[color:var(--border)] bg-[color:var(--surface)] p-3 text-sm text-quiet">
+                        No checks recorded on the canonical packet.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-[color:var(--border)] bg-[color:var(--surface-muted)] p-3 text-sm text-quiet">
+                  No evidence packet has been submitted for this task yet.
+                </div>
+              )}
+            </div>
             {/* Linked Memory Reports — between Approvals and Deliverables */}
             {(isTaskMemoryLoading || taskMemoryEntries.length > 0) && (
               <div className="space-y-2">
@@ -4188,14 +4832,32 @@ export default function BoardDetailPage() {
                   <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-2 space-y-1/50">
                     {taskMemoryEntries.map((entry, idx) => {
                       // Derive a label from the first non-empty line of content
-                      const firstLine = entry.content.split("\n").find((l) => l.trim().replace(/^#+\s*/, "").trim().length > 0) ?? "";
-                      const label = firstLine.replace(/^#+\s*/, "").trim() || entry.id.slice(0, 8);
-                      const sizeKb = Math.ceil(new Blob([entry.content]).size / 1024);
+                      const firstLine =
+                        entry.content.split("\n").find(
+                          (l) =>
+                            l
+                              .trim()
+                              .replace(/^#+\s*/, "")
+                              .trim().length > 0,
+                        ) ?? "";
+                      const label =
+                        firstLine.replace(/^#+\s*/, "").trim() ||
+                        entry.id.slice(0, 8);
+                      const sizeKb = Math.ceil(
+                        new Blob([entry.content]).size / 1024,
+                      );
                       return (
-                        <div key={entry.id} className="flex w-full items-start gap-1 rounded px-2 py-1.5 hover:bg-[color:var(--surface-strong)] dark:hover:bg-[color:var(--surface-strong)]">
+                        <div
+                          key={entry.id}
+                          className="flex w-full items-start gap-1 rounded px-2 py-1.5 hover:bg-[color:var(--surface-strong)] dark:hover:bg-[color:var(--surface-strong)]"
+                        >
                           <button
                             type="button"
-                            onClick={() => { setMemoryViewEntry(entry); setMemoryViewRichText(true); setMemoryViewCopied(false); }}
+                            onClick={() => {
+                              setMemoryViewEntry(entry);
+                              setMemoryViewRichText(true);
+                              setMemoryViewCopied(false);
+                            }}
                             className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
                           >
                             <div className="flex min-w-0 items-center gap-1.5">
@@ -4204,13 +4866,27 @@ export default function BoardDetailPage() {
                                   latest
                                 </span>
                               )}
-                              <span className="font-mono text-xs truncate text-muted" title={label}>{label}</span>
+                              <span
+                                className="font-mono text-xs truncate text-muted"
+                                title={label}
+                              >
+                                {label}
+                              </span>
                             </div>
                             <div className="flex items-center gap-2 pl-0.5">
-                              <span className="text-[10px] text-quiet">{formatShortTimestamp(entry.created_at)}</span>
-                              <span className="text-[10px] text-quiet">{sizeKb}KB</span>
+                              <span className="text-[10px] text-quiet">
+                                {formatShortTimestamp(entry.created_at)}
+                              </span>
+                              <span className="text-[10px] text-quiet">
+                                {sizeKb}KB
+                              </span>
                               {(entry.tags ?? []).map((tag) => (
-                                <span key={tag} className="rounded bg-[color:var(--surface-strong)] px-1 py-px text-[10px] text-quiet">{tag}</span>
+                                <span
+                                  key={tag}
+                                  className="rounded bg-[color:var(--surface-strong)] px-1 py-px text-[10px] text-quiet"
+                                >
+                                  {tag}
+                                </span>
                               ))}
                             </div>
                           </button>
@@ -4218,10 +4894,15 @@ export default function BoardDetailPage() {
                             type="button"
                             title="Copy to clipboard"
                             onClick={() => {
-                              void navigator.clipboard.writeText(entry.content).then(() => {
-                                setMemoryViewCopied(true);
-                                setTimeout(() => setMemoryViewCopied(false), 2000);
-                              });
+                              void navigator.clipboard
+                                .writeText(entry.content)
+                                .then(() => {
+                                  setMemoryViewCopied(true);
+                                  setTimeout(
+                                    () => setMemoryViewCopied(false),
+                                    2000,
+                                  );
+                                });
                             }}
                             className="mt-0.5 shrink-0 rounded p-1 text-quiet hover:bg-[color:var(--surface-strong)] hover:text-muted dark:hover:bg-[color:var(--surface-strong)] dark:hover:text-quiet"
                           >
@@ -4231,7 +4912,9 @@ export default function BoardDetailPage() {
                             type="button"
                             title="Download as markdown"
                             onClick={() => {
-                              const blob = new Blob([entry.content], { type: "text/markdown" });
+                              const blob = new Blob([entry.content], {
+                                type: "text/markdown",
+                              });
                               const url = URL.createObjectURL(blob);
                               const a = document.createElement("a");
                               a.href = url;
@@ -4272,15 +4955,22 @@ export default function BoardDetailPage() {
                     {workspaceFiles
                       .filter((f) => !f.is_dir)
                       .sort((a, b) => {
-                        const aT = a.modified_at ? new Date(a.modified_at).getTime() : 0;
-                        const bT = b.modified_at ? new Date(b.modified_at).getTime() : 0;
+                        const aT = a.modified_at
+                          ? new Date(a.modified_at).getTime()
+                          : 0;
+                        const bT = b.modified_at
+                          ? new Date(b.modified_at).getTime()
+                          : 0;
                         return bT - aT;
                       })
                       .map((file, idx) => (
-                        <div key={file.path} className="flex w-full items-start gap-1 rounded px-2 py-1.5 hover:bg-[color:var(--surface-strong)] dark:hover:bg-[color:var(--surface-strong)]">
+                        <div
+                          key={file.path}
+                          className="flex w-full items-start gap-1 rounded px-2 py-1.5 hover:bg-[color:var(--surface-strong)] dark:hover:bg-[color:var(--surface-strong)]"
+                        >
                           <button
                             type="button"
-                            onClick={() => void loadWorkspaceFileContent(file.path)}
+                            onClick={() => void loadWorkspaceFileContent(file)}
                             className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
                           >
                             {/* Row 1: latest badge + filename */}
@@ -4290,29 +4980,42 @@ export default function BoardDetailPage() {
                                   latest
                                 </span>
                               )}
-                              <span className="font-mono text-xs truncate text-muted" title={file.path}>{file.path}</span>
+                              <span
+                                className="font-mono text-xs truncate text-muted"
+                                title={file.path}
+                              >
+                                {file.path}
+                              </span>
                             </div>
                             {/* Row 2: timestamp + size */}
                             <div className="flex items-center gap-2 pl-0.5">
                               {file.modified_at && (
-                                <span className="text-[10px] text-quiet">{formatShortTimestamp(file.modified_at)}</span>
+                                <span className="text-[10px] text-quiet">
+                                  {formatShortTimestamp(file.modified_at)}
+                                </span>
                               )}
                               {file.size != null && (
-                                <span className="text-[10px] text-quiet">{Math.ceil(file.size / 1024)}KB</span>
+                                <span className="text-[10px] text-quiet">
+                                  {Math.ceil(file.size / 1024)}KB
+                                </span>
                               )}
+                              {file.workspace_agent_name ? (
+                                <span className="text-[10px] text-quiet">
+                                  {file.workspace_agent_name}
+                                </span>
+                              ) : null}
                             </div>
                           </button>
                           <button
                             type="button"
                             title="Download"
-                            onClick={() => void downloadWorkspaceFile(file.path)}
+                            onClick={() => void downloadWorkspaceFile(file)}
                             className="mt-0.5 shrink-0 rounded p-1 text-quiet hover:bg-[color:var(--surface-strong)] hover:text-muted dark:hover:bg-[color:var(--surface-strong)] dark:hover:text-quiet"
                           >
                             <Download size={12} />
                           </button>
                         </div>
-                      ))
-                    }
+                      ))}
                   </div>
                 )}
               </div>
@@ -4377,7 +5080,17 @@ export default function BoardDetailPage() {
           <div className="relative flex h-[88vh] w-[90vw] max-w-4xl flex-col rounded-xl bg-[color:var(--surface)] shadow-2xl">
             <div className="flex shrink-0 items-center justify-between border-b border-[color:var(--border)] px-5 py-3">
               <p className="min-w-0 flex-1 truncate font-mono text-sm font-semibold text-[color:var(--text-muted)]">
-                {(memoryViewEntry.content.split("\n").find((l) => l.trim().replace(/^#+\s*/, "").trim().length > 0) ?? "").replace(/^#+\s*/, "").trim() || memoryViewEntry.id.slice(0, 8)}
+                {(
+                  memoryViewEntry.content.split("\n").find(
+                    (l) =>
+                      l
+                        .trim()
+                        .replace(/^#+\s*/, "")
+                        .trim().length > 0,
+                  ) ?? ""
+                )
+                  .replace(/^#+\s*/, "")
+                  .trim() || memoryViewEntry.id.slice(0, 8)}
               </p>
               <div className="ml-3 flex shrink-0 items-center gap-1">
                 <div className="flex items-center rounded-lg border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-0.5 text-xs">
@@ -4400,21 +5113,29 @@ export default function BoardDetailPage() {
                   type="button"
                   title="Copy raw markdown"
                   onClick={() => {
-                    void navigator.clipboard.writeText(memoryViewEntry.content).then(() => {
-                      setMemoryViewCopied(true);
-                      setTimeout(() => setMemoryViewCopied(false), 2000);
-                    });
+                    void navigator.clipboard
+                      .writeText(memoryViewEntry.content)
+                      .then(() => {
+                        setMemoryViewCopied(true);
+                        setTimeout(() => setMemoryViewCopied(false), 2000);
+                      });
                   }}
                   className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs text-[color:var(--text-muted)] hover:bg-[color:var(--surface-strong)]"
                 >
-                  {memoryViewCopied ? <Check size={13} className="text-[color:var(--success)]" /> : <Copy size={13} />}
+                  {memoryViewCopied ? (
+                    <Check size={13} className="text-[color:var(--success)]" />
+                  ) : (
+                    <Copy size={13} />
+                  )}
                   <span>{memoryViewCopied ? "Copied!" : "Copy"}</span>
                 </button>
                 <button
                   type="button"
                   title="Download as markdown"
                   onClick={() => {
-                    const blob = new Blob([memoryViewEntry.content], { type: "text/markdown" });
+                    const blob = new Blob([memoryViewEntry.content], {
+                      type: "text/markdown",
+                    });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");
                     a.href = url;
@@ -4431,9 +5152,15 @@ export default function BoardDetailPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setMemoryViewEntry(null); setMemoryViewCopied(false); setMemoryViewRichText(true); }}
+                  onClick={() => {
+                    setMemoryViewEntry(null);
+                    setMemoryViewCopied(false);
+                    setMemoryViewRichText(true);
+                  }}
                   className="rounded-lg px-2 py-1 text-[color:var(--text-quiet)] hover:bg-[color:var(--surface-strong)] hover:text-[color:var(--text)]"
-                >✕</button>
+                >
+                  ✕
+                </button>
               </div>
             </div>
             <div className="flex-1 overflow-auto">
@@ -4444,7 +5171,9 @@ export default function BoardDetailPage() {
                   </ReactMarkdown>
                 </div>
               ) : (
-                <pre className="p-5 font-mono text-xs leading-relaxed text-[color:var(--text)] whitespace-pre-wrap">{memoryViewEntry.content}</pre>
+                <pre className="p-5 font-mono text-xs leading-relaxed text-[color:var(--text)] whitespace-pre-wrap">
+                  {memoryViewEntry.content}
+                </pre>
               )}
             </div>
           </div>
@@ -4483,28 +5212,42 @@ export default function BoardDetailPage() {
                   title="Copy raw markdown"
                   onClick={() => {
                     if (!workspaceFileContent) return;
-                    void navigator.clipboard.writeText(workspaceFileContent).then(() => {
-                      setFileViewCopied(true);
-                      setTimeout(() => setFileViewCopied(false), 2000);
-                    });
+                    void navigator.clipboard
+                      .writeText(workspaceFileContent)
+                      .then(() => {
+                        setFileViewCopied(true);
+                        setTimeout(() => setFileViewCopied(false), 2000);
+                      });
                   }}
                   className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs text-[color:var(--text-muted)] hover:bg-[color:var(--surface-strong)]"
                 >
-                  {fileViewCopied ? <Check size={13} className="text-[color:var(--success)]" /> : <Copy size={13} />}
+                  {fileViewCopied ? (
+                    <Check size={13} className="text-[color:var(--success)]" />
+                  ) : (
+                    <Copy size={13} />
+                  )}
                   <span>{fileViewCopied ? "Copied!" : "Copy"}</span>
                 </button>
                 {/* Close */}
                 <button
                   type="button"
-                  onClick={() => { setWorkspaceFileViewPath(null); setWorkspaceFileContent(null); setFileViewRichText(true); }}
+                  onClick={() => {
+                    setWorkspaceFileViewPath(null);
+                    setWorkspaceFileContent(null);
+                    setFileViewRichText(true);
+                  }}
                   className="rounded-lg px-2 py-1 text-[color:var(--text-quiet)] hover:bg-[color:var(--surface-strong)] hover:text-[color:var(--text)]"
-                >✕</button>
+                >
+                  ✕
+                </button>
               </div>
             </div>
             {/* Content */}
             <div className="flex-1 overflow-auto">
               {isWorkspaceFileLoading ? (
-                <p className="p-5 text-sm text-[color:var(--text-muted)]">Loading…</p>
+                <p className="p-5 text-sm text-[color:var(--text-muted)]">
+                  Loading…
+                </p>
               ) : fileViewRichText ? (
                 <div className="prose prose-sm max-w-none p-6 dark:prose-invert text-[color:var(--text)]">
                   <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
@@ -4512,7 +5255,9 @@ export default function BoardDetailPage() {
                   </ReactMarkdown>
                 </div>
               ) : (
-                <pre className="p-5 font-mono text-xs leading-relaxed text-[color:var(--text)] whitespace-pre-wrap">{workspaceFileContent}</pre>
+                <pre className="p-5 font-mono text-xs leading-relaxed text-[color:var(--text)] whitespace-pre-wrap">
+                  {workspaceFileContent}
+                </pre>
               )}
             </div>
           </div>
@@ -4636,10 +5381,17 @@ export default function BoardDetailPage() {
                 </p>
               ) : (
                 tempChatMessages.map((msg, idx) => (
-                  <div key={idx} className="group rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4">
+                  <div
+                    key={idx}
+                    className="group rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4"
+                  >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-semibold text-strong">
-                        {msg.role === "user" ? "You" : (board?.name ? `${board.name} Lead` : "Lead")}
+                        {msg.role === "user"
+                          ? "You"
+                          : board?.name
+                            ? `${board.name} Lead`
+                            : "Lead"}
                       </p>
                       {msg.text ? <CopyButton text={msg.text} /> : null}
                     </div>
@@ -4651,11 +5403,28 @@ export default function BoardDetailPage() {
               )}
               {isTempChatSending && (
                 <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4">
-                  <p className="text-sm font-semibold text-strong">{board?.name ? `${board.name} Lead` : "Lead"}</p>
+                  <p className="text-sm font-semibold text-strong">
+                    {board?.name ? `${board.name} Lead` : "Lead"}
+                  </p>
                   <div className="mt-2 flex gap-1 text-quiet">
-                    <span className="animate-bounce" style={{ animationDelay: "0ms" }}>·</span>
-                    <span className="animate-bounce" style={{ animationDelay: "150ms" }}>·</span>
-                    <span className="animate-bounce" style={{ animationDelay: "300ms" }}>·</span>
+                    <span
+                      className="animate-bounce"
+                      style={{ animationDelay: "0ms" }}
+                    >
+                      ·
+                    </span>
+                    <span
+                      className="animate-bounce"
+                      style={{ animationDelay: "150ms" }}
+                    >
+                      ·
+                    </span>
+                    <span
+                      className="animate-bounce"
+                      style={{ animationDelay: "300ms" }}
+                    >
+                      ·
+                    </span>
                   </div>
                 </div>
               )}
@@ -4706,23 +5475,36 @@ export default function BoardDetailPage() {
                 {liveFeedHistoryError}
               </div>
             ) : orderedLiveFeed.length === 0 ? (
-              <p className="text-sm text-quiet">
-                Waiting for new activity…
-              </p>
+              <p className="text-sm text-quiet">Waiting for new activity…</p>
             ) : (
               <div className="space-y-3">
                 {orderedLiveFeed.map((item) => {
                   const taskId = item.task_id;
+                  const actorLabel = resolveHumanActorName(item.actor_name, "");
+                  const normalizedActorLabel = actorLabel.trim().toLowerCase();
                   const authorAgent = item.agent_id
                     ? (agents.find((agent) => agent.id === item.agent_id) ??
                       null)
-                    : null;
+                    : normalizedActorLabel
+                      ? (agents.find(
+                          (agent) =>
+                            agent.name.trim().toLowerCase() ===
+                            normalizedActorLabel,
+                        ) ?? null)
+                      : null;
                   const authorName =
                     authorAgent?.name ??
                     resolveHumanActorName(item.actor_name, "User");
                   const authorRole = authorAgent
                     ? agentRoleLabel(authorAgent)
                     : null;
+                  const authorHref =
+                    authorAgent?.openclaw_session_id && boardId
+                      ? `/boards/${encodeURIComponent(boardId)}/session-log?${new URLSearchParams({
+                          sessionKey: authorAgent.openclaw_session_id,
+                          agentName: authorAgent.name,
+                        }).toString()}`
+                      : undefined;
                   const authorAvatar = authorAgent
                     ? agentAvatarLabel(authorAgent)
                     : (authorName[0] ?? "A").toUpperCase();
@@ -4739,6 +5521,7 @@ export default function BoardDetailPage() {
                             : "Activity"
                       }
                       authorName={authorName}
+                      authorHref={authorHref}
                       authorRole={authorRole}
                       authorAvatar={authorAvatar}
                       onViewTask={
@@ -5321,7 +6104,9 @@ export default function BoardDetailPage() {
                 <span
                   className={cn(
                     "mt-1 h-2 w-2 rounded-full",
-                    toast.tone === "error" ? "bg-[color:var(--danger)]" : "bg-[color:var(--success)]",
+                    toast.tone === "error"
+                      ? "bg-[color:var(--danger)]"
+                      : "bg-[color:var(--success)]",
                   )}
                 />
                 <p className="flex-1 text-sm text-muted">{toast.message}</p>

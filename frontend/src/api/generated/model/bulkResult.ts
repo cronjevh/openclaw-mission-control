@@ -6,6 +6,6 @@
  */
 
 export interface BulkResult {
-  updated: number;
   failed: number;
+  updated: number;
 }

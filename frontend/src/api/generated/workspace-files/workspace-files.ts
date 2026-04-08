@@ -18,9 +18,12 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  DownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetParams,
   DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams,
+  GetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetParams,
   GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams,
   HTTPValidationError,
+  ListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetParams,
   ListWorkspaceFilesApiV1BoardsBoardIdWorkspaceFilesGetParams,
   WorkspaceFileContent,
   WorkspaceFileEntry,
@@ -29,6 +32,1577 @@ import type {
 import { customFetch } from "../../mutator";
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+/**
+ * Download a workspace file from the group lead agent workspace.
+ * @summary Download Group Workspace File
+ */
+export type downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetResponse200 =
+  {
+    data: unknown;
+    status: 200;
+  };
+
+export type downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetResponse422 =
+  {
+    data: HTTPValidationError;
+    status: 422;
+  };
+
+export type downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetResponseSuccess =
+  downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetResponse200 & {
+    headers: Headers;
+  };
+export type downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetResponseError =
+  downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetResponse422 & {
+    headers: Headers;
+  };
+
+export type downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetResponse =
+
+    | downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetResponseSuccess
+    | downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetResponseError;
+
+export const getDownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetUrl =
+  (
+    groupId: string,
+    params?: DownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetParams,
+  ) => {
+    const normalizedParams = new URLSearchParams();
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+      if (value !== undefined) {
+        normalizedParams.append(
+          key,
+          value === null ? "null" : value.toString(),
+        );
+      }
+    });
+
+    const stringifiedParams = normalizedParams.toString();
+
+    return stringifiedParams.length > 0
+      ? `/api/v1/board-groups/${groupId}/workspace/download?${stringifiedParams}`
+      : `/api/v1/board-groups/${groupId}/workspace/download`;
+  };
+
+export const downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet =
+  async (
+    groupId: string,
+    params?: DownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetParams,
+    options?: RequestInit,
+  ): Promise<downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetResponse> => {
+    return customFetch<downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetResponse>(
+      getDownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetUrl(
+        groupId,
+        params,
+      ),
+      {
+        ...options,
+        method: "GET",
+      },
+    );
+  };
+
+export const getDownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetQueryKey =
+  (
+    groupId: string,
+    params?: DownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetParams,
+  ) => {
+    return [
+      `/api/v1/board-groups/${groupId}/workspace/download`,
+      ...(params ? [params] : []),
+    ] as const;
+  };
+
+export const getDownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetQueryOptions =
+  <
+    TData = Awaited<
+      ReturnType<
+        typeof downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet
+      >
+    >,
+    TError = HTTPValidationError,
+  >(
+    groupId: string,
+    params?: DownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetParams,
+    options?: {
+      query?: Partial<
+        UseQueryOptions<
+          Awaited<
+            ReturnType<
+              typeof downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet
+            >
+          >,
+          TError,
+          TData
+        >
+      >;
+      request?: SecondParameter<typeof customFetch>;
+    },
+  ) => {
+    const { query: queryOptions, request: requestOptions } = options ?? {};
+
+    const queryKey =
+      queryOptions?.queryKey ??
+      getDownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetQueryKey(
+        groupId,
+        params,
+      );
+
+    const queryFn: QueryFunction<
+      Awaited<
+        ReturnType<
+          typeof downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet
+        >
+      >
+    > = ({ signal }) =>
+      downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet(
+        groupId,
+        params,
+        { signal, ...requestOptions },
+      );
+
+    return {
+      queryKey,
+      queryFn,
+      enabled: !!groupId,
+      ...queryOptions,
+    } as UseQueryOptions<
+      Awaited<
+        ReturnType<
+          typeof downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet
+        >
+      >,
+      TError,
+      TData
+    > & { queryKey: DataTag<QueryKey, TData, TError> };
+  };
+
+export type DownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetQueryResult =
+  NonNullable<
+    Awaited<
+      ReturnType<
+        typeof downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet
+      >
+    >
+  >;
+export type DownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetQueryError =
+  HTTPValidationError;
+
+export function useDownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet<
+  TData = Awaited<
+    ReturnType<
+      typeof downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  params:
+    | undefined
+    | DownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet
+          >
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useDownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet<
+  TData = Awaited<
+    ReturnType<
+      typeof downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  params?: DownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet
+          >
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useDownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet<
+  TData = Awaited<
+    ReturnType<
+      typeof downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  params?: DownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet
+          >
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary Download Group Workspace File
+ */
+
+export function useDownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet<
+  TData = Awaited<
+    ReturnType<
+      typeof downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  params?: DownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof downloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGet
+          >
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions =
+    getDownloadGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceDownloadGetQueryOptions(
+      groupId,
+      params,
+      options,
+    );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Read a single workspace file from the group lead agent workspace.
+ * @summary Get Group Workspace File
+ */
+export type getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetResponse200 =
+  {
+    data: WorkspaceFileContent;
+    status: 200;
+  };
+
+export type getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetResponse422 =
+  {
+    data: HTTPValidationError;
+    status: 422;
+  };
+
+export type getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetResponseSuccess =
+  getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetResponse200 & {
+    headers: Headers;
+  };
+export type getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetResponseError =
+  getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetResponse422 & {
+    headers: Headers;
+  };
+
+export type getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetResponse =
+
+    | getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetResponseSuccess
+    | getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetResponseError;
+
+export const getGetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetUrl =
+  (
+    groupId: string,
+    params?: GetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetParams,
+  ) => {
+    const normalizedParams = new URLSearchParams();
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+      if (value !== undefined) {
+        normalizedParams.append(
+          key,
+          value === null ? "null" : value.toString(),
+        );
+      }
+    });
+
+    const stringifiedParams = normalizedParams.toString();
+
+    return stringifiedParams.length > 0
+      ? `/api/v1/board-groups/${groupId}/workspace/file?${stringifiedParams}`
+      : `/api/v1/board-groups/${groupId}/workspace/file`;
+  };
+
+export const getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet =
+  async (
+    groupId: string,
+    params?: GetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetParams,
+    options?: RequestInit,
+  ): Promise<getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetResponse> => {
+    return customFetch<getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetResponse>(
+      getGetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetUrl(
+        groupId,
+        params,
+      ),
+      {
+        ...options,
+        method: "GET",
+      },
+    );
+  };
+
+export const getGetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetQueryKey =
+  (
+    groupId: string,
+    params?: GetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetParams,
+  ) => {
+    return [
+      `/api/v1/board-groups/${groupId}/workspace/file`,
+      ...(params ? [params] : []),
+    ] as const;
+  };
+
+export const getGetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetQueryOptions =
+  <
+    TData = Awaited<
+      ReturnType<
+        typeof getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet
+      >
+    >,
+    TError = HTTPValidationError,
+  >(
+    groupId: string,
+    params?: GetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetParams,
+    options?: {
+      query?: Partial<
+        UseQueryOptions<
+          Awaited<
+            ReturnType<
+              typeof getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet
+            >
+          >,
+          TError,
+          TData
+        >
+      >;
+      request?: SecondParameter<typeof customFetch>;
+    },
+  ) => {
+    const { query: queryOptions, request: requestOptions } = options ?? {};
+
+    const queryKey =
+      queryOptions?.queryKey ??
+      getGetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetQueryKey(
+        groupId,
+        params,
+      );
+
+    const queryFn: QueryFunction<
+      Awaited<
+        ReturnType<
+          typeof getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet
+        >
+      >
+    > = ({ signal }) =>
+      getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet(
+        groupId,
+        params,
+        { signal, ...requestOptions },
+      );
+
+    return {
+      queryKey,
+      queryFn,
+      enabled: !!groupId,
+      ...queryOptions,
+    } as UseQueryOptions<
+      Awaited<
+        ReturnType<
+          typeof getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet
+        >
+      >,
+      TError,
+      TData
+    > & { queryKey: DataTag<QueryKey, TData, TError> };
+  };
+
+export type GetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetQueryResult =
+  NonNullable<
+    Awaited<
+      ReturnType<
+        typeof getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet
+      >
+    >
+  >;
+export type GetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetQueryError =
+  HTTPValidationError;
+
+export function useGetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet<
+  TData = Awaited<
+    ReturnType<
+      typeof getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  params:
+    | undefined
+    | GetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet
+          >
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet<
+  TData = Awaited<
+    ReturnType<
+      typeof getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  params?: GetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet
+          >
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet<
+  TData = Awaited<
+    ReturnType<
+      typeof getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  params?: GetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet
+          >
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary Get Group Workspace File
+ */
+
+export function useGetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet<
+  TData = Awaited<
+    ReturnType<
+      typeof getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  params?: GetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof getGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGet
+          >
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions =
+    getGetGroupWorkspaceFileApiV1BoardGroupsGroupIdWorkspaceFileGetQueryOptions(
+      groupId,
+      params,
+      options,
+    );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * List deliverable files from the group lead agent workspace.
+ * @summary List Group Workspace Files
+ */
+export type listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetResponse200 =
+  {
+    data: WorkspaceFileEntry[];
+    status: 200;
+  };
+
+export type listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetResponse422 =
+  {
+    data: HTTPValidationError;
+    status: 422;
+  };
+
+export type listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetResponseSuccess =
+  listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetResponse200 & {
+    headers: Headers;
+  };
+export type listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetResponseError =
+  listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetResponse422 & {
+    headers: Headers;
+  };
+
+export type listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetResponse =
+
+    | listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetResponseSuccess
+    | listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetResponseError;
+
+export const getListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetUrl =
+  (
+    groupId: string,
+    params?: ListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetParams,
+  ) => {
+    const normalizedParams = new URLSearchParams();
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+      if (value !== undefined) {
+        normalizedParams.append(
+          key,
+          value === null ? "null" : value.toString(),
+        );
+      }
+    });
+
+    const stringifiedParams = normalizedParams.toString();
+
+    return stringifiedParams.length > 0
+      ? `/api/v1/board-groups/${groupId}/workspace/files?${stringifiedParams}`
+      : `/api/v1/board-groups/${groupId}/workspace/files`;
+  };
+
+export const listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet =
+  async (
+    groupId: string,
+    params?: ListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetParams,
+    options?: RequestInit,
+  ): Promise<listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetResponse> => {
+    return customFetch<listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetResponse>(
+      getListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetUrl(
+        groupId,
+        params,
+      ),
+      {
+        ...options,
+        method: "GET",
+      },
+    );
+  };
+
+export const getListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetQueryKey =
+  (
+    groupId: string,
+    params?: ListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetParams,
+  ) => {
+    return [
+      `/api/v1/board-groups/${groupId}/workspace/files`,
+      ...(params ? [params] : []),
+    ] as const;
+  };
+
+export const getListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetQueryOptions =
+  <
+    TData = Awaited<
+      ReturnType<
+        typeof listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet
+      >
+    >,
+    TError = HTTPValidationError,
+  >(
+    groupId: string,
+    params?: ListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetParams,
+    options?: {
+      query?: Partial<
+        UseQueryOptions<
+          Awaited<
+            ReturnType<
+              typeof listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet
+            >
+          >,
+          TError,
+          TData
+        >
+      >;
+      request?: SecondParameter<typeof customFetch>;
+    },
+  ) => {
+    const { query: queryOptions, request: requestOptions } = options ?? {};
+
+    const queryKey =
+      queryOptions?.queryKey ??
+      getListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetQueryKey(
+        groupId,
+        params,
+      );
+
+    const queryFn: QueryFunction<
+      Awaited<
+        ReturnType<
+          typeof listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet
+        >
+      >
+    > = ({ signal }) =>
+      listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet(
+        groupId,
+        params,
+        { signal, ...requestOptions },
+      );
+
+    return {
+      queryKey,
+      queryFn,
+      enabled: !!groupId,
+      ...queryOptions,
+    } as UseQueryOptions<
+      Awaited<
+        ReturnType<
+          typeof listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet
+        >
+      >,
+      TError,
+      TData
+    > & { queryKey: DataTag<QueryKey, TData, TError> };
+  };
+
+export type ListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetQueryResult =
+  NonNullable<
+    Awaited<
+      ReturnType<
+        typeof listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet
+      >
+    >
+  >;
+export type ListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetQueryError =
+  HTTPValidationError;
+
+export function useListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet<
+  TData = Awaited<
+    ReturnType<
+      typeof listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  params:
+    | undefined
+    | ListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet
+          >
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet<
+  TData = Awaited<
+    ReturnType<
+      typeof listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  params?: ListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet
+          >
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet<
+  TData = Awaited<
+    ReturnType<
+      typeof listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  params?: ListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet
+          >
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary List Group Workspace Files
+ */
+
+export function useListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet<
+  TData = Awaited<
+    ReturnType<
+      typeof listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  groupId: string,
+  params?: ListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof listGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGet
+          >
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions =
+    getListGroupWorkspaceFilesApiV1BoardGroupsGroupIdWorkspaceFilesGetQueryOptions(
+      groupId,
+      params,
+      options,
+    );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Download a workspace file as an attachment.
+ * @summary Download Workspace File
+ */
+export type downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponse200 =
+  {
+    data: unknown;
+    status: 200;
+  };
+
+export type downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponse422 =
+  {
+    data: HTTPValidationError;
+    status: 422;
+  };
+
+export type downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponseSuccess =
+  downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponse200 & {
+    headers: Headers;
+  };
+export type downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponseError =
+  downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponse422 & {
+    headers: Headers;
+  };
+
+export type downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponse =
+
+    | downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponseSuccess
+    | downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponseError;
+
+export const getDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetUrl =
+  (
+    boardId: string,
+    params?: DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams,
+  ) => {
+    const normalizedParams = new URLSearchParams();
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+      if (value !== undefined) {
+        normalizedParams.append(
+          key,
+          value === null ? "null" : value.toString(),
+        );
+      }
+    });
+
+    const stringifiedParams = normalizedParams.toString();
+
+    return stringifiedParams.length > 0
+      ? `/api/v1/boards/${boardId}/workspace/download?${stringifiedParams}`
+      : `/api/v1/boards/${boardId}/workspace/download`;
+  };
+
+export const downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet =
+  async (
+    boardId: string,
+    params?: DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams,
+    options?: RequestInit,
+  ): Promise<downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponse> => {
+    return customFetch<downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponse>(
+      getDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetUrl(
+        boardId,
+        params,
+      ),
+      {
+        ...options,
+        method: "GET",
+      },
+    );
+  };
+
+export const getDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetQueryKey =
+  (
+    boardId: string,
+    params?: DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams,
+  ) => {
+    return [
+      `/api/v1/boards/${boardId}/workspace/download`,
+      ...(params ? [params] : []),
+    ] as const;
+  };
+
+export const getDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetQueryOptions =
+  <
+    TData = Awaited<
+      ReturnType<
+        typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
+      >
+    >,
+    TError = HTTPValidationError,
+  >(
+    boardId: string,
+    params?: DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams,
+    options?: {
+      query?: Partial<
+        UseQueryOptions<
+          Awaited<
+            ReturnType<
+              typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
+            >
+          >,
+          TError,
+          TData
+        >
+      >;
+      request?: SecondParameter<typeof customFetch>;
+    },
+  ) => {
+    const { query: queryOptions, request: requestOptions } = options ?? {};
+
+    const queryKey =
+      queryOptions?.queryKey ??
+      getDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetQueryKey(
+        boardId,
+        params,
+      );
+
+    const queryFn: QueryFunction<
+      Awaited<
+        ReturnType<
+          typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
+        >
+      >
+    > = ({ signal }) =>
+      downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet(
+        boardId,
+        params,
+        { signal, ...requestOptions },
+      );
+
+    return {
+      queryKey,
+      queryFn,
+      enabled: !!boardId,
+      ...queryOptions,
+    } as UseQueryOptions<
+      Awaited<
+        ReturnType<
+          typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
+        >
+      >,
+      TError,
+      TData
+    > & { queryKey: DataTag<QueryKey, TData, TError> };
+  };
+
+export type DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetQueryResult =
+  NonNullable<
+    Awaited<
+      ReturnType<
+        typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
+      >
+    >
+  >;
+export type DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetQueryError =
+  HTTPValidationError;
+
+export function useDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet<
+  TData = Awaited<
+    ReturnType<
+      typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  params:
+    | undefined
+    | DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
+          >
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet<
+  TData = Awaited<
+    ReturnType<
+      typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  params?: DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
+          >
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet<
+  TData = Awaited<
+    ReturnType<
+      typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  params?: DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
+          >
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary Download Workspace File
+ */
+
+export function useDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet<
+  TData = Awaited<
+    ReturnType<
+      typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  params?: DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
+          >
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions =
+    getDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetQueryOptions(
+      boardId,
+      params,
+      options,
+    );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Get the content of a workspace file.
+ * @summary Get Workspace File
+ */
+export type getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponse200 = {
+  data: WorkspaceFileContent;
+  status: 200;
+};
+
+export type getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponse422 = {
+  data: HTTPValidationError;
+  status: 422;
+};
+
+export type getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponseSuccess =
+  getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponse200 & {
+    headers: Headers;
+  };
+export type getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponseError =
+  getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponse422 & {
+    headers: Headers;
+  };
+
+export type getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponse =
+  | getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponseSuccess
+  | getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponseError;
+
+export const getGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetUrl = (
+  boardId: string,
+  params?: GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/v1/boards/${boardId}/workspace/file?${stringifiedParams}`
+    : `/api/v1/boards/${boardId}/workspace/file`;
+};
+
+export const getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet = async (
+  boardId: string,
+  params?: GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams,
+  options?: RequestInit,
+): Promise<getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponse> => {
+  return customFetch<getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponse>(
+    getGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetUrl(boardId, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetQueryKey = (
+  boardId: string,
+  params?: GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams,
+) => {
+  return [
+    `/api/v1/boards/${boardId}/workspace/file`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetQueryOptions =
+  <
+    TData = Awaited<
+      ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
+    >,
+    TError = HTTPValidationError,
+  >(
+    boardId: string,
+    params?: GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams,
+    options?: {
+      query?: Partial<
+        UseQueryOptions<
+          Awaited<
+            ReturnType<
+              typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet
+            >
+          >,
+          TError,
+          TData
+        >
+      >;
+      request?: SecondParameter<typeof customFetch>;
+    },
+  ) => {
+    const { query: queryOptions, request: requestOptions } = options ?? {};
+
+    const queryKey =
+      queryOptions?.queryKey ??
+      getGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetQueryKey(
+        boardId,
+        params,
+      );
+
+    const queryFn: QueryFunction<
+      Awaited<
+        ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
+      >
+    > = ({ signal }) =>
+      getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet(boardId, params, {
+        signal,
+        ...requestOptions,
+      });
+
+    return {
+      queryKey,
+      queryFn,
+      enabled: !!boardId,
+      ...queryOptions,
+    } as UseQueryOptions<
+      Awaited<
+        ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
+      >,
+      TError,
+      TData
+    > & { queryKey: DataTag<QueryKey, TData, TError> };
+  };
+
+export type GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetQueryResult =
+  NonNullable<
+    Awaited<
+      ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
+    >
+  >;
+export type GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetQueryError =
+  HTTPValidationError;
+
+export function useGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet<
+  TData = Awaited<
+    ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  params: undefined | GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet<
+  TData = Awaited<
+    ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  params?: GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet<
+  TData = Awaited<
+    ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  params?: GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary Get Workspace File
+ */
+
+export function useGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet<
+  TData = Awaited<
+    ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  params?: GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions =
+    getGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetQueryOptions(
+      boardId,
+      params,
+      options,
+    );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * List deliverable files, optionally scoped to a specific task.
@@ -314,609 +1888,6 @@ export function useListWorkspaceFilesApiV1BoardsBoardIdWorkspaceFilesGet<
 } {
   const queryOptions =
     getListWorkspaceFilesApiV1BoardsBoardIdWorkspaceFilesGetQueryOptions(
-      boardId,
-      params,
-      options,
-    );
-
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
-    TData,
-    TError
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-/**
- * Get the content of a workspace file.
- * @summary Get Workspace File
- */
-export type getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponse200 = {
-  data: WorkspaceFileContent;
-  status: 200;
-};
-
-export type getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponse422 = {
-  data: HTTPValidationError;
-  status: 422;
-};
-
-export type getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponseSuccess =
-  getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponse200 & {
-    headers: Headers;
-  };
-export type getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponseError =
-  getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponse422 & {
-    headers: Headers;
-  };
-
-export type getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponse =
-  | getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponseSuccess
-  | getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponseError;
-
-export const getGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetUrl = (
-  boardId: string,
-  params: GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams,
-) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? "null" : value.toString());
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0
-    ? `/api/v1/boards/${boardId}/workspace/file?${stringifiedParams}`
-    : `/api/v1/boards/${boardId}/workspace/file`;
-};
-
-export const getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet = async (
-  boardId: string,
-  params: GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams,
-  options?: RequestInit,
-): Promise<getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponse> => {
-  return customFetch<getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetResponse>(
-    getGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetUrl(boardId, params),
-    {
-      ...options,
-      method: "GET",
-    },
-  );
-};
-
-export const getGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetQueryKey = (
-  boardId: string,
-  params?: GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams,
-) => {
-  return [
-    `/api/v1/boards/${boardId}/workspace/file`,
-    ...(params ? [params] : []),
-  ] as const;
-};
-
-export const getGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetQueryOptions =
-  <
-    TData = Awaited<
-      ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
-    >,
-    TError = HTTPValidationError,
-  >(
-    boardId: string,
-    params: GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams,
-    options?: {
-      query?: Partial<
-        UseQueryOptions<
-          Awaited<
-            ReturnType<
-              typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet
-            >
-          >,
-          TError,
-          TData
-        >
-      >;
-      request?: SecondParameter<typeof customFetch>;
-    },
-  ) => {
-    const { query: queryOptions, request: requestOptions } = options ?? {};
-
-    const queryKey =
-      queryOptions?.queryKey ??
-      getGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetQueryKey(
-        boardId,
-        params,
-      );
-
-    const queryFn: QueryFunction<
-      Awaited<
-        ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
-      >
-    > = ({ signal }) =>
-      getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet(boardId, params, {
-        signal,
-        ...requestOptions,
-      });
-
-    return {
-      queryKey,
-      queryFn,
-      enabled: !!boardId,
-      ...queryOptions,
-    } as UseQueryOptions<
-      Awaited<
-        ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
-      >,
-      TError,
-      TData
-    > & { queryKey: DataTag<QueryKey, TData, TError> };
-  };
-
-export type GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetQueryResult =
-  NonNullable<
-    Awaited<
-      ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
-    >
-  >;
-export type GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetQueryError =
-  HTTPValidationError;
-
-export function useGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet<
-  TData = Awaited<
-    ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
-  >,
-  TError = HTTPValidationError,
->(
-  boardId: string,
-  params: GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams,
-  options: {
-    query: Partial<
-      UseQueryOptions<
-        Awaited<
-          ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
-        >,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        DefinedInitialDataOptions<
-          Awaited<
-            ReturnType<
-              typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet
-            >
-          >,
-          TError,
-          Awaited<
-            ReturnType<
-              typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet
-            >
-          >
-        >,
-        "initialData"
-      >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet<
-  TData = Awaited<
-    ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
-  >,
-  TError = HTTPValidationError,
->(
-  boardId: string,
-  params: GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<
-          ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
-        >,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        UndefinedInitialDataOptions<
-          Awaited<
-            ReturnType<
-              typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet
-            >
-          >,
-          TError,
-          Awaited<
-            ReturnType<
-              typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet
-            >
-          >
-        >,
-        "initialData"
-      >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet<
-  TData = Awaited<
-    ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
-  >,
-  TError = HTTPValidationError,
->(
-  boardId: string,
-  params: GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<
-          ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
-        >,
-        TError,
-        TData
-      >
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-/**
- * @summary Get Workspace File
- */
-
-export function useGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet<
-  TData = Awaited<
-    ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
-  >,
-  TError = HTTPValidationError,
->(
-  boardId: string,
-  params: GetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<
-          ReturnType<typeof getWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGet>
-        >,
-        TError,
-        TData
-      >
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-} {
-  const queryOptions =
-    getGetWorkspaceFileApiV1BoardsBoardIdWorkspaceFileGetQueryOptions(
-      boardId,
-      params,
-      options,
-    );
-
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
-    TData,
-    TError
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-/**
- * Download a workspace file as an attachment.
- * @summary Download Workspace File
- */
-export type downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponse200 =
-  {
-    data: unknown;
-    status: 200;
-  };
-
-export type downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponse422 =
-  {
-    data: HTTPValidationError;
-    status: 422;
-  };
-
-export type downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponseSuccess =
-  downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponse200 & {
-    headers: Headers;
-  };
-export type downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponseError =
-  downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponse422 & {
-    headers: Headers;
-  };
-
-export type downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponse =
-
-    | downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponseSuccess
-    | downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponseError;
-
-export const getDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetUrl =
-  (
-    boardId: string,
-    params: DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams,
-  ) => {
-    const normalizedParams = new URLSearchParams();
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-      if (value !== undefined) {
-        normalizedParams.append(
-          key,
-          value === null ? "null" : value.toString(),
-        );
-      }
-    });
-
-    const stringifiedParams = normalizedParams.toString();
-
-    return stringifiedParams.length > 0
-      ? `/api/v1/boards/${boardId}/workspace/download?${stringifiedParams}`
-      : `/api/v1/boards/${boardId}/workspace/download`;
-  };
-
-export const downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet =
-  async (
-    boardId: string,
-    params: DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams,
-    options?: RequestInit,
-  ): Promise<downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponse> => {
-    return customFetch<downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetResponse>(
-      getDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetUrl(
-        boardId,
-        params,
-      ),
-      {
-        ...options,
-        method: "GET",
-      },
-    );
-  };
-
-export const getDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetQueryKey =
-  (
-    boardId: string,
-    params?: DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams,
-  ) => {
-    return [
-      `/api/v1/boards/${boardId}/workspace/download`,
-      ...(params ? [params] : []),
-    ] as const;
-  };
-
-export const getDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetQueryOptions =
-  <
-    TData = Awaited<
-      ReturnType<
-        typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
-      >
-    >,
-    TError = HTTPValidationError,
-  >(
-    boardId: string,
-    params: DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams,
-    options?: {
-      query?: Partial<
-        UseQueryOptions<
-          Awaited<
-            ReturnType<
-              typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
-            >
-          >,
-          TError,
-          TData
-        >
-      >;
-      request?: SecondParameter<typeof customFetch>;
-    },
-  ) => {
-    const { query: queryOptions, request: requestOptions } = options ?? {};
-
-    const queryKey =
-      queryOptions?.queryKey ??
-      getDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetQueryKey(
-        boardId,
-        params,
-      );
-
-    const queryFn: QueryFunction<
-      Awaited<
-        ReturnType<
-          typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
-        >
-      >
-    > = ({ signal }) =>
-      downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet(
-        boardId,
-        params,
-        { signal, ...requestOptions },
-      );
-
-    return {
-      queryKey,
-      queryFn,
-      enabled: !!boardId,
-      ...queryOptions,
-    } as UseQueryOptions<
-      Awaited<
-        ReturnType<
-          typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
-        >
-      >,
-      TError,
-      TData
-    > & { queryKey: DataTag<QueryKey, TData, TError> };
-  };
-
-export type DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetQueryResult =
-  NonNullable<
-    Awaited<
-      ReturnType<
-        typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
-      >
-    >
-  >;
-export type DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetQueryError =
-  HTTPValidationError;
-
-export function useDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet<
-  TData = Awaited<
-    ReturnType<
-      typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
-    >
-  >,
-  TError = HTTPValidationError,
->(
-  boardId: string,
-  params: DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams,
-  options: {
-    query: Partial<
-      UseQueryOptions<
-        Awaited<
-          ReturnType<
-            typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
-          >
-        >,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        DefinedInitialDataOptions<
-          Awaited<
-            ReturnType<
-              typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
-            >
-          >,
-          TError,
-          Awaited<
-            ReturnType<
-              typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
-            >
-          >
-        >,
-        "initialData"
-      >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet<
-  TData = Awaited<
-    ReturnType<
-      typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
-    >
-  >,
-  TError = HTTPValidationError,
->(
-  boardId: string,
-  params: DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<
-          ReturnType<
-            typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
-          >
-        >,
-        TError,
-        TData
-      >
-    > &
-      Pick<
-        UndefinedInitialDataOptions<
-          Awaited<
-            ReturnType<
-              typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
-            >
-          >,
-          TError,
-          Awaited<
-            ReturnType<
-              typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
-            >
-          >
-        >,
-        "initialData"
-      >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet<
-  TData = Awaited<
-    ReturnType<
-      typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
-    >
-  >,
-  TError = HTTPValidationError,
->(
-  boardId: string,
-  params: DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<
-          ReturnType<
-            typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
-          >
-        >,
-        TError,
-        TData
-      >
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-/**
- * @summary Download Workspace File
- */
-
-export function useDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet<
-  TData = Awaited<
-    ReturnType<
-      typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
-    >
-  >,
-  TError = HTTPValidationError,
->(
-  boardId: string,
-  params: DownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<
-        Awaited<
-          ReturnType<
-            typeof downloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGet
-          >
-        >,
-        TError,
-        TData
-      >
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-} {
-  const queryOptions =
-    getDownloadWorkspaceFileApiV1BoardsBoardIdWorkspaceDownloadGetQueryOptions(
       boardId,
       params,
       options,

@@ -7,6 +7,6 @@
 import type { BulkApprovalActionStatus } from "./bulkApprovalActionStatus";
 
 export interface BulkApprovalAction {
-  task_ids: string[];
   status: BulkApprovalActionStatus;
+  task_ids: string[];
 }

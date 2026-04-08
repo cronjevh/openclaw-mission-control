@@ -6,6 +6,6 @@
  */
 
 export interface BulkApprovalResult {
-  updated: number;
   failed: number;
+  updated: number;
 }

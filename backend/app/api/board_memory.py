@@ -85,7 +85,9 @@ def _board_reply_guidance() -> str:
     return (
         "Reply in plain natural language as a concise board-chat message.\n"
         "Do not output shell commands, curl snippets, JSON payloads, or code blocks.\n"
-        "If asked a simple question, answer it directly in one short sentence."
+        "If asked a simple question, answer it directly in one short sentence.\n"
+        "Do not promise future actions or outcomes unless they are already completed and verified.\n"
+        "If something is blocked, state the concrete blocker instead of making a promise."
     )
 
 
@@ -102,6 +104,13 @@ def _extract_text_from_session_message(msg: dict[str, object]) -> str:
     return str(content).strip()
 
 
+def _normalize_session_reply_text(text: str) -> str:
+    normalized = text.strip()
+    if normalized.startswith("[[reply_to_current]]"):
+        normalized = normalized[len("[[reply_to_current]]") :].strip()
+    return normalized
+
+
 def _looks_like_command_payload(text: str) -> bool:
     normalized = text.strip().lower()
     if not normalized:
@@ -116,6 +125,69 @@ def _looks_like_command_payload(text: str) -> bool:
         "jq -n --arg content",
     )
     return any(marker in normalized for marker in command_markers)
+
+
+def _looks_like_unverified_promise(text: str) -> bool:
+    normalized = text.strip().lower()
+    if not normalized:
+        return False
+    promise_markers = (
+        "i will ",
+        "i'll ",
+        "we will ",
+        "we'll ",
+        "going to ",
+        "let me ",
+        "asap",
+        "soon",
+        "in a bit",
+        "once i ",
+    )
+    completion_markers = (
+        "already ",
+        "done",
+        "completed",
+        "fixed",
+        "resolved",
+        "posted",
+        "updated",
+        "created",
+        "assigned",
+        "unblocked",
+        "blocked by ",
+    )
+    has_promise = any(marker in normalized for marker in promise_markers)
+    if not has_promise:
+        return False
+    return not any(marker in normalized for marker in completion_markers)
+
+
+def _message_seq(msg: dict[str, object]) -> int | None:
+    seq = (msg.get("__openclaw") or {}).get("seq")
+    if not isinstance(seq, (int, float)):
+        return None
+    return int(seq)
+
+
+def _find_matching_user_seq(
+    messages: list[dict[str, object]],
+    *,
+    after_seq: int,
+    expected_message: str,
+) -> int | None:
+    expected = expected_message.strip()
+    if not expected:
+        return None
+    for msg in messages:
+        seq = _message_seq(msg)
+        if seq is None or seq <= after_seq:
+            continue
+        if msg.get("role") != "user":
+            continue
+        text = _extract_text_from_session_message(msg).strip()
+        if text == expected:
+            return seq
+    return None
 
 
 def _max_seq_from_history(payload: object) -> int:
@@ -157,7 +229,9 @@ async def _mirror_session_reply_to_board_chat(
     session_key: str,
     config: GatewayClientConfig,
     after_seq: int,
+    expected_message: str,
 ) -> None:
+    resolved_user_seq: int | None = None
     deadline = asyncio.get_running_loop().time() + SESSION_REPLY_TIMEOUT_SECONDS
     while asyncio.get_running_loop().time() < deadline:
         try:
@@ -175,21 +249,34 @@ async def _mirror_session_reply_to_board_chat(
             await asyncio.sleep(SESSION_REPLY_POLL_SECONDS)
             continue
 
+        typed_messages = [msg for msg in messages if isinstance(msg, dict)]
+        if resolved_user_seq is None:
+            resolved_user_seq = _find_matching_user_seq(
+                typed_messages,
+                after_seq=after_seq,
+                expected_message=expected_message,
+            )
+        anchor_seq = resolved_user_seq if resolved_user_seq is not None else after_seq
+
         reply_text = ""
-        for msg in reversed(messages):
-            if not isinstance(msg, dict):
-                continue
-            seq = (msg.get("__openclaw") or {}).get("seq")
-            if not isinstance(seq, (int, float)) or int(seq) <= after_seq:
+        for msg in reversed(typed_messages):
+            seq = _message_seq(msg)
+            if seq is None or seq <= anchor_seq:
                 continue
             if msg.get("role") != "assistant":
                 continue
-            candidate = _extract_text_from_session_message(msg)
-            if candidate:
+            candidate = _normalize_session_reply_text(_extract_text_from_session_message(msg))
+            if not candidate:
+                continue
+            if candidate.strip().upper() == "NO_REPLY":
+                continue
+            if _looks_like_unverified_promise(candidate):
+                continue
+            if not _looks_like_command_payload(candidate):
                 reply_text = candidate
                 break
 
-        if reply_text and not _looks_like_command_payload(reply_text):
+        if reply_text:
             async with async_session_maker() as mirror_session:
                 recent = (
                     BoardMemory.objects.filter_by(board_id=board_id, source=agent_name, is_chat=True)
@@ -370,6 +457,7 @@ async def _notify_chat_targets(
                 session_key=agent.openclaw_session_id,
                 config=config,
                 after_seq=baseline_seq,
+                expected_message=message,
             ),
         )
 

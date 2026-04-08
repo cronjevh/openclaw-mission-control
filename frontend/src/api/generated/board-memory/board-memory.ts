@@ -34,7 +34,7 @@ import { customFetch } from "../../mutator";
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 /**
- * List board memory entries, optionally filtering chat entries.
+ * List board memory entries, optionally filtering by chat flag or task.
  * @summary List Board Memory
  */
 export type listBoardMemoryApiV1BoardsBoardIdMemoryGetResponse200 = {

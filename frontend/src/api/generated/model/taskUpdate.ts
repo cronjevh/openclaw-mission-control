@@ -10,14 +10,24 @@ import type { TaskUpdateCustomFieldValues } from "./taskUpdateCustomFieldValues"
  * Payload for partial task updates.
  */
 export interface TaskUpdate {
-  title?: string | null;
-  description?: string | null;
-  status?: "inbox" | "in_progress" | "review" | "done" | "blocked" | null;
-  priority?: string | null;
-  due_at?: string | null;
   assigned_agent_id?: string | null;
-  depends_on_task_ids?: string[] | null;
-  tag_ids?: string[] | null;
-  custom_field_values?: TaskUpdateCustomFieldValues;
+  closure_mode?: "manual_review" | "evidence_packet" | "passing_checks" | null;
   comment?: string | null;
+  custom_field_values?: TaskUpdateCustomFieldValues;
+  depends_on_task_ids?: string[] | null;
+  description?: string | null;
+  due_at?: string | null;
+  lead_spot_check_required?: boolean | null;
+  priority?: string | null;
+  required_artifact_kinds?: string[] | null;
+  required_check_kinds?: string[] | null;
+  status?: "inbox" | "in_progress" | "review" | "done" | "blocked" | null;
+  tag_ids?: string[] | null;
+  task_class?:
+    | "code_deterministic"
+    | "design_exploratory"
+    | "ops_integration"
+    | "docs_content"
+    | null;
+  title?: string | null;
 }

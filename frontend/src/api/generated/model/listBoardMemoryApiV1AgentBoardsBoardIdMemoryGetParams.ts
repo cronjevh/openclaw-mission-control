@@ -7,6 +7,7 @@
 
 export type ListBoardMemoryApiV1AgentBoardsBoardIdMemoryGetParams = {
   is_chat?: boolean | null;
+  task_id?: string | null;
   /**
    * @minimum 1
    * @maximum 200

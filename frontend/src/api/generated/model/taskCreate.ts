@@ -11,14 +11,24 @@ import type { TaskCreateStatus } from "./taskCreateStatus";
  * Payload for creating a task.
  */
 export interface TaskCreate {
-  title: string;
-  description?: string | null;
-  status?: TaskCreateStatus;
-  priority?: string;
-  due_at?: string | null;
   assigned_agent_id?: string | null;
-  depends_on_task_ids?: string[];
-  tag_ids?: string[];
+  closure_mode?: "manual_review" | "evidence_packet" | "passing_checks" | null;
   created_by_user_id?: string | null;
   custom_field_values?: TaskCreateCustomFieldValues;
+  depends_on_task_ids?: string[];
+  description?: string | null;
+  due_at?: string | null;
+  lead_spot_check_required?: boolean;
+  priority?: string;
+  required_artifact_kinds?: string[];
+  required_check_kinds?: string[];
+  status?: TaskCreateStatus;
+  tag_ids?: string[];
+  task_class?:
+    | "code_deterministic"
+    | "design_exploratory"
+    | "ops_integration"
+    | "docs_content"
+    | null;
+  title: string;
 }

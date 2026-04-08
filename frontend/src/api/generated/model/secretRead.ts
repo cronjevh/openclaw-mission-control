@@ -6,8 +6,8 @@
  */
 
 export interface SecretRead {
-  id: string;
-  key: string;
   description: string;
   has_value?: boolean;
+  id: string;
+  key: string;
 }

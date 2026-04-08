@@ -10,6 +10,6 @@ import type { DashboardPendingApproval } from "./dashboardPendingApproval";
  * Pending approval snapshot used on the dashboard.
  */
 export interface DashboardPendingApprovals {
-  total: number;
   items: DashboardPendingApproval[];
+  total: number;
 }

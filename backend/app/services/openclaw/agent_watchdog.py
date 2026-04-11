@@ -44,14 +44,14 @@ STUCK_UPDATING_AFTER = timedelta(minutes=5)
 STUCK_PROVISIONING_AFTER = timedelta(minutes=15)
 
 # How often the watchdog polls (seconds)
-WATCHDOG_INTERVAL_SECONDS = 60
+WATCHDOG_INTERVAL_SECONDS = 300
 
 # Do not send repeated wake attempts too frequently.
-WAKE_RETRY_COOLDOWN = timedelta(minutes=2)
+WAKE_RETRY_COOLDOWN = timedelta(minutes=5)
 
 # Recovery throughput tuning: process multiple stale agents per sweep.
-AUTO_RECOVER_MAX_PER_SWEEP = 8
-AUTO_RECOVER_CONCURRENCY = 3
+AUTO_RECOVER_MAX_PER_SWEEP = 1
+AUTO_RECOVER_CONCURRENCY = 1
 
 
 def _extract_file_content(payload: object) -> str | None:

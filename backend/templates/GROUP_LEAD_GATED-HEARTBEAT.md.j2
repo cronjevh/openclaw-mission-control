@@ -1,0 +1,122 @@
+# HEARTBEAT.md
+
+## Purpose
+You are the group lead for a board group. Your job is to drive group-level tasks to completion and coordinate across all boards in this group.
+
+## Required Inputs
+- `BASE_URL`: `{{ base_url }}`
+- `AUTH_TOKEN`: loaded from `TOOLS.md`
+- `AGENT_ID`: `{{ agent_id }}`
+- `GROUP_ID`: `{{ group_id }}`
+
+If any required input is missing, stop and request a provisioning update.
+
+## API Source of Truth
+Use OpenAPI for endpoint/payload details.
+
+```bash
+curl -fsS "{{ base_url }}/openapi.json" -o /tmp/openapi.json
+```
+
+Group-lead endpoint filter:
+
+```bash
+jq -r '
+  .paths | to_entries[] | .key as $path
+  | .value | to_entries[]
+  | select((.value.tags // []) | (index("agent-lead") or index("board-groups")))
+  | ((.value.summary // "") | gsub("\\s+"; " ")) as $summary
+  | "\(.value.operationId // "-")\t\($path)\t\(.value["x-llm-intent"] // "-")\t\($summary)"
+' /tmp/openapi.json | sort
+```
+
+## Pre-Flight Checks (Every Heartbeat)
+1) ALWAYS re-read `AUTH_TOKEN` from `TOOLS.md` at the start of every session — never use a hardcoded token:
+```bash
+AUTH_TOKEN=$(grep '^AUTH_TOKEN=' TOOLS.md | head -n1 | cut -d= -f2 | tr -d '`')
+```
+2) Verify API access:
+```bash
+curl -fsS "{{ base_url }}/healthz" && \
+curl -fsS -o /dev/null "{{ base_url }}/api/v1/board-groups/{{ group_id }}/tasks" \
+  -H "X-Agent-Token: $AUTH_TOKEN"
+```
+3) If healthz passes but tasks returns 401 — token is stale. Re-read TOOLS.md (step 1) and retry once.
+4) If still failing after retry, stop and wait for next heartbeat.
+
+## Group Lead Loop
+
+### 0. Signal Working Status
+Before doing any real work, set status to `working` so the dashboard shows you're active:
+```bash
+curl -fsS -X POST "{{ base_url }}/api/v1/agent/heartbeat" \
+  -H "X-Agent-Token: $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "working"}'
+```
+
+### 1. Pull Group Tasks
+```bash
+curl -fsS "{{ base_url }}/api/v1/board-groups/{{ group_id }}/tasks?limit=50" \
+  -H "X-Agent-Token: $AUTH_TOKEN"
+```
+
+### 2. Work Through Tasks by Priority
+- **inbox** → Claim by moving to `in_progress`, then execute the task
+- **in_progress** → Continue working; post progress to task comments
+- **review** → Verify completion and move to `done` if satisfied
+- **blocked** → Diagnose and unblock or escalate
+
+### 3. Update Task Status
+```bash
+curl -fsS -X PATCH "{{ base_url }}/api/v1/board-groups/{{ group_id }}/tasks/{task_id}" \
+  -H "X-Agent-Token: $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "in_progress"}'
+```
+
+### 4. Group Snapshot (for cross-board context)
+```bash
+curl -fsS "{{ base_url }}/api/v1/board-groups/{{ group_id }}/snapshot" \
+  -H "X-Agent-Token: $AUTH_TOKEN"
+```
+
+## Non-Negotiable Rules
+- Always move an inbox task to `in_progress` before working on it.
+- Post task comments with evidence when marking tasks `done`.
+- No keepalive comments — post only when there is net-new value.
+- If pre-flight fails due to 5xx/network, do not write memory or task updates.
+
+## Task Comment Format
+```md
+**Update**
+- What was done / decision made
+
+**Evidence**
+- Commands, links, file paths, or proof
+
+**Next**
+- Next 1-2 concrete actions
+```
+
+## Signal Online When Done
+After completing the work loop (regardless of outcome), set status back to `online`:
+```bash
+curl -fsS -X POST "{{ base_url }}/api/v1/agent/heartbeat" \
+  -H "X-Agent-Token: $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "online"}'
+```
+
+## When to Return `HEARTBEAT_OK`
+Return `HEARTBEAT_OK` only when:
+1) Pre-flight checks succeeded.
+2) All inbox tasks were either claimed or have a clear reason to stay.
+3) No outage rule was violated.
+
+Otherwise, do not return `HEARTBEAT_OK`.
+
+## Memory Maintenance
+Periodically:
+- Review recent `memory/YYYY-MM-DD.md` files.
+- Distill durable lessons/decisions into `MEMORY.md`.

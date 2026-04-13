@@ -27,6 +27,7 @@ from app.models.gateways import Gateway
 from app.models.tags import Tag
 from app.models.task_dependencies import TaskDependency
 from app.models.tasks import Task
+from app.models.agent_schedules import AgentSchedule
 from app.schemas.agents import (
     AgentCreate,
     AgentHeartbeat,
@@ -34,6 +35,7 @@ from app.schemas.agents import (
     AgentRead,
     AgentUpdate,
 )
+from app.schemas.agent_schedules import AgentScheduleRead, AgentScheduleUpdate
 from app.schemas.approvals import ApprovalCreate, ApprovalRead, ApprovalStatus
 from app.schemas.board_memory import BoardMemoryCreate, BoardMemoryRead
 from app.schemas.board_onboarding import BoardOnboardingAgentUpdate, BoardOnboardingRead
@@ -68,6 +70,7 @@ from app.services.task_dependencies import (
     dependency_status_by_id,
     validate_dependency_update,
 )
+from app.services.agent_schedules import AgentScheduleService
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -1761,6 +1764,150 @@ async def agent_heartbeat(
     )
 
 
+@router.get(
+    "/boards/{board_id}/agents/{agent_id}/schedule",
+    response_model=AgentScheduleRead,
+    tags=AGENT_BOARD_TAGS,
+    summary="Get an agent's heartbeat schedule",
+    description=(
+        "Retrieve the cron schedule configuration for a specific agent.\\n\\n"
+        "Agents can read their own schedule; board leads can read any agent's schedule "
+        "on their board."
+    ),
+    openapi_extra=_agent_board_openapi_hints(
+        intent="agent_schedule_read",
+        when_to_use=[
+            "Check current heartbeat interval for an agent",
+            "Display schedule in UI settings page",
+        ],
+        routing_examples=[
+            {
+                "input": {"intent": "read my heartbeat schedule"},
+                "decision": "agent_schedule_read",
+            }
+        ],
+        side_effects=["No persisted side effects"],
+        routing_policy=[
+            "Agent can read own schedule; board lead can read any on their board",
+        ],
+    ),
+)
+async def get_agent_schedule(
+    agent_id: UUID,
+    board: Board = BOARD_DEP,
+    session: AsyncSession = SESSION_DEP,
+    agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
+) -> AgentScheduleRead:
+    """Fetch an agent's heartbeat schedule.
+
+    If no schedule exists yet, returns 404 (schedule will be created on first PATCH).
+    """
+    _guard_board_access(agent_ctx, board)
+    OpenClawAuthorizationPolicy.require_board_lead_or_same_actor(
+        actor_agent=agent_ctx.agent,
+        target_agent_id=agent_id,
+    )
+
+    service = AgentScheduleService(session)
+    try:
+        return await service.get_schedule_by_agent(agent_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No schedule found for agent {agent_id}",
+        )
+
+
+@router.patch(
+    "/boards/{board_id}/agents/{agent_id}/schedule",
+    response_model=AgentScheduleRead,
+    tags=AGENT_BOARD_TAGS,
+    summary="Update an agent's heartbeat schedule",
+    description=(
+        "Update the cron schedule for an agent's heartbeats.\\n\\n"
+        "Valid intervals: 1, 2, 5, 10, 15, 30, 60 minutes. "
+        "The cron expression is generated automatically from the interval."
+    ),
+    openapi_extra=_agent_board_openapi_hints(
+        intent="agent_schedule_update",
+        when_to_use=[
+            "Change how often an agent heartbeats",
+            "Enable or disable scheduled heartbeats for an agent",
+        ],
+        routing_examples=[
+            {
+                "input": {"intent": "set Vulcan heartbeat to 2 minutes"},
+                "decision": "agent_schedule_update",
+            }
+        ],
+        side_effects=[
+            "Updates agent_schedules table",
+            "Scheduler service will regenerate crontab on next cycle",
+        ],
+        routing_policy=[
+            "Agent can update own schedule; board lead can update any on their board",
+        ],
+    ),
+)
+async def update_agent_schedule(
+    agent_id: UUID,
+    payload: AgentScheduleUpdate,
+    board: Board = BOARD_DEP,
+    session: AsyncSession = SESSION_DEP,
+    agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
+) -> AgentScheduleRead:
+    """Update or create an agent's heartbeat schedule."""
+    _guard_board_access(agent_ctx, board)
+    OpenClawAuthorizationPolicy.require_board_lead_or_same_actor(
+        actor_agent=agent_ctx.agent,
+        target_agent_id=agent_id,
+    )
+
+    # Validate interval is in whitelist (also validated by pydantic, but double-check)
+    if payload.interval_minutes not in {1, 2, 5, 10, 15, 30, 60}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Invalid interval {payload.interval_minutes}. "
+                f"Must be one of: 1, 2, 5, 10, 15, 30, 60 minutes"
+            ),
+        )
+
+    service = AgentScheduleService(session)
+    return await service.create_or_update_schedule(
+        agent_id=agent_id,
+        board_id=board.id,
+        interval_minutes=payload.interval_minutes,
+        enabled=payload.enabled,
+        last_updated_by=agent_ctx.agent.id,
+    )
+
+
+@router.get(
+    "/boards/{board_id}/agents/schedules",
+    response_model=list[AgentScheduleRead],
+    tags=AGENT_LEAD_TAGS,
+    summary="List all agent schedules for a board (lead only)",
+    description=(
+        "Retrieve all agent heartbeat schedules for a board.\\n\\n"
+        "Board lead only — returns a map of agent_id → schedule."
+    ),
+    operation_id="agent_lead_list_all_schedules",
+)
+async def list_board_agent_schedules(
+    board: Board = BOARD_DEP,
+    session: AsyncSession = SESSION_DEP,
+    agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
+) -> list[AgentScheduleRead]:
+    """List all agent schedules for a board (lead-only)."""
+    # Implicit lead check via BOARD_DEP + require_board_lead_actor
+    OpenClawAuthorizationPolicy.require_board_lead_actor(
+        actor_agent=agent_ctx.agent,
+        detail="Only board leads can list all agent schedules",
+    )
+
+    service = AgentScheduleService(session)
+    return await service.list_board_schedules(board.id)
 @router.get(
     "/boards/{board_id}/agents/{agent_id}/soul",
     response_model=str,

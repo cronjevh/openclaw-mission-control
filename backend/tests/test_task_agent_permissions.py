@@ -14,9 +14,15 @@ from app.api.deps import ActorContext
 from app.core.time import utcnow
 from app.models.activity_events import ActivityEvent
 from app.models.agents import Agent
+from app.models.agent_schedules import AgentSchedule  # noqa: F401
 from app.models.boards import Board
 from app.models.gateways import Gateway
 from app.models.organizations import Organization
+from app.models.task_custom_fields import (
+    BoardTaskCustomField,
+    TaskCustomFieldDefinition,
+    TaskCustomFieldValue,
+)
 from app.models.tasks import Task
 from app.schemas.tasks import TaskUpdate
 
@@ -529,7 +535,7 @@ async def test_non_lead_agent_move_to_review_reassigns_to_lead_and_sends_review_
             assert sent["session_key"] == "lead-session"
             assert sent["agent_name"] == "Lead Agent"
             assert "TASK READY FOR LEAD REVIEW" in sent["message"]
-            assert "review the deliverables" in sent["message"]
+            assert "review the evidence packet first" in sent["message"]
     finally:
         await engine.dispose()
 
@@ -1020,6 +1026,137 @@ async def test_lead_assignment_and_in_progress_wakes_assignee_once(
             assert len(wake_events) == 1
             assert wake_events[0].message is not None
             assert "(assignment)" in wake_events[0].message
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_backlog_task_return_to_inbox_does_not_notify_lead(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent: list[dict[str, Any]] = []
+
+    async def _fake_send_lead_task_message(**kwargs: Any) -> str | None:
+        sent.append(kwargs)
+        return None
+
+    monkeypatch.setattr(tasks_api, "_send_lead_task_message", _fake_send_lead_task_message)
+
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            org_id = uuid4()
+            board_id = uuid4()
+            gateway_id = uuid4()
+            lead_id = uuid4()
+            task_id = uuid4()
+            definition_id = uuid4()
+            board_field_id = uuid4()
+            value_id = uuid4()
+
+            session.add(Organization(id=org_id, name="org"))
+            session.add(
+                Gateway(
+                    id=gateway_id,
+                    organization_id=org_id,
+                    name="gateway",
+                    url="https://gateway.local",
+                    workspace_root="/tmp/workspace",
+                ),
+            )
+            session.add(
+                Board(
+                    id=board_id,
+                    organization_id=org_id,
+                    name="board",
+                    slug="board",
+                    gateway_id=gateway_id,
+                ),
+            )
+            session.add(
+                Agent(
+                    id=lead_id,
+                    name="lead",
+                    board_id=board_id,
+                    gateway_id=gateway_id,
+                    status="online",
+                    is_board_lead=True,
+                    openclaw_session_id="session-lead",
+                ),
+            )
+            session.add(
+                TaskCustomFieldDefinition(
+                    id=definition_id,
+                    organization_id=org_id,
+                    field_key="backlog",
+                    label="Backlog",
+                    field_type="boolean",
+                    default_value=False,
+                ),
+            )
+            session.add(
+                BoardTaskCustomField(
+                    id=board_field_id,
+                    organization_id=org_id,
+                    board_id=board_id,
+                    task_custom_field_definition_id=definition_id,
+                ),
+            )
+            session.add(
+                Task(
+                    id=task_id,
+                    board_id=board_id,
+                    title="backlog task",
+                    description="",
+                    status="inbox",
+                    assigned_agent_id=None,
+                ),
+            )
+            session.add(
+                TaskCustomFieldValue(
+                    id=value_id,
+                    organization_id=org_id,
+                    task_id=task_id,
+                    task_custom_field_definition_id=definition_id,
+                    value=True,
+                ),
+            )
+            await session.commit()
+
+            task = (await session.exec(select(Task).where(col(Task.id) == task_id))).first()
+            assert task is not None
+            lead = (await session.exec(select(Agent).where(col(Agent.id) == lead_id))).first()
+            assert lead is not None
+
+            update = tasks_api._TaskUpdateInput(
+                task=task,
+                actor=ActorContext(actor_type="agent", agent=lead),
+                board_id=board_id,
+                previous_status="review",
+                previous_assigned=lead_id,
+                status_requested=True,
+                updates={},
+                comment=None,
+                depends_on_task_ids=None,
+                tag_ids=None,
+                custom_field_values={},
+                custom_field_values_set=False,
+            )
+
+            await tasks_api._notify_task_update_assignment_changes(
+                session,
+                update=update,
+            )
+
+            assert sent == []
+            events = (
+                await session.exec(
+                    select(ActivityEvent)
+                    .where(col(ActivityEvent.task_id) == task_id)
+                    .where(col(ActivityEvent.event_type) == "task.lead_unassigned_notified"),
+                )
+            ).all()
+            assert events == []
     finally:
         await engine.dispose()
 

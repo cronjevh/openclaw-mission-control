@@ -19,6 +19,7 @@ export interface BoardRead {
   gateway_id?: string | null;
   goal_confirmed?: boolean;
   goal_source?: string | null;
+  hide_done_after_days?: number;
   id: string;
   /** @minimum 0 */
   max_agents?: number;

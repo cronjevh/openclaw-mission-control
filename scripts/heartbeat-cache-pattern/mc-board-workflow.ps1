@@ -8,9 +8,13 @@ $Wsp = "/home/cronjev/.openclaw/workspace-lead-$BoardId"
 $State = Join-Path $Wsp '.openclaw/workflows/.dispatch-state-latest.json'
 $Dispatch = '/home/cronjev/.openclaw/scripts/mission-control-scripts/mc-board-dispatch.ps1'
 $TTL = 300
+$AgentRole = if ($AgentId -eq $BoardId) { 'lead' } else { 'worker' }
+$InvocationAgent = if ($AgentId -eq $BoardId) { "lead-$BoardId" } else { "mc-$AgentId" }
 
 # ── Cache miss or stale ──
-try { & pwsh -NoProfile -File $Dispatch -AgentId $AgentId -BoardId $BoardId | Out-File $State }
+try {
+    & pwsh -NoProfile -File $Dispatch -AgentId $AgentId -BoardId $BoardId -AgentRole $AgentRole -WorkspacePath $Wsp | Out-File $State
+}
 catch { Write-Host "OK # dispatch failed"; exit 0 }
 
 # ── Fast cache check ──
@@ -42,7 +46,7 @@ AUTH_TOKEN=$authToken
 
 "@
     $Msg += (Get-Content (Join-Path $Wsp 'GATED-HEARTBEAT.md') -Raw)
-    & openclaw agent --agent "lead-dd95369d-1497-41f2-8aeb-e06b51b63162" --message "$Msg" --json --timeout 120 --thinking on
+    & openclaw agent --agent $InvocationAgent --message "$Msg" --json --timeout 120 --thinking on
 }
 else {
     Write-Host "OK # act=false ($($j.reason))"

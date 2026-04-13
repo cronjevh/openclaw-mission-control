@@ -328,6 +328,7 @@ export default function EditBoardPage() {
     boolean | undefined
   >(undefined);
   const [maxAgents, setMaxAgents] = useState<number | undefined>(undefined);
+  const [hideDoneAfterDays, setHideDoneAfterDays] = useState<number | undefined>(undefined);
   const [successMetrics, setSuccessMetrics] = useState<string | undefined>(
     undefined,
   );
@@ -668,6 +669,8 @@ export default function EditBoardPage() {
   const resolvedOnlyLeadCanChangeStatus =
     onlyLeadCanChangeStatus ?? baseBoard?.only_lead_can_change_status ?? false;
   const resolvedMaxAgents = maxAgents ?? baseBoard?.max_agents ?? 1;
+  const resolvedHideDoneAfterDays =
+    hideDoneAfterDays ?? baseBoard?.hide_done_after_days ?? null;
   const resolvedSuccessMetrics =
     successMetrics ??
     (baseBoard?.success_metrics
@@ -751,6 +754,7 @@ export default function EditBoardPage() {
     );
     setOnlyLeadCanChangeStatus(updated.only_lead_can_change_status ?? false);
     setMaxAgents(updated.max_agents ?? 1);
+    setHideDoneAfterDays(updated.hide_done_after_days);
     setSuccessMetrics(
       updated.success_metrics
         ? JSON.stringify(updated.success_metrics, null, 2)
@@ -781,6 +785,13 @@ export default function EditBoardPage() {
     }
     if (!Number.isInteger(resolvedMaxAgents) || resolvedMaxAgents < 0) {
       setError("Max worker agents must be a non-negative integer.");
+      return;
+    }
+    if (
+      resolvedHideDoneAfterDays !== null &&
+      (!Number.isInteger(resolvedHideDoneAfterDays) || resolvedHideDoneAfterDays < 0)
+    ) {
+      setError("Hide done after days must be a non-negative integer or blank.");
       return;
     }
 
@@ -819,6 +830,7 @@ export default function EditBoardPage() {
         resolvedBlockStatusChangesWithPendingApproval,
       only_lead_can_change_status: resolvedOnlyLeadCanChangeStatus,
       max_agents: resolvedMaxAgents,
+      hide_done_after_days: resolvedHideDoneAfterDays,
       success_metrics: resolvedBoardType === "general" ? null : parsedMetrics,
       target_date:
         resolvedBoardType === "general"
@@ -1008,6 +1020,32 @@ export default function EditBoardPage() {
                       setMaxAgents(Math.max(0, next));
                     }}
                     disabled={isLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-strong">
+                    Hide done after days
+                  </label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={resolvedHideDoneAfterDays ?? ""}
+                    onChange={(event) => {
+                      const val = event.target.value;
+                      if (val === "") {
+                        setHideDoneAfterDays(undefined);
+                        return;
+                      }
+                      const next = Number.parseInt(val, 10);
+                      if (Number.isNaN(next)) {
+                        setHideDoneAfterDays(0);
+                        return;
+                      }
+                      setHideDoneAfterDays(Math.max(0, next));
+                    }}
+                    disabled={isLoading}
+                    placeholder="Leave empty to disable"
                   />
                 </div>
               </div>

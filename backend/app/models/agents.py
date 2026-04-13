@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import JSON, Column, Text
-from sqlmodel import Field
+from sqlmodel import Field, Relationship
 
 from app.core.time import utcnow
 from app.models.base import QueryModel
@@ -52,3 +52,6 @@ class Agent(QueryModel, table=True):
     is_board_lead: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+
+    # Relationship: each agent can have exactly one schedule (one-to-one)
+    schedule: "AgentSchedule | None" = Relationship(back_populates="agent")  # type: ignore[var-annotated]

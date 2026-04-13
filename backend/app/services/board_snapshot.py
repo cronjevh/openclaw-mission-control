@@ -95,8 +95,17 @@ async def build_board_snapshot(session: AsyncSession, board: Board) -> BoardSnap
     """Build a board snapshot with tasks, agents, approvals, and chat history."""
     board_read = BoardRead.model_validate(board, from_attributes=True)
 
+    # Build task query with optional hide_done_after_days filtering
+    task_query = Task.objects.filter_by(board_id=board.id)
+    if board.hide_done_after_days and board.hide_done_after_days > 0:
+        from datetime import datetime, timedelta, timezone
+        cutoff = datetime.now(timezone.utc) - timedelta(days=board.hide_done_after_days)
+        # Exclude tasks that are done and updated before cutoff
+        task_query = task_query.where(
+            ~((Task.status == "done") & (Task.updated_at < cutoff))
+        )
     tasks = list(
-        await Task.objects.filter_by(board_id=board.id)
+        await task_query
         .order_by(col(Task.created_at).desc())
         .all(session),
     )

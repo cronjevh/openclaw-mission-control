@@ -111,6 +111,7 @@ TASK_SNIPPET_TRUNCATED_LEN = 497
 TASK_EVENT_ROW_LEN = 2
 SESSION_REPLY_POLL_SECONDS = 2
 SESSION_REPLY_TIMEOUT_SECONDS = 45
+DEFAULT_OKR_ARTIFACT_KINDS = ["deliverable"]
 BOARD_READ_DEP = Depends(get_board_for_actor_read)
 ACTOR_DEP = Depends(require_user_or_agent)
 SINCE_QUERY = Query(default=None)
@@ -178,6 +179,56 @@ def _review_required_for_done_error() -> HTTPException:
             "blocked_by_task_ids": [],
         },
     )
+
+
+def _looks_like_okr_task(description: str | None) -> bool:
+    if not description:
+        return False
+    normalized = description.lower()
+    return (
+        "## okr framing" in normalized
+        or ("## objective" in normalized and "#### kr1" in normalized)
+        or ("### objective" in normalized and "### key results" in normalized)
+    )
+
+
+def apply_default_evidence_closure_for_okr_tasks(payload: TaskCreate) -> TaskCreate:
+    """Default OKR-shaped tasks into evidence-backed closure when omitted.
+
+    This keeps the existing manual-review path intact for legacy tasks, while making
+    evidence-backed closure the safe default for structured OKR task specs.
+    """
+    if payload.closure_mode is not None:
+        return payload
+    if not _looks_like_okr_task(payload.description):
+        return payload
+
+    updates: dict[str, object] = {
+        "closure_mode": "evidence_packet",
+    }
+    if not payload.required_artifact_kinds:
+        updates["required_artifact_kinds"] = list(DEFAULT_OKR_ARTIFACT_KINDS)
+    if payload.lead_spot_check_required is False:
+        updates["lead_spot_check_required"] = True
+    return payload.model_copy(update=updates)
+
+
+def _apply_default_evidence_closure_for_okr_task_model(task: Task) -> None:
+    """Backfill evidence defaults when an existing task becomes OKR-shaped.
+
+    Create-time defaults already cover new OKR tasks. This closes the parallel
+    update-path loophole where a legacy/manual task can be edited into an
+    OKR-shaped spec without picking up evidence-backed closure metadata.
+    """
+    if task.closure_mode is not None:
+        return
+    if not _looks_like_okr_task(task.description):
+        return
+    task.closure_mode = "evidence_packet"
+    if not task.required_artifact_kinds:
+        task.required_artifact_kinds = list(DEFAULT_OKR_ARTIFACT_KINDS)
+    if task.lead_spot_check_required is False:
+        task.lead_spot_check_required = True
 
 
 def _pending_approval_blocks_status_change_error() -> HTTPException:
@@ -802,7 +853,7 @@ def _assignment_notification_message(*, board: Board, task: Task, agent: Agent) 
         details.append(f"Description: {description}")
     if task.status == "review" and agent.is_board_lead:
         action = (
-            "Take action: review the deliverables now. "
+            "Take action: review the evidence packet first, then use comments and deliverables as supporting context. "
             "Approve by moving to done or return to inbox with clear feedback."
         )
         return "TASK READY FOR LEAD REVIEW\n" + "\n".join(details) + f"\n\n{action}"
@@ -1466,12 +1517,27 @@ async def _task_custom_field_values_by_task_id(
     return values_by_task_id
 
 
+async def _task_backlog_enabled(
+    session: AsyncSession,
+    *,
+    board_id: UUID,
+    task_id: UUID,
+) -> bool:
+    values_by_task_id = await _task_custom_field_values_by_task_id(
+        session,
+        board_id=board_id,
+        task_ids=[task_id],
+    )
+    return bool(values_by_task_id.get(task_id, {}).get("backlog"))
+
+
 def _task_list_statement(
     *,
     board_id: UUID,
     status_filter: str | None,
     assigned_agent_id: UUID | None,
     unassigned: bool | None,
+    hide_done_after_days: int | None = None,
 ) -> SelectOfScalar[Task]:
     statement = select(Task).where(Task.board_id == board_id)
     statuses = _status_values(status_filter)
@@ -1481,6 +1547,14 @@ def _task_list_statement(
         statement = statement.where(col(Task.assigned_agent_id) == assigned_agent_id)
     if unassigned:
         statement = statement.where(col(Task.assigned_agent_id).is_(None))
+    # Filter out old done tasks if board has hide_done_after_days set
+    if hide_done_after_days and hide_done_after_days > 0:
+        from datetime import datetime, timedelta, timezone
+        cutoff = datetime.now(timezone.utc) - timedelta(days=hide_done_after_days)
+        # Exclude tasks that are done AND updated_at before cutoff
+        statement = statement.where(
+            ~((Task.status == "done") & (Task.updated_at < cutoff))
+        )
     return statement.order_by(col(Task.created_at).desc())
 
 
@@ -1776,6 +1850,7 @@ async def list_tasks(
         status_filter=status_filter,
         assigned_agent_id=assigned_agent_id,
         unassigned=unassigned,
+        hide_done_after_days=board.hide_done_after_days,
     )
 
     async def _transform(items: Sequence[object]) -> Sequence[object]:
@@ -1797,6 +1872,7 @@ async def create_task(
     auth: AuthContext = USER_AUTH_DEP,
 ) -> TaskRead:
     """Create a task and initialize dependency rows."""
+    payload = apply_default_evidence_closure_for_okr_tasks(payload)
     data = payload.model_dump(exclude={"depends_on_task_ids", "tag_ids", "custom_field_values"})
     depends_on_task_ids = list(payload.depends_on_task_ids)
     tag_ids = list(payload.tag_ids)
@@ -2936,7 +3012,11 @@ async def _notify_task_update_assignment_changes(
         and (update.previous_status != "inbox" or update.previous_assigned is not None)
     ):
         current_board = await _board()
-        if current_board:
+        if current_board and not await _task_backlog_enabled(
+            session,
+            board_id=current_board.id,
+            task_id=update.task.id,
+        ):
             await _notify_lead_on_task_unassigned(
                 session=session,
                 board=current_board,
@@ -3099,6 +3179,7 @@ async def _finalize_updated_task(
 ) -> TaskRead:
     for key, value in update.updates.items():
         setattr(update.task, key, value)
+    _apply_default_evidence_closure_for_okr_task_model(update.task)
     await _require_no_pending_approval_for_status_change_when_enabled(
         session,
         board_id=update.board_id,
@@ -3307,6 +3388,19 @@ async def bulk_update_task_status(
         if not task:
             failed += 1
             continue
+        # Evidence enforcement guard: if closing to 'done' and task requires evidence,
+        # ensure an active evidence packet exists. Skip task on failure.
+        if payload.status == "done":
+            try:
+                await _require_task_evidence_for_done_when_enabled(
+                    session,
+                    task=task,
+                    previous_status=task.status,
+                    target_status=payload.status,
+                )
+            except HTTPException:
+                failed += 1
+                continue
         task.status = payload.status
         task.updated_at = now
         if payload.status == "in_progress" and not task.in_progress_at:

@@ -1,7 +1,5 @@
 """Agent heartbeat schedule model for per-agent crontab management."""
 
-from __future__ import annotations
-
 from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -58,5 +56,8 @@ class AgentSchedule(QueryModel, table=True):
     )
 
     # Relationships (optional, for convenience)
-    agent: "Agent" = Relationship(back_populates="schedule")  # type: ignore[var-annotated]
+    agent: list["Agent"] = Relationship(
+        back_populates="schedule",
+        sa_relationship_kwargs={"foreign_keys": "[AgentSchedule.agent_id]"},
+    )
     # board: "Board" = Relationship(back_populates="agent_schedules")  # optional

@@ -25,7 +25,11 @@ from app.services.openclaw.gateway_resolver import (
     require_gateway_for_board,
 )
 from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
-from app.services.openclaw.gateway_rpc import OpenClawGatewayError, ensure_session, send_message
+from app.services.openclaw.gateway_rpc import (
+    OpenClawGatewayError,
+    ensure_session,
+    send_message,
+)
 
 if TYPE_CHECKING:
     from app.models.agents import Agent
@@ -39,7 +43,11 @@ def _is_agent_offline(last_seen_at: datetime | None) -> bool:
     """Return True if the agent hasn't been seen within OFFLINE_AFTER."""
     if last_seen_at is None:
         return True
-    ts = last_seen_at if last_seen_at.tzinfo else last_seen_at.replace(tzinfo=timezone.utc)
+    ts = (
+        last_seen_at
+        if last_seen_at.tzinfo
+        else last_seen_at.replace(tzinfo=timezone.utc)
+    )
     return (datetime.now(timezone.utc) - ts) > OFFLINE_AFTER
 
 
@@ -72,6 +80,11 @@ class GatewayDispatchService(OpenClawDBService):
         sends the wake message — reliable even when the agent session is fully dead.
         Falls back to a bare send_message if the board/gateway context is missing.
         """
+        from app.services.openclaw.auto_wake import automatic_wake_reprovision_enabled
+
+        if not automatic_wake_reprovision_enabled():
+            return
+
         if not _is_agent_offline(agent.last_seen_at):
             return
 
@@ -83,18 +96,26 @@ class GatewayDispatchService(OpenClawDBService):
 
         try:
             from app.models.gateways import Gateway as GatewayModel
-            from app.services.openclaw.lifecycle_orchestrator import AgentLifecycleOrchestrator
+            from app.services.openclaw.lifecycle_orchestrator import (
+                AgentLifecycleOrchestrator,
+            )
             from app.core.time import utcnow
 
-            gateway = await GatewayModel.objects.by_id(agent.gateway_id).first(self.session)
+            gateway = await GatewayModel.objects.by_id(agent.gateway_id).first(
+                self.session
+            )
             if gateway is None:
-                logger.warning("dispatch.wake_agent.no_gateway", extra={"agent_id": str(agent.id)})
+                logger.warning(
+                    "dispatch.wake_agent.no_gateway", extra={"agent_id": str(agent.id)}
+                )
                 return
 
             # Resolve the board if not supplied
             resolved_board = board
             if resolved_board is None and agent.board_id is not None:
-                resolved_board = await Board.objects.by_id(agent.board_id).first(self.session)
+                resolved_board = await Board.objects.by_id(agent.board_id).first(
+                    self.session
+                )
 
             # Reset stale offline state so run_lifecycle doesn't get blocked by
             # max-wake-attempts from a previous dead cycle.
@@ -145,14 +166,20 @@ class GatewayDispatchService(OpenClawDBService):
             agent=agent,
             session_key=session_key,
         )
-        if await self._should_skip_for_paused_board(board=resolved_board, message=message):
-            raise OpenClawGatewayError("Board agents are paused. Send /resume to continue.")
+        if await self._should_skip_for_paused_board(
+            board=resolved_board, message=message
+        ):
+            raise OpenClawGatewayError(
+                "Board agents are paused. Send /resume to continue."
+            )
 
         # Full re-provision wake for offline agents before delivering the notification.
         if agent is not None:
             await self.wake_agent_if_offline(agent=agent, board=resolved_board)
         await ensure_session(session_key, config=config, label=agent_name)
-        await send_message(message, session_key=session_key, config=config, deliver=deliver)
+        await send_message(
+            message, session_key=session_key, config=config, deliver=deliver
+        )
 
     async def try_send_agent_message(
         self,
@@ -171,29 +198,31 @@ class GatewayDispatchService(OpenClawDBService):
             agent=agent,
             session_key=session_key,
         )
-        if await self._should_skip_for_paused_board(board=resolved_board, message=message):
-            return OpenClawGatewayError("Board agents are paused. Send /resume to continue.")
+        if await self._should_skip_for_paused_board(
+            board=resolved_board, message=message
+        ):
+            return OpenClawGatewayError(
+                "Board agents are paused. Send /resume to continue."
+            )
 
         # Support legacy last_seen_at callers by synthesising a minimal wake check.
         effective_agent = agent
-        if effective_agent is None and last_seen_at is not None and _is_agent_offline(last_seen_at):
+        if (
+            effective_agent is None
+            and last_seen_at is not None
+            and _is_agent_offline(last_seen_at)
+        ):
             # Can't re-provision without the full Agent object; best-effort send_message wake.
             _wake_config = config
             _session_key = session_key
             logger = _get_logger()
-            logger.info("dispatch.wake_agent.legacy", extra={"agent_name": agent_name})
-            try:
-                from app.services.openclaw.gateway_rpc import send_message as _sm
-                await ensure_session(_session_key, config=_wake_config, label=agent_name)
-                await _sm(
-                    "Read HEARTBEAT.md if it exists. Follow it strictly. "
-                    "If nothing needs attention, reply HEARTBEAT_OK.",
-                    session_key=_session_key,
-                    config=_wake_config,
-                    deliver=True,
-                )
-            except OpenClawGatewayError:
-                pass
+            logger.info(
+                "dispatch.wake_agent.legacy.blocked",
+                extra={
+                    "agent_name": agent_name,
+                    "reason": "kill switch active",
+                },
+            )
 
         try:
             await self.send_agent_message(
@@ -229,7 +258,9 @@ class GatewayDispatchService(OpenClawDBService):
 
         from app.models.agents import Agent as AgentModel
 
-        session_agent = await AgentModel.objects.filter_by(openclaw_session_id=session_key).first(
+        session_agent = await AgentModel.objects.filter_by(
+            openclaw_session_id=session_key
+        ).first(
             self.session,
         )
         if session_agent is None or session_agent.board_id is None:
@@ -255,7 +286,11 @@ class GatewayDispatchService(OpenClawDBService):
             .where(col(BoardMemory.board_id) == board_id)
             .where(col(BoardMemory.is_chat).is_(True))
             # `/new` is allowed while paused, but it must not toggle paused state.
-            .where(func.lower(func.trim(col(BoardMemory.content))).in_(set(_PAUSE_STATE_COMMANDS)))
+            .where(
+                func.lower(func.trim(col(BoardMemory.content))).in_(
+                    set(_PAUSE_STATE_COMMANDS)
+                )
+            )
             .order_by(col(BoardMemory.created_at).desc())
             .limit(1)
         )

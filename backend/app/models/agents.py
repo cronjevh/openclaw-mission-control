@@ -1,7 +1,5 @@
 """Agent model representing autonomous actors assigned to boards."""
 
-from __future__ import annotations
-
 from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -48,10 +46,15 @@ class Agent(QueryModel, table=True):
     last_wake_sent_at: datetime | None = Field(default=None)
     checkin_deadline_at: datetime | None = Field(default=None)
     last_provision_error: str | None = Field(default=None, sa_column=Column(Text))
-    group_id: UUID | None = Field(default=None, foreign_key="board_groups.id", index=True)
+    group_id: UUID | None = Field(
+        default=None, foreign_key="board_groups.id", index=True
+    )
     is_board_lead: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
     # Relationship: each agent can have exactly one schedule (one-to-one)
-    schedule: "AgentSchedule | None" = Relationship(back_populates="agent")  # type: ignore[var-annotated]
+    schedule: list["AgentSchedule"] = Relationship(
+        back_populates="agent",
+        sa_relationship_kwargs={"foreign_keys": "[AgentSchedule.agent_id]"},
+    )

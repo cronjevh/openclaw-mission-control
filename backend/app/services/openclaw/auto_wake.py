@@ -1,9 +1,13 @@
-"""Central toggle for automatic OpenClaw wake/reprovision behavior.
+"""Central toggle for automatic OpenClaw wake/reprovision and message dispatch behavior.
 
-This is intentionally separate from the core lifecycle code so operators have a
-single place to understand the temporary kill switch while debugging wake
-thrash. Explicit operator-triggered provisioning/update flows still work; this
-toggle only guards background or implicit "make it wake somehow" paths.
+When disabled (default), this blocks:
+  - All chat.send gateway RPC calls (send_message in gateway_rpc.py)
+  - Automatic offline agent re-provisioning (wake_agent_if_offline in gateway_dispatch.py)
+  - Watchdog background loop (agent_watchdog.py)
+  - Lifecycle reconciliation queue (lifecycle_reconcile.py)
+
+Board dispatch logic should be handled by external scripting (e.g. mc-board-dispatch.ps1)
+which can make deterministic decisions without LLM invocation overhead.
 """
 
 from __future__ import annotations

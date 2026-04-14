@@ -335,7 +335,9 @@ def _build_connect_params(
             "id": CONTROL_UI_CLIENT_ID if use_control_ui else DEFAULT_GATEWAY_CLIENT_ID,
             "version": "1.0.0",
             "platform": "python",
-            "mode": CONTROL_UI_CLIENT_MODE if use_control_ui else DEFAULT_GATEWAY_CLIENT_MODE,
+            "mode": CONTROL_UI_CLIENT_MODE
+            if use_control_ui
+            else DEFAULT_GATEWAY_CLIENT_MODE,
         },
     }
     if not use_control_ui:
@@ -401,7 +403,9 @@ async def _openclaw_call_once(
     config: GatewayConfig,
     gateway_url: str,
 ) -> object:
-    origin = _build_control_ui_origin(gateway_url) if config.disable_device_pairing else None
+    origin = (
+        _build_control_ui_origin(gateway_url) if config.disable_device_pairing else None
+    )
     ssl_context = _create_ssl_context(config)
     connect_kwargs: dict[str, Any] = {"ping_interval": None}
     if origin is not None:
@@ -419,7 +423,9 @@ async def _openclaw_connect_metadata_once(
     config: GatewayConfig,
     gateway_url: str,
 ) -> object:
-    origin = _build_control_ui_origin(gateway_url) if config.disable_device_pairing else None
+    origin = (
+        _build_control_ui_origin(gateway_url) if config.disable_device_pairing else None
+    )
     ssl_context = _create_ssl_context(config)
     connect_kwargs: dict[str, Any] = {"ping_interval": None}
     if origin is not None:
@@ -534,6 +540,19 @@ async def send_message(
     deliver: bool = False,
 ) -> object:
     """Send a chat message to a session."""
+    from app.services.openclaw.auto_wake import automatic_wake_reprovision_enabled
+
+    if not automatic_wake_reprovision_enabled():
+        logger.info(
+            "gateway.rpc.chat.send.blocked",
+            extra={
+                "session_key": session_key,
+                "deliver": deliver,
+                "blocked_message": message[:500],
+            },
+        )
+        return None
+
     params: dict[str, Any] = {
         "sessionKey": session_key,
         "message": message,

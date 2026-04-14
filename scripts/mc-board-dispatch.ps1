@@ -174,104 +174,6 @@ function Get-AgentRoleValue {
     return 'worker'
 }
 
-function Resolve-AgentWorkspaceDirectory {
-    param(
-        $Agent,
-        [string]$BoardIdValue
-    )
-
-    $candidatePaths = @()
-
-    if ($Agent -and $Agent.id) {
-        $candidatePaths += "/home/cronjev/.openclaw/workspace-mc-$($Agent.id)"
-    }
-
-    if ($Agent -and $Agent.is_board_lead -and $BoardIdValue) {
-        $candidatePaths += "/home/cronjev/.openclaw/workspace-lead-$BoardIdValue"
-    }
-
-    foreach ($candidatePath in $candidatePaths) {
-        if ($candidatePath -and (Test-Path -LiteralPath $candidatePath)) {
-            return (Resolve-Path -LiteralPath $candidatePath).Path
-        }
-    }
-
-    if ($Agent -and $Agent.is_board_lead -and $BoardIdValue) {
-        return "/home/cronjev/.openclaw/workspace-lead-$BoardIdValue"
-    }
-
-    if ($Agent -and $Agent.id) {
-        return "/home/cronjev/.openclaw/workspace-mc-$($Agent.id)"
-    }
-
-    return $null
-}
-
-function Get-AgentRoleDescription {
-    param(
-        $Agent
-    )
-
-    if ($null -eq $Agent) {
-        return ''
-    }
-
-    if ($Agent.PSObject.Properties.Name -contains 'identity_profile') {
-        $identityProfile = $Agent.identity_profile
-        if ($identityProfile -and $identityProfile.role) {
-            return "$($identityProfile.role)".Trim()
-        }
-    }
-
-    if ($Agent.PSObject.Properties.Name -contains 'identity_template') {
-        $identityTemplate = "$($Agent.identity_template)".Trim()
-        if ($identityTemplate) {
-            return $identityTemplate
-        }
-    }
-
-    return ''
-}
-
-function Get-BoardAgents {
-    param(
-        [string]$BaseUri,
-        [string]$AuthToken,
-        [string]$BoardIdValue,
-        [string]$LeadAgentId
-    )
-
-    $encodedBoardIdValue = [uri]::EscapeDataString($BoardIdValue)
-    $agentsUri = "$BaseUri/api/v1/agent/agents?board_id=$encodedBoardIdValue"
-    $agentsResponse = Invoke-BoardApi -Uri $agentsUri -AuthToken $AuthToken
-    $agents = Get-ResponseItems -Response $agentsResponse
-
-    $boardAgents = @()
-    foreach ($agent in $agents) {
-        if ($null -eq $agent) {
-            continue
-        }
-
-        if ($agent.id -eq $LeadAgentId) {
-            continue
-        }
-
-        if ($agent.is_board_lead) {
-            continue
-        }
-
-        $boardAgents += [ordered]@{
-            id = $agent.id
-            name = $agent.name
-            role = (Get-AgentRoleDescription -Agent $agent)
-            workspace_dir = (Resolve-AgentWorkspaceDirectory -Agent $agent -BoardIdValue $BoardIdValue)
-            status = $agent.status
-        }
-    }
-
-    return $boardAgents
-}
-
 function New-Result {
     param(
         [bool]$Act,
@@ -280,8 +182,7 @@ function New-Result {
         [string]$BoardIdValue,
         [string]$AgentIdValue,
         [hashtable]$Summary,
-        [array]$Tasks = @(),
-        [array]$BoardAgents = @()
+        [array]$Tasks = @()
     )
 
     [ordered]@{
@@ -292,7 +193,6 @@ function New-Result {
         agentId = $AgentIdValue
         summary = $Summary
         tasks = $Tasks
-        boardAgents = $BoardAgents
     }
 }
 
@@ -319,29 +219,6 @@ function Get-TaskSubagentUuid {
     }
 
     return $null
-}
-
-function Get-IsTaskBacklog {
-    param(
-        $Task
-    )
-
-    if ($null -eq $Task) {
-        return $false
-    }
-
-    $isBacklog = $false
-    if ($Task.PSObject.Properties.Name -contains 'custom_field_values') {
-        $cf = $Task.custom_field_values
-        if ($cf -and $cf.backlog) {
-            $isBacklog = $cf.backlog
-        }
-    }
-    if ($Task.PSObject.Properties.Name -contains 'backlog') {
-        $isBacklog = $Task.backlog
-    }
-
-    return [bool]$isBacklog
 }
 
 try {
@@ -389,7 +266,6 @@ try {
 
     switch ($resolvedAgentRole) {
         'lead' {
-            $boardAgents = Get-BoardAgents -BaseUri $baseUri -AuthToken $authToken -BoardIdValue $BoardId -LeadAgentId $AgentId
             $inboxUri = "$baseUri/api/v1/agent/boards/$encodedBoardId/tasks?status=inbox"
             $reviewUri = "$baseUri/api/v1/agent/boards/$encodedBoardId/tasks?status=review"
 
@@ -398,10 +274,6 @@ try {
 
             $inboxTasks = Get-ResponseItems -Response $inboxResponse
             $reviewTasks = Get-ResponseItems -Response $reviewResponse
-
-            if ($inboxTasks) {
-                $inboxTasks = @($inboxTasks | Where-Object { -not (Get-IsTaskBacklog -Task $_) })
-            }
 
             $inboxCount = if ($inboxTasks) { $inboxTasks.Count } else { 0 }
             $reviewCount = if ($reviewTasks) { $reviewTasks.Count } else { 0 }
@@ -412,40 +284,33 @@ try {
             $allTasks = @()
             if ($summary.inbox) {
                 foreach ($task in $inboxTasks) {
-                    $isBacklog = Get-IsTaskBacklog -Task $task
                     $allTasks += @{
                         id = $task.id
                         status = 'inbox'
                         title = $task.title
-                        assigned_agent_id = $task.assigned_agent_id
                         subagent_uuid = (Get-TaskSubagentUuid -Task $task -AuthToken $authToken -BaseUri $baseUri -BoardId $BoardId -AgentId $AgentId)
-                        backlog = $isBacklog
                     }
                 }
-            }
-
-            if ($summary.review) {
-                foreach ($task in $reviewTasks) {
-                    $isBacklog = Get-IsTaskBacklog -Task $task
-                    $allTasks += @{
-                        id = $task.id
-                        status = 'review'
-                        title = $task.title
-                        assigned_agent_id = $task.assigned_agent_id
-                        subagent_uuid = (Get-TaskSubagentUuid -Task $task -AuthToken $authToken -BaseUri $baseUri -BoardId $BoardId -AgentId $AgentId)
-                        backlog = $isBacklog
-                    }
-                }
-            }
-
-            if ($allTasks.Count -gt 0) {
-                $reason = if ($summary.inbox) { 'lead_inbox' } else { 'lead_review' }
-                $result = New-Result -Act $true -Reason $reason -AgentRoleValue $resolvedAgentRole -BoardIdValue $BoardId -AgentIdValue $AgentId -Summary $summary -Tasks $allTasks -BoardAgents $boardAgents
+                $result = New-Result -Act $true -Reason 'lead_inbox' -AgentRoleValue $resolvedAgentRole -BoardIdValue $BoardId -AgentIdValue $AgentId -Summary $summary -Tasks $allTasks
                 $result | ConvertTo-Json -Depth 6 -Compress
                 exit 0
             }
 
-            $result = New-Result -Act $false -Reason 'idle' -AgentRoleValue $resolvedAgentRole -BoardIdValue $BoardId -AgentIdValue $AgentId -Summary $summary -BoardAgents $boardAgents
+            if ($summary.review) {
+                foreach ($task in $reviewTasks) {
+                    $allTasks += @{
+                        id = $task.id
+                        status = 'review'
+                        title = $task.title
+                        subagent_uuid = (Get-TaskSubagentUuid -Task $task -AuthToken $authToken -BaseUri $baseUri -BoardId $BoardId -AgentId $AgentId)
+                    }
+                }
+                $result = New-Result -Act $true -Reason 'lead_review' -AgentRoleValue $resolvedAgentRole -BoardIdValue $BoardId -AgentIdValue $AgentId -Summary $summary -Tasks $allTasks
+                $result | ConvertTo-Json -Depth 6 -Compress
+                exit 0
+            }
+
+            $result = New-Result -Act $false -Reason 'idle' -AgentRoleValue $resolvedAgentRole -BoardIdValue $BoardId -AgentIdValue $AgentId -Summary $summary
             $result | ConvertTo-Json -Depth 6 -Compress
             exit 0
         }
@@ -462,15 +327,32 @@ try {
 
             # Filter out backlog=true tasks for worker role
             if ($assignedInboxTasks) {
-                $assignedInboxTasks = @($assignedInboxTasks | Where-Object {
-                    -not (Get-IsTaskBacklog -Task $_)
+                $assignedInboxTasks = @($assignedInboxTasks | Where-Object { 
+                    # Check backlog flag in custom fields or direct property
+                    $isBacklog = $false
+                    if ($_.PSObject.Properties.Name -contains 'custom_field_values') {
+                        $cf = $_.custom_field_values
+                        if ($cf -and $cf.backlog) { $isBacklog = $cf.backlog }
+                    }
+                    if ($_.PSObject.Properties.Name -contains 'backlog') {
+                        $isBacklog = $_.backlog
+                    }
+                    -not $isBacklog
                 })
             }
 
-            # Do not hide already-started work behind backlog=true.
-            # Backlog should suppress unstarted inbox work, not in-progress continuation.
             if ($assignedInProgressTasks) {
-                $assignedInProgressTasks = @($assignedInProgressTasks)
+                $assignedInProgressTasks = @($assignedInProgressTasks | Where-Object {
+                    $isBacklog = $false
+                    if ($_.PSObject.Properties.Name -contains 'custom_field_values') {
+                        $cf = $_.custom_field_values
+                        if ($cf -and $cf.backlog) { $isBacklog = $cf.backlog }
+                    }
+                    if ($_.PSObject.Properties.Name -contains 'backlog') {
+                        $isBacklog = $_.backlog
+                    }
+                    -not $isBacklog
+                })
             }
 
             $assignedInboxCount = if ($assignedInboxTasks) { $assignedInboxTasks.Count } else { 0 }

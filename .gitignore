@@ -28,3 +28,5 @@ backend/app/services/openclaw/.device-keys
 .tokens
 prompts/
 .local/
+backend/simplified-templates/scripts/template-update.json
+backend/simplified-templates/template-update.json

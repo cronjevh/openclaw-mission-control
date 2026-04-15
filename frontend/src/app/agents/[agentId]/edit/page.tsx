@@ -191,6 +191,9 @@ export default function EditAgentPage() {
   const [identityProfile, setIdentityProfile] = useState<
     IdentityProfile | undefined
   >(undefined);
+  const [identityTemplate, setIdentityTemplate] = useState<
+    string | undefined
+  >(undefined);
   const [capabilities, setCapabilities] = useState<AgentCapabilities | undefined>(
     undefined,
   );
@@ -266,6 +269,8 @@ export default function EditAgentPage() {
     return withIdentityDefaults(null);
   }, [loadedAgent?.identity_profile]);
 
+  const loadedIdentityTemplate = loadedAgent?.identity_template ?? "";
+
   const isLoading =
     boardsQuery.isLoading || agentQuery.isLoading || updateMutation.isPending;
   const errorMessage =
@@ -276,6 +281,7 @@ export default function EditAgentPage() {
     isGatewayMain ?? Boolean(loadedAgent?.is_gateway_main);
   const resolvedHeartbeatEvery = heartbeatEvery ?? loadedHeartbeat.every;
   const resolvedIdentityProfile = identityProfile ?? loadedIdentityProfile;
+  const resolvedIdentityTemplate = identityTemplate ?? loadedIdentityTemplate;
   const resolvedCapabilities =
     capabilities ?? loadCapabilities(loadedAgent?.identity_profile);
 
@@ -330,6 +336,7 @@ export default function EditAgentPage() {
         loadedAgent.identity_profile,
         resolvedIdentityProfile,
       ) as unknown as Record<string, unknown> | null,
+      identity_template: resolvedIdentityTemplate.trim() || null,
     };
     payload.identity_profile = mergeCapabilities(
       payload.identity_profile,
@@ -521,6 +528,22 @@ export default function EditAgentPage() {
                 }
                 disabled={isLoading}
               />
+            </div>
+            <div className="mt-6 space-y-2">
+              <label className="text-sm font-medium text-strong">
+                Identity template
+              </label>
+              <Textarea
+                value={resolvedIdentityTemplate}
+                onChange={(event) => setIdentityTemplate(event.target.value)}
+                placeholder="You are..."
+                disabled={isLoading}
+                className="min-h-[160px]"
+              />
+              <p className="text-xs text-quiet">
+                Stored as `identity_template` and rendered to `IDENTITY.md` on
+                reprovision.
+              </p>
             </div>
           </div>
         </div>

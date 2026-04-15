@@ -18,6 +18,7 @@ import type { BoardRead } from "@/api/generated/model";
 import { DashboardPageLayout } from "@/components/templates/DashboardPageLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import SearchableSelect, {
   type SearchableSelectOption,
 } from "@/components/ui/searchable-select";
@@ -55,6 +56,11 @@ const normalizeIdentityProfile = (
   return hasValue ? normalized : null;
 };
 
+const normalizeTemplateText = (value: string): string | null => {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
 export default function NewAgentPage() {
   const router = useRouter();
   const { isSignedIn } = useAuth();
@@ -64,6 +70,7 @@ export default function NewAgentPage() {
   const [name, setName] = useState("");
   const [boardId, setBoardId] = useState<string>("");
   const [heartbeatEvery, setHeartbeatEvery] = useState("10m");
+  const [identityTemplate, setIdentityTemplate] = useState("");
   const [identityProfile, setIdentityProfile] = useState<IdentityProfile>({
     ...DEFAULT_IDENTITY_PROFILE,
   });
@@ -124,6 +131,7 @@ export default function NewAgentPage() {
         identity_profile: normalizeIdentityProfile(
           identityProfile,
         ) as unknown as Record<string, unknown> | null,
+        identity_template: normalizeTemplateText(identityTemplate),
       },
     });
   };
@@ -236,7 +244,7 @@ export default function NewAgentPage() {
           <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
             Personality & behavior
           </p>
-          <div className="mt-4">
+          <div className="mt-4 space-y-6">
             <div className="space-y-2">
               <label className="text-sm font-medium text-strong">
                 Communication style
@@ -251,6 +259,22 @@ export default function NewAgentPage() {
                 }
                 disabled={isLoading}
               />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-strong">
+                Identity template
+              </label>
+              <Textarea
+                value={identityTemplate}
+                onChange={(event) => setIdentityTemplate(event.target.value)}
+                placeholder="You are..."
+                disabled={isLoading}
+                className="min-h-[160px]"
+              />
+              <p className="text-xs text-quiet">
+                Stored as `identity_template` and rendered to `IDENTITY.md` on
+                reprovision.
+              </p>
             </div>
           </div>
         </div>

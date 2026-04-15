@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -112,6 +113,9 @@ TASK_EVENT_ROW_LEN = 2
 SESSION_REPLY_POLL_SECONDS = 2
 SESSION_REPLY_TIMEOUT_SECONDS = 45
 DEFAULT_OKR_ARTIFACT_KINDS = ["deliverable"]
+TASK_EVIDENCE_INTENT_RE = re.compile(
+    r"(?im)(^##\s+deliverables\b|^##\s+evidence required\b|deliverable file:|`evidence/|`deliverables/|evidence packet)",
+)
 BOARD_READ_DEP = Depends(get_board_for_actor_read)
 ACTOR_DEP = Depends(require_user_or_agent)
 SINCE_QUERY = Query(default=None)
@@ -385,7 +389,10 @@ async def _require_task_evidence_for_done_when_enabled(
         return
 
     closure_mode = (task.closure_mode or "").strip().lower() or None
-    if closure_mode not in EVIDENCE_BASED_CLOSURE_MODES:
+    evidence_required = closure_mode in EVIDENCE_BASED_CLOSURE_MODES
+    if not evidence_required:
+        evidence_required = await _task_has_evidence_intent_signals(session, task=task)
+    if not evidence_required:
         return
 
     assessment = await assess_task_evidence_for_done(session, task=task)
@@ -393,6 +400,12 @@ async def _require_task_evidence_for_done_when_enabled(
         raise _evidence_required_for_done_error(
             "Task can only be marked done after a submitted evidence packet is attached.",
         )
+    if closure_mode not in EVIDENCE_BASED_CLOSURE_MODES:
+        if assessment.packet is None or assessment.packet.primary_artifact is None:
+            raise _evidence_required_for_done_error(
+                "Task evidence packet must declare a primary artifact before the task can be marked done.",
+            )
+        return
     if assessment.missing_artifact_kinds:
         required = ", ".join(assessment.missing_artifact_kinds)
         raise _evidence_required_for_done_error(
@@ -409,6 +422,36 @@ async def _require_task_evidence_for_done_when_enabled(
             raise _evidence_required_for_done_error(
                 f"Task evidence has required checks that are not passing: {failed}.",
             )
+
+
+async def _task_has_evidence_intent_signals(
+    session: AsyncSession,
+    *,
+    task: Task,
+) -> bool:
+    if task.required_artifact_kinds or task.required_check_kinds:
+        return True
+    if task.lead_spot_check_required:
+        return True
+    description = task.description or ""
+    if description and TASK_EVIDENCE_INTENT_RE.search(description):
+        return True
+
+    comments = list(
+        await session.exec(
+            select(ActivityEvent.message)
+            .where(
+                col(ActivityEvent.task_id) == task.id,
+                col(ActivityEvent.event_type) == "task.comment",
+            )
+            .order_by(col(ActivityEvent.created_at).desc())
+            .limit(20),
+        )
+    )
+    for message in comments:
+        if message and TASK_EVIDENCE_INTENT_RE.search(message):
+            return True
+    return False
 
 
 def _truncate_snippet(value: str) -> str:

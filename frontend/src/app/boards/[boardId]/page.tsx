@@ -4935,12 +4935,12 @@ export default function BoardDetailPage() {
                 )}
               </div>
             )}
-            {/* Workspace Files — between Approvals and Comments */}
+            {/* Task Files — task bundle artifacts plus legacy workspace deliverables */}
             {workspaceFiles.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold uppercase tracking-wider text-quiet">
-                    Deliverables
+                    Task Files
                   </p>
                   <button
                     type="button"

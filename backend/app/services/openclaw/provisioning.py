@@ -28,18 +28,21 @@ from app.models.gateways import Gateway
 from app.services import souls_directory
 from app.services.agent_capabilities import resolve_agent_capabilities
 from app.services.openclaw.constants import (
-    BOARD_SHARED_TEMPLATE_MAP,
+    BOARD_LEAD_GATEWAY_FILES,
+    BOARD_LEAD_TEMPLATE_MAP,
+    BOARD_WORKER_GATEWAY_FILES,
+    BOARD_WORKER_TEMPLATE_MAP,
     DEFAULT_CHANNEL_HEARTBEAT_VISIBILITY,
     DEFAULT_GATEWAY_FILES,
     DEFAULT_HEARTBEAT_CONFIG,
     DEFAULT_IDENTITY_PROFILE,
     EXTRA_IDENTITY_PROFILE_FIELDS,
+    GATEWAY_MAIN_FILES,
+    GATEWAY_MAIN_TEMPLATE_MAP,
+    GROUP_LEAD_GATEWAY_FILES,
     HEARTBEAT_AGENT_TEMPLATE,
     HEARTBEAT_LEAD_TEMPLATE,
     IDENTITY_PROFILE_FIELDS,
-    LEAD_GATEWAY_FILES,
-    LEAD_TEMPLATE_MAP,
-    MAIN_TEMPLATE_MAP,
     PRESERVE_AGENT_EDITABLE_FILES,
 )
 from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
@@ -1120,15 +1123,14 @@ class BoardAgentLifecycleManager(BaseAgentLifecycleManager):
         return context
 
     def _template_overrides(self, agent: Agent) -> dict[str, str] | None:
-        overrides = dict(BOARD_SHARED_TEMPLATE_MAP)
         if agent.is_board_lead:
-            overrides.update(LEAD_TEMPLATE_MAP)
-        return overrides
+            return BOARD_LEAD_TEMPLATE_MAP
+        return BOARD_WORKER_TEMPLATE_MAP
 
     def _file_names(self, agent: Agent) -> set[str]:
         if agent.is_board_lead:
-            return set(LEAD_GATEWAY_FILES)
-        return super()._file_names(agent)
+            return set(BOARD_LEAD_GATEWAY_FILES)
+        return set(BOARD_WORKER_GATEWAY_FILES)
 
     def _allow_stale_file_deletion(self, agent: Agent) -> bool:
         return bool(agent.is_board_lead)
@@ -1137,8 +1139,8 @@ class BoardAgentLifecycleManager(BaseAgentLifecycleManager):
         if not agent.is_board_lead:
             return set()
         return (
-            set(DEFAULT_GATEWAY_FILES)
-            | set(LEAD_GATEWAY_FILES)
+            set(BOARD_WORKER_GATEWAY_FILES)
+            | set(BOARD_LEAD_GATEWAY_FILES)
             | {
                 "USER.md",
                 "ROUTING.md",
@@ -1206,14 +1208,13 @@ class GroupAgentLifecycleManager(BaseAgentLifecycleManager):
         }
 
     def _template_overrides(self, agent: Agent) -> dict[str, str] | None:
-        overrides = dict(BOARD_SHARED_TEMPLATE_MAP)
-        overrides.update(LEAD_TEMPLATE_MAP)
+        overrides = dict(BOARD_LEAD_TEMPLATE_MAP)
         overrides["HEARTBEAT.md"] = "GROUP_LEAD_HEARTBEAT.md.j2"
         overrides["AGENTS.md"] = "GROUP_LEAD_AGENTS.md.j2"
         return overrides
 
     def _file_names(self, agent: Agent) -> set[str]:
-        return set(LEAD_GATEWAY_FILES)
+        return set(GROUP_LEAD_GATEWAY_FILES)
 
 
 class GatewayMainAgentLifecycleManager(BaseAgentLifecycleManager):
@@ -1235,7 +1236,11 @@ class GatewayMainAgentLifecycleManager(BaseAgentLifecycleManager):
 
     def _template_overrides(self, agent: Agent) -> dict[str, str] | None:
         _ = agent
-        return MAIN_TEMPLATE_MAP
+        return GATEWAY_MAIN_TEMPLATE_MAP
+
+    def _file_names(self, agent: Agent) -> set[str]:
+        _ = agent
+        return set(GATEWAY_MAIN_FILES)
 
     def _preserve_files(self, agent: Agent) -> set[str]:
         _ = agent

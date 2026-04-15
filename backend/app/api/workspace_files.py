@@ -187,6 +187,39 @@ def _workspace_root_key_for_agent(agent_id: UUID) -> str:
     return f"agent:{agent_id}"
 
 
+def _workspace_root_key_for_task_bundle(board_id: UUID, task_id: UUID) -> str:
+    return f"task-bundle:{board_id}:{task_id}"
+
+
+def _lead_workspace_root_for_board(board_id: UUID) -> Path | None:
+    root = _workspace_root_for_config_id(f"lead-{board_id}")
+    if root is not None:
+        return root
+
+    candidates: list[Path] = []
+    if _WORKSPACE_REMAP is not None:
+        _, dst = _WORKSPACE_REMAP
+        candidates.append(Path(dst) / f"workspace-lead-{board_id}")
+    candidates.extend(
+        [
+            Path("/app/workspaces") / f"workspace-lead-{board_id}",
+            Path("/root/.openclaw/workspace") / f"workspace-lead-{board_id}",
+        ]
+    )
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if candidate.exists():
+                return candidate
+        except (PermissionError, OSError):
+            continue
+    return None
+
+
 async def _workspace_handles_for_board(
     session: AsyncSession,
     board_id: UUID,
@@ -287,6 +320,74 @@ def _list_deliverables(handle: _WorkspaceHandle) -> list[WorkspaceFileEntry]:
     return entries
 
 
+def _list_task_bundle_files(handle: _WorkspaceHandle) -> list[WorkspaceFileEntry]:
+    """Return task-bundle deliverables/evidence files from the lead workspace."""
+    root = handle.root
+    entries: list[WorkspaceFileEntry] = []
+    for output_dir in ("deliverables", "evidence"):
+        target = root / output_dir
+        if not target.exists() or not target.is_dir():
+            continue
+        for item in sorted(target.rglob("*")):
+            if any(
+                part.startswith(".") or part.startswith("__")
+                for part in item.parts[len(root.parts) :]
+            ):
+                continue
+            if item.is_file():
+                rel = str(item.relative_to(root))
+                stat = item.stat()
+                mtime_iso = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+                entries.append(
+                    WorkspaceFileEntry(
+                        name=item.name,
+                        path=_display_workspace_path(handle, rel),
+                        relative_path=rel,
+                        workspace_agent_id=None,
+                        workspace_agent_name=handle.agent_name,
+                        workspace_root_key=handle.root_key,
+                        is_dir=False,
+                        size=stat.st_size,
+                        modified_at=mtime_iso,
+                    )
+                )
+    return entries
+
+
+def _task_bundle_handle(board_id: UUID, task_id: UUID) -> _WorkspaceHandle | None:
+    lead_root = _lead_workspace_root_for_board(board_id)
+    if lead_root is None:
+        return None
+
+    task_root = lead_root / "tasks" / str(task_id)
+    try:
+        if not task_root.exists() or not task_root.is_dir():
+            return None
+    except (PermissionError, OSError):
+        return None
+
+    return _WorkspaceHandle(
+        agent_id=None,
+        agent_name="Task Bundle",
+        root_key=_workspace_root_key_for_task_bundle(board_id, task_id),
+        root=task_root,
+    )
+
+
+def _workspace_handle_from_root_key(root_key: str | None) -> _WorkspaceHandle | None:
+    if not root_key or not root_key.startswith("task-bundle:"):
+        return None
+    parts = root_key.split(":")
+    if len(parts) != 3:
+        return None
+    try:
+        board_id = UUID(parts[1])
+        task_id = UUID(parts[2])
+    except ValueError:
+        return None
+    return _task_bundle_handle(board_id, task_id)
+
+
 def _relative_path_from_display_path(path: str) -> tuple[str | None, str]:
     parts = path.split("/", 1)
     if len(parts) == 2:
@@ -300,6 +401,9 @@ def _workspace_handle_by_root_key(
 ) -> _WorkspaceHandle | None:
     if not root_key:
         return None
+    synthetic_handle = _workspace_handle_from_root_key(root_key)
+    if synthetic_handle is not None:
+        return synthetic_handle
     for handle in handles:
         if handle.root_key == root_key:
             return handle
@@ -386,11 +490,16 @@ async def list_workspace_files(
     board_uuid = _parse_uuid(board_id)
     await _require_board_read_access(session, actor=actor, board_id=board_uuid)
 
-    # If task_id provided, limit to files explicitly mentioned in task comments
+    task_bundle_entries: list[WorkspaceFileEntry] = []
+    # If task_id provided, limit legacy workspace files to files explicitly mentioned in task comments,
+    # and also include the lead task-bundle files directly.
     task_file_paths: set[str] | None = None
     if task_id:
         task_uuid = _parse_uuid(task_id)
         task_file_paths = await _file_paths_from_task(session, task_uuid)
+        task_bundle_handle = _task_bundle_handle(board_uuid, task_uuid)
+        if task_bundle_handle is not None:
+            task_bundle_entries = _list_task_bundle_files(task_bundle_handle)
 
     if agent_id:
         agent_uuid = _parse_uuid(agent_id)
@@ -413,11 +522,22 @@ async def list_workspace_files(
                     all_entries.append(entry)
         entries = all_entries
 
-    # Filter by task-mentioned paths if task_id was given
+    # Filter legacy workspace files by task-mentioned paths if task_id was given.
     if task_file_paths is not None:
         entries = [e for e in entries if e.relative_path in task_file_paths]
 
-    return entries
+    if not task_bundle_entries:
+        return entries
+
+    combined: list[WorkspaceFileEntry] = []
+    seen: set[tuple[str | None, str]] = set()
+    for entry in [*task_bundle_entries, *entries]:
+        entry_key = (entry.workspace_root_key, entry.relative_path)
+        if entry_key in seen:
+            continue
+        seen.add(entry_key)
+        combined.append(entry)
+    return combined
 
 
 @router.get("/file", response_model=WorkspaceFileContent)

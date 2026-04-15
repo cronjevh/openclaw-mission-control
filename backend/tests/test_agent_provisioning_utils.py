@@ -215,18 +215,85 @@ def test_rendered_lead_templates_include_specialist_management_guidance():
     rendered = agent_provisioning._render_agent_files(
         context,
         agent,
-        {"AGENTS.md", "HEARTBEAT.md", "TOOLS.md"},
+        {"AGENTS.md", "HEARTBEAT.md", "TOOLS.md", "GATED-HEARTBEAT.md"},
         include_bootstrap=False,
-        template_overrides=agent_provisioning.BOARD_SHARED_TEMPLATE_MAP,
+        template_overrides=agent_provisioning.BOARD_LEAD_TEMPLATE_MAP,
     )
 
     assert "### Specialist Provisioning" in rendered["AGENTS.md"]
     assert "`max_agents` excludes the lead itself." in rendered["AGENTS.md"]
     assert "Do not confuse `agents_list`, `sessions_spawn`, or subagent allowlists" in rendered["AGENTS.md"]
-    assert "For persistent board specialists, use `POST /api/v1/agent/agents`" in rendered["HEARTBEAT.md"]
-    assert "`max_agents` counts only non-lead workers." in rendered["HEARTBEAT.md"]
     assert "## Agent Management Quick Reference" in rendered["TOOLS.md"]
     assert 'curl -fsS -X POST "$BASE_URL/api/v1/agent/agents"' in rendered["TOOLS.md"]
+    assert "## Purpose" in rendered["GATED-HEARTBEAT.md"]
+    assert "## Lead-focused operation filter" in rendered["GATED-HEARTBEAT.md"]
+    assert "### Board Lead Loop" in rendered["GATED-HEARTBEAT.md"]
+
+
+def test_rendered_worker_templates_include_context_loading_and_evidence_contract():
+    agent = _AgentStub(
+        name="Atlas",
+        is_board_lead=False,
+        openclaw_session_id="agent:board-test:worker",
+        identity_profile={
+            "role": "Generalist",
+            "emoji": ":gear:",
+            "communication_style": "direct, concise, practical",
+        },
+    )
+    board = SimpleNamespace(
+        id=uuid4(),
+        name="Mission Control Management",
+        board_type="goal",
+        objective="Own board-level coordination and delivery quality.",
+        success_metrics=None,
+        target_date=None,
+        goal_confirmed=True,
+        require_approval_for_done=True,
+        require_review_before_done=False,
+        comment_required_for_review=False,
+        block_status_changes_with_pending_approval=False,
+        only_lead_can_change_status=False,
+        max_agents=3,
+    )
+    gateway = _GatewayStub(
+        id=uuid4(),
+        name="Mission Control Gateway",
+        url="http://localhost:8002",
+        token="gateway-token",
+        workspace_root="~/.openclaw",
+    )
+
+    context = agent_provisioning._build_context(agent, board, gateway, "agent-token", None)
+    context.update(
+        {
+            "board_documents": [],
+            "agent_capabilities": None,
+            "board_secrets": [],
+        }
+    )
+    rendered = agent_provisioning._render_agent_files(
+        context,
+        agent,
+        {"AGENTS.md", "TOOLS.md", "GATED-HEARTBEAT.md"},
+        include_bootstrap=False,
+        template_overrides=agent_provisioning.BOARD_WORKER_TEMPLATE_MAP,
+    )
+
+    assert "## Context Loading Policy" in rendered["AGENTS.md"]
+    assert "## Context Layers" in rendered["AGENTS.md"]
+    assert "## Task Bundle Boundary Rule" in rendered["AGENTS.md"]
+    assert "Deliverable file: deliverables/your-filename.md" in rendered["AGENTS.md"]
+    assert "## Execution Workflow" in rendered["AGENTS.md"]
+    assert "## Workspace Paths" in rendered["TOOLS.md"]
+    assert "Use operations tagged `agent-worker`." in rendered["TOOLS.md"]
+    assert "## Your Role" in rendered["GATED-HEARTBEAT.md"]
+    assert "do not triage, reassign, or create subagents" in rendered["GATED-HEARTBEAT.md"]
+    assert "If there is an `inbox` task assigned to you" in rendered["GATED-HEARTBEAT.md"]
+    assert '/api/v1/agent/boards/$BOARD_ID/tasks?status=inbox&assigned_agent_id=$AGENT_ID' in rendered["GATED-HEARTBEAT.md"]
+    assert '/api/v1/agent/boards/$BOARD_ID/tasks/{task_id}' in rendered["GATED-HEARTBEAT.md"]
+    assert '/api/v1/boards/$BOARD_ID/tasks/{task_id}' not in rendered["GATED-HEARTBEAT.md"]
+    assert "## Troubleshooting" in rendered["GATED-HEARTBEAT.md"]
 
 
 def test_user_context_uses_email_fallback_when_name_is_missing():
@@ -272,6 +339,92 @@ class _GatewayStub:
     workspace_root: str
     allow_insecure_tls: bool = False
     disable_device_pairing: bool = False
+
+
+class _ControlPlaneStub:
+    async def ensure_agent_session(self, session_key, *, label=None):
+        return None
+
+    async def reset_agent_session(self, session_key):
+        return None
+
+    async def delete_agent_session(self, session_key):
+        return None
+
+    async def upsert_agent(self, registration):
+        return None
+
+    async def delete_agent(self, agent_id, *, delete_files=True):
+        return None
+
+    async def list_agent_files(self, agent_id):
+        return {}
+
+    async def get_agent_file_payload(self, *, agent_id, name):
+        return None
+
+    async def set_agent_file(self, *, agent_id, name, content):
+        return None
+
+    async def delete_agent_file(self, *, agent_id, name):
+        return None
+
+    async def patch_agent_heartbeats(self, entries):
+        return None
+
+
+def test_board_worker_and_lead_use_distinct_template_maps_and_file_contracts():
+    gateway = _GatewayStub(
+        id=uuid4(),
+        name="Acme",
+        url="ws://gateway.example/ws",
+        token=None,
+        workspace_root="/tmp/openclaw",
+    )
+    manager = agent_provisioning.BoardAgentLifecycleManager(gateway, _ControlPlaneStub())  # type: ignore[arg-type]
+    worker = _AgentStub(name="Worker", is_board_lead=False)
+    lead = _AgentStub(name="Lead", is_board_lead=True)
+
+    assert manager._template_overrides(worker) == agent_provisioning.BOARD_WORKER_TEMPLATE_MAP
+    assert manager._template_overrides(lead) == agent_provisioning.BOARD_LEAD_TEMPLATE_MAP
+    assert manager._template_overrides(worker) != manager._template_overrides(lead)
+    assert manager._file_names(worker) == set(agent_provisioning.BOARD_WORKER_GATEWAY_FILES)
+    assert manager._file_names(lead) == set(agent_provisioning.BOARD_LEAD_GATEWAY_FILES)
+    assert "GATED-HEARTBEAT.md" in manager._file_names(worker)
+    assert "GATED-HEARTBEAT.md" in manager._file_names(lead)
+
+
+def test_group_lead_keeps_dedicated_templates_instead_of_board_lead_or_group_shared():
+    gateway = _GatewayStub(
+        id=uuid4(),
+        name="Acme",
+        url="ws://gateway.example/ws",
+        token=None,
+        workspace_root="/tmp/openclaw",
+    )
+    manager = agent_provisioning.GroupAgentLifecycleManager(gateway, _ControlPlaneStub())  # type: ignore[arg-type]
+    group_lead = _AgentStub(name="Group Lead", is_board_lead=True)
+
+    overrides = manager._template_overrides(group_lead)
+
+    assert overrides["AGENTS.md"] == "GROUP_LEAD_AGENTS.md.j2"
+    assert overrides["HEARTBEAT.md"] == "GROUP_LEAD_HEARTBEAT.md.j2"
+    assert overrides["TOOLS.md"] == "BOARD_LEAD_TOOLS.md.j2"
+    assert "GATED-HEARTBEAT.md" not in manager._file_names(group_lead)
+
+
+def test_gateway_main_uses_explicit_main_template_map():
+    gateway = _GatewayStub(
+        id=uuid4(),
+        name="Acme",
+        url="ws://gateway.example/ws",
+        token=None,
+        workspace_root="/tmp/openclaw",
+    )
+    manager = agent_provisioning.GatewayMainAgentLifecycleManager(gateway, _ControlPlaneStub())  # type: ignore[arg-type]
+    agent = _AgentStub(name="Main")
+
+    assert manager._template_overrides(agent) == agent_provisioning.GATEWAY_MAIN_TEMPLATE_MAP
 
 
 @pytest.mark.asyncio

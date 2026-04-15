@@ -15,6 +15,7 @@ $SharedScriptsRoot = '/home/cronjev/mission-control-tfsmrt/scripts'
 $Dispatch = Join-Path $SharedScriptsRoot 'mc-board-dispatch.ps1'
 $HeartbeatHelper = Join-Path $SharedScriptsRoot 'openclaw-heartbeat-session.ps1'
 $TTL = 300
+$QueueTimeoutSec = 600
 $AgentRole = if ($AgentId -eq $BoardId) { 'lead' } else { 'worker' }
 $InvocationAgent = if ($AgentId -eq $BoardId) { "lead-$BoardId" } else { "mc-$AgentId" }
 
@@ -24,7 +25,7 @@ if ($ProcessQueue) {
     [void](Invoke-MissionControlHeartbeatQueueProcessor `
         -WorkspacePath $Wsp `
         -InvocationAgent $InvocationAgent `
-        -TimeoutSec 120)
+        -TimeoutSec $QueueTimeoutSec)
     exit 0
 }
 

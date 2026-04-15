@@ -118,6 +118,18 @@ AUTH_TOKEN=$authToken
 "@
     }
 
+    $assignmentAuthorized = $false
+    $assignmentTaskId = $null
+    $inboxTasks = @($tasks | Where-Object { $_.status -eq 'inbox' })
+    $reasonText = ''
+    if ($DispatchState.PSObject.Properties.Name -contains 'reason' -and $DispatchState.reason) {
+        $reasonText = [string]$DispatchState.reason
+    }
+    if ($inboxTasks.Count -eq 1 -and $reasonText -match 'inbox') {
+        $assignmentAuthorized = $true
+        $assignmentTaskId = [string]$inboxTasks[0].id
+    }
+
     $gatedHeartbeatPath = Join-Path $WorkspacePath 'GATED-HEARTBEAT.md'
     if (-not (Test-Path -LiteralPath $gatedHeartbeatPath)) {
         throw "GATED-HEARTBEAT.md not found at $gatedHeartbeatPath"
@@ -139,6 +151,14 @@ Board dispatch summary:
 - boardId: $($DispatchState.boardId)
 - agentId: $($DispatchState.agentId)
 - task count: $($tasks.Count)
+- ASSIGNMENT_AUTHORIZED: $($assignmentAuthorized.ToString().ToLowerInvariant())
+"@
+    if ($assignmentAuthorized -and $assignmentTaskId) {
+        $sections += @"
+- ASSIGNMENT_TASK_ID: $assignmentTaskId
+"@
+    }
+    $sections += @"
 
 Read these task context files first:
 $($taskLinks -join "`n")
@@ -472,6 +492,181 @@ function Start-MissionControlHeartbeatQueueProcessor {
     return $true
 }
 
+function Invoke-MissionControlRecoveryPrompt {
+    param(
+        [Parameter(Mandatory = $true)][string]$WorkspacePath,
+        [Parameter(Mandatory = $true)][string]$InvocationAgent,
+        [Parameter(Mandatory = $true)]$DispatchState,
+        [int]$TimeoutSec = 60
+    )
+
+    # Extract recovery metadata from dispatch_state
+    $taskId = $DispatchState.task_id
+    $recoveryAttempt = $DispatchState.recovery_attempt
+    $stallReason = $DispatchState.stall_reason
+    $subagentSessionKey = $DispatchState.subagent_session_key
+    $subagentAgentId = $DispatchState.subagent_agent_id
+    $taskDataPath = $DispatchState.task_data_path
+
+    if (-not $taskId) { throw "Missing task_id in recovery dispatch_state" }
+    if (-not $subagentSessionKey) { throw "Missing subagent_session_key in recovery dispatch_state" }
+    if (-not $subagentAgentId) { throw "Missing subagent_agent_id in recovery dispatch_state" }
+    if (-not $taskDataPath) { throw "Missing task_data_path in recovery dispatch_state" }
+
+    # Load taskData.json for context
+    if (-not (Test-Path -LiteralPath $taskDataPath)) {
+        throw "taskData.json not found at $taskDataPath"
+    }
+    $taskData = Get-Content -LiteralPath $taskDataPath -Raw | ConvertFrom-Json -Depth 50
+
+    # Build default recovery prompt from taskData context
+    $progress = if ($taskData.task.PSObject.Properties.Name -contains 'progress') { $taskData.task.progress } else { 'unknown' }
+    $lastAction = if ($taskData.task.PSObject.Properties.Name -contains 'last_action') { $taskData.task.last_action } else { 'unknown' }
+    $errors = @()
+    if ($taskData.task.PSObject.Properties.Name -contains 'evidence' -and $taskData.task.evidence) {
+        $errors = @($taskData.task.evidence | Where-Object { $_.type -eq 'error' } | Select-Object -ExpandProperty message -First 3)
+    }
+    $errorSummary = if ($errors) { ($errors -join '; ') } else { 'none' }
+
+    $recoveryPrompt = @"
+[RECOVERY TURN #$recoveryAttempt] — Stall detected on task $taskId.
+
+Condition: $stallReason
+Last known state:
+- Progress: $progress
+- Recent action: $lastAction
+- Recent errors: $errorSummary
+
+**Your next step must be one of:**
+1. REQUEST_CLARIFICATION — ask ONE specific question to unblock (max 1 question, max 200 chars)
+2. PROPOSE_RETRY — describe exactly what you will retry and how you'll avoid the same error (max 150 words)
+3. SIGNAL_ESCALATION — state why you cannot proceed and what the lead must do (max 100 words)
+
+Respond in this exact format:
+```json
+{
+  "recovery_action": "REQUEST_CLARIFICATION|PROPOSE_RETRY|SIGNAL_ESCALATION",
+  "next_step_description": "<concise description>",
+  "required_input": "<what you need from lead, or 'none'>",
+  "estimated_completion_cycles": <positive_integer>
+}
+```
+
+Do not add commentary outside this structure. If you cannot comply, respond with SIGNAL_ESCALATION.
+"@
+
+    # Send recovery prompt to subagent session
+    Write-Host "[{0}] Sending recovery prompt to subagent session (key: {1}, agent: {2})" -f (Get-Date).ToString('o'), $subagentSessionKey, $subagentAgentId
+    $gateway = Get-OpenClawGatewayConfig -WorkspacePath $WorkspacePath
+    $uri = "http://127.0.0.1:$($gateway.port)/v1/chat/completions"
+    $headers = @{
+        Authorization = "Bearer $($gateway.token)"
+        'x-openclaw-session-key' = $subagentSessionKey
+    }
+    $body = @{
+        model = "openclaw/$subagentAgentId"
+        messages = @(@{role = 'user'; content = $recoveryPrompt})
+        temperature = 0.3
+        max_tokens = 500
+    } | ConvertTo-Json -Depth 10
+
+    $startTime = Get-Date
+    $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec $TimeoutSec
+    $elapsedMs = ((Get-Date) - $startTime).TotalMilliseconds
+
+    # Capture reply
+    $rawReply = $response.choices[0].message.content
+    Write-Host "[{0}] Subagent reply received ({1}ms)" -f (Get-Date).ToString('o'), [math]::Round($elapsedMs)
+
+    # Parse and validate
+    $parsedReply = $null
+    $parseSuccess = $false
+    try {
+        $parsedReply = $rawReply | ConvertFrom-Json -Depth 10
+        $requiredFields = @('recovery_action', 'next_step_description', 'required_input', 'estimated_completion_cycles')
+        foreach ($field in $requiredFields) {
+            if (-not $parsedReply.PSObject.Properties.Name -contains $field) {
+                throw "Missing required field: $field"
+            }
+        }
+        if ($parsedReply.recovery_action -notin @('REQUEST_CLARIFICATION', 'PROPOSE_RETRY', 'SIGNAL_ESCALATION')) {
+            throw "Invalid recovery_action: $($parsedReply.recovery_action)"
+        }
+        $parseSuccess = $true
+    }
+    catch {
+        $parseSuccess = $false
+        $parsedReply = $null
+        Write-Warning "Failed to parse subagent reply as valid JSON: $_"
+    }
+
+    # Write evidence artifact
+    $taskDir = Split-Path -Path $taskDataPath -Parent
+    $evidenceDir = Join-Path $taskDir 'evidence'
+    if (-not (Test-Path -LiteralPath $evidenceDir)) {
+        New-Item -ItemType Directory -Path $evidenceDir -Force | Out-Null
+    }
+
+    $timestamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')
+    $guid = [guid]::NewGuid().Guid
+    $evidenceFile = Join-Path $evidenceDir "recovery-turn-$recoveryAttempt-$guid.json"
+
+    $evidence = [ordered]@{
+        timestamp = (Get-Date).ToUniversalTime().ToString('o')
+        task_id = $taskId
+        subagent_session_key = $subagentSessionKey
+        subagent_agent_id = $subagentAgentId
+        recovery_attempt = $recoveryAttempt
+        stall_reason = $stallReason
+        prompt_sent = $recoveryPrompt
+        raw_reply = $rawReply
+        parsed_successfully = $parseSuccess
+        parsed_reply = if ($parseSuccess) { $parsedReply } else { $null }
+        escalation_triggered = $false
+        gateway_response_ms = [math]::Round($elapsedMs)
+    }
+
+    $evidence | ConvertTo-Json -Depth 50 | Set-Content -LiteralPath $evidenceFile -Encoding UTF8
+    Write-Host "[{0}] Evidence written: {1}" -f (Get-Date).ToString('o'), $evidenceFile
+
+    # Post task comment via board API
+    $authToken = Read-WorkspaceAuthToken -WorkspacePath $WorkspacePath
+    $boardId = $taskData.board_id
+    $baseUrl = 'http://localhost:8002'  # TODO: read from config if available
+
+    $commentBody = @"
+**[RECOVERY TURN #$recoveryAttempt]** — Stall detected: $stallReason
+
+Subagent response: $($parsedReply ? $parsedReply.recovery_action : 'PARSE_ERROR')
+- Next step: $($parsedReply ? $parsedReply.next_step_description : 'N/A')
+- Needs from lead: $($parsedReply ? $parsedReply.required_input : 'N/A')
+- Est. completion: $($parsedReply ? $parsedReply.estimated_completion_cycles : 'N/A')
+
+Evidence: [recovery-turn-$recoveryAttempt-$guid.json](file://$evidenceFile)
+"@
+
+    $commentPayload = @{ message = $commentBody } | ConvertTo-Json -Depth 10
+    $commentUri = "$baseUrl/api/v1/agent/boards/$([uri]::EscapeDataString($boardId))/tasks/$([uri]::EscapeDataString($taskId))/comments"
+    try {
+        Invoke-RestMethod -Uri $commentUri -Method Post -Headers @{ 'X-Agent-Token' = $authToken } -ContentType 'application/json' -Body $commentPayload -TimeoutSec 30 | Out-Null
+        Write-Host "[{0}] Comment posted to task {1}" -f (Get-Date).ToString('o'), $taskId
+    }
+    catch {
+        Write-Warning "Failed to post comment to task: $_"
+    }
+
+    # Update recovery_attempts counter on the task (PATCH custom field)
+    # Note: This requires board API PATCH endpoint; implementation may vary
+    # For now, we'll skip to avoid schema issues; the gate tracks attempts via enqueue logic
+
+    if ($parseSuccess) {
+        return $true
+    }
+    else {
+        throw "Recovery reply parse failed"
+    }
+}
+
 function Invoke-MissionControlHeartbeatQueueProcessor {
     param(
         [Parameter(Mandatory = $true)][string]$WorkspacePath,
@@ -485,6 +680,7 @@ function Invoke-MissionControlHeartbeatQueueProcessor {
     }
 
     try {
+        Write-Host ("[{0}] queue processor started" -f (Get-Date).ToString('o'))
         while ($true) {
             $nextItem = @(
                 Get-ChildItem -LiteralPath $lockState.paths.pending -Filter '*.json' -File -ErrorAction SilentlyContinue |
@@ -502,13 +698,20 @@ function Invoke-MissionControlHeartbeatQueueProcessor {
             $queueItem = $null
             try {
                 $queueItem = Get-Content -LiteralPath $processingPath -Raw | ConvertFrom-Json -Depth 50
-                [void](Invoke-MissionControlHeartbeatAgent `
-                    -WorkspacePath $WorkspacePath `
-                    -InvocationAgent $InvocationAgent `
-                    -DispatchState $queueItem.dispatch_state `
-                    -TimeoutSec $TimeoutSec)
+                $taskId = if ($queueItem.task_id) { $queueItem.task_id } else { $queueItem.queue_item_id }
+                Write-Host ("[{0}] processing {1}" -f (Get-Date).ToString('o'), $taskId)
+
+                # Route based on dispatch_type
+                $dispatchType = if ($queueItem.dispatch_state.PSObject.Properties.Name -contains 'dispatch_type') { $queueItem.dispatch_state.dispatch_type } else { 'heartbeat' }
+                if ($dispatchType -eq 'recovery') {
+                    $null = Invoke-MissionControlRecoveryPrompt -WorkspacePath $WorkspacePath -InvocationAgent $InvocationAgent -DispatchState $queueItem.dispatch_state -TimeoutSec $TimeoutSec
+                }
+                else {
+                    $null = Invoke-MissionControlHeartbeatAgent -WorkspacePath $WorkspacePath -InvocationAgent $InvocationAgent -DispatchState $queueItem.dispatch_state -TimeoutSec $TimeoutSec
+                }
 
                 Remove-Item -LiteralPath $processingPath -Force
+                Write-Host ("[{0}] completed {1}" -f (Get-Date).ToString('o'), $taskId)
             }
             catch {
                 $failurePath = Join-Path $lockState.paths.failed $pendingItem.Name
@@ -522,9 +725,12 @@ function Invoke-MissionControlHeartbeatQueueProcessor {
                 if (Test-Path -LiteralPath $processingPath) {
                     Remove-Item -LiteralPath $processingPath -Force
                 }
+
+                Write-Error ("queue item failed: {0}`n{1}" -f $pendingItem.Name, (($_ | Out-String).Trim()))
             }
         }
 
+        Write-Host ("[{0}] queue processor idle" -f (Get-Date).ToString('o'))
         return $true
     }
     finally {

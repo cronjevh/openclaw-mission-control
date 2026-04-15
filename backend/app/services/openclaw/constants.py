@@ -68,9 +68,34 @@ DEFAULT_GATEWAY_FILES = frozenset(
     },
 )
 
-# Lead-only workspace contract. Used for board leads to allow an iterative rollout
-# without changing worker templates.
-LEAD_GATEWAY_FILES = frozenset(
+BOARD_WORKER_GATEWAY_FILES = frozenset(
+    {
+        "AGENTS.md",
+        "SOUL.md",
+        "TOOLS.md",
+        "IDENTITY.md",
+        "USER.md",
+        "HEARTBEAT.md",
+        "GATED-HEARTBEAT.md",
+        "MEMORY.md",
+    },
+)
+
+BOARD_LEAD_GATEWAY_FILES = frozenset(
+    {
+        "AGENTS.md",
+        "BOOTSTRAP.md",
+        "IDENTITY.md",
+        "SOUL.md",
+        "USER.md",
+        "MEMORY.md",
+        "TOOLS.md",
+        "HEARTBEAT.md",
+        "GATED-HEARTBEAT.md",
+    },
+)
+
+GROUP_LEAD_GATEWAY_FILES = frozenset(
     {
         "AGENTS.md",
         "BOOTSTRAP.md",
@@ -106,28 +131,42 @@ HEARTBEAT_AGENT_TEMPLATE = "BOARD_HEARTBEAT.md.j2"
 SESSION_KEY_PARTS_MIN = 2
 _SESSION_KEY_PARTS_MIN = SESSION_KEY_PARTS_MIN
 
-MAIN_TEMPLATE_MAP = {
-    "AGENTS.md": "BOARD_AGENTS.md.j2",
+GATEWAY_MAIN_TEMPLATE_MAP = {
+    "AGENTS.md": "GATEWAY_MAIN_AGENTS.md.j2",
+}
+
+# Temporary gateway-main contract: only render files that have dedicated gateway-main
+# templates. The generic DEFAULT_GATEWAY_FILES contract falls back to unresolved
+# template names (for example TOOLS.md / IDENTITY.md) and board heartbeat behavior.
+# Expand this only after the remaining gateway-main template family is implemented.
+GATEWAY_MAIN_FILES = frozenset(
+    {
+        "AGENTS.md",
+    },
+)
+
+BOARD_WORKER_TEMPLATE_MAP = {
+    "AGENTS.md": "BOARD_WORKER_AGENTS.md.j2",
     "IDENTITY.md": "BOARD_IDENTITY.md.j2",
     "SOUL.md": "BOARD_SOUL.md.j2",
     "MEMORY.md": "BOARD_MEMORY.md.j2",
     "HEARTBEAT.md": "BOARD_HEARTBEAT.md.j2",
+    "GATED-HEARTBEAT.md": "BOARD_WORKER_GATED-HEARTBEAT.md.j2",
     "USER.md": "BOARD_USER.md.j2",
-    "TOOLS.md": "BOARD_TOOLS.md.j2",
+    "TOOLS.md": "BOARD_WORKER_TOOLS.md.j2",
 }
 
-BOARD_SHARED_TEMPLATE_MAP = {
-    "AGENTS.md": "BOARD_AGENTS.md.j2",
+BOARD_LEAD_TEMPLATE_MAP = {
+    "AGENTS.md": "BOARD_LEAD_AGENTS.md.j2",
     "BOOTSTRAP.md": "BOARD_BOOTSTRAP.md.j2",
     "IDENTITY.md": "BOARD_IDENTITY.md.j2",
     "SOUL.md": "BOARD_SOUL.md.j2",
     "MEMORY.md": "BOARD_MEMORY.md.j2",
     "HEARTBEAT.md": "BOARD_HEARTBEAT.md.j2",
+    "GATED-HEARTBEAT.md": "BOARD_LEAD_GATED-HEARTBEAT.md.j2",
     "USER.md": "BOARD_USER.md.j2",
-    "TOOLS.md": "BOARD_TOOLS.md.j2",
+    "TOOLS.md": "BOARD_LEAD_TOOLS.md.j2",
 }
-
-LEAD_TEMPLATE_MAP: dict[str, str] = {}
 
 _TOOLS_KV_RE = re.compile(r"^(?P<key>[A-Z0-9_]+)=(?P<value>.*)$")
 _NON_TRANSIENT_GATEWAY_ERROR_MARKERS = ("unsupported file",)

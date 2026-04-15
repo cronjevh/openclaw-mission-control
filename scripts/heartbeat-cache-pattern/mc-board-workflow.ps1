@@ -1,15 +1,37 @@
 #!/usr/bin/env pwsh
 <# Cached board-dispatch: check cache first; if fresh and act unchanged, skip gate entirely. #>
-Set-StrictMode -Version Latest; $ErrorActionPreference = 'Stop'
+param(
+    [switch]$ProcessQueue
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
 $AgentId = 'dd95369d-1497-41f2-8aeb-e06b51b63162'
 $BoardId = 'dd95369d-1497-41f2-8aeb-e06b51b63162'
 $Wsp = "/home/cronjev/.openclaw/workspace-lead-$BoardId"
 $State = Join-Path $Wsp '.openclaw/workflows/.dispatch-state-latest.json'
-$Dispatch = '/home/cronjev/.openclaw/scripts/mission-control-scripts/mc-board-dispatch.ps1'
+$SharedScriptsRoot = '/home/cronjev/mission-control-tfsmrt/scripts'
+$Dispatch = Join-Path $SharedScriptsRoot 'mc-board-dispatch.ps1'
+$HeartbeatHelper = Join-Path $SharedScriptsRoot 'openclaw-heartbeat-session.ps1'
 $TTL = 300
 $AgentRole = if ($AgentId -eq $BoardId) { 'lead' } else { 'worker' }
 $InvocationAgent = if ($AgentId -eq $BoardId) { "lead-$BoardId" } else { "mc-$AgentId" }
+
+. $HeartbeatHelper
+
+if ($ProcessQueue) {
+    [void](Invoke-MissionControlHeartbeatQueueProcessor `
+        -WorkspacePath $Wsp `
+        -InvocationAgent $InvocationAgent `
+        -TimeoutSec 120)
+    exit 0
+}
+
+if (Test-MissionControlHeartbeatQueueProcessing -WorkspacePath $Wsp) {
+    Write-Host "OK # queue processing"
+    exit 0
+}
 
 # ── Cache miss or stale ──
 try {
@@ -32,21 +54,44 @@ if (Test-Path $State) {
 
 $j = Get-Content $State -Raw | ConvertFrom-Json
 if ($j.act -eq $true) {
-    # Get Authtoken from Tools - short form, path already validated in prior step
-    $(Get-Content -Path $Wsp/TOOLS.md -Raw) -match '(?m)^\s*AUTH_TOKEN\s*=\s*([^\r\n]+?)\s*$' | Out-Null
-    $authToken = $matches[1].Trim().Trim('`', '"', "'")
-    $Msg = @()
-    $Msg += @"
-# HEARTBEAT
-## Board state
-``````json
-$($j | ConvertTo-Json -Depth 6)
-``````
-AUTH_TOKEN=$authToken
+    $dispatchStates = @()
+    $activeTasks = @($j.tasks | Where-Object { $_ -and $_.id })
+    if ($activeTasks.Count -eq 0) {
+        $dispatchStates = @($j)
+    }
+    else {
+        foreach ($task in $activeTasks) {
+            $taskDispatchState = [ordered]@{
+                act = $j.act
+                reason = $j.reason
+                agentRole = $j.agentRole
+                boardId = $j.boardId
+                agentId = $j.agentId
+                summary = $j.summary
+                tasks = @($task)
+            }
 
-"@
-    $Msg += (Get-Content (Join-Path $Wsp 'GATED-HEARTBEAT.md') -Raw)
-    & openclaw agent --agent $InvocationAgent --message "$Msg" --json --timeout 120 --thinking on
+            $dispatchStates += [pscustomobject]$taskDispatchState
+        }
+    }
+
+    $queued = 0
+    $skipped = 0
+    foreach ($dispatchState in $dispatchStates) {
+        if (Add-MissionControlHeartbeatQueueItem `
+            -WorkspacePath $Wsp `
+            -InvocationAgent $InvocationAgent `
+            -DispatchState $dispatchState) {
+            $queued++
+        }
+        else {
+            $skipped++
+        }
+    }
+
+    [void](Start-MissionControlHeartbeatQueueProcessor -WorkspacePath $Wsp -ScriptPath $PSCommandPath)
+    Write-Host "OK # queued=$queued skipped=$skipped"
+    exit 0
 }
 else {
     Write-Host "OK # act=false ($($j.reason))"

@@ -40,9 +40,8 @@ def test_preserve_editable_files_covers_curated_board_runtime_files() -> None:
     }
 
 
-def test_managed_core_files_cover_authoritative_sync_trio() -> None:
+def test_managed_core_files_cover_authoritative_sync_pair() -> None:
     assert MANAGED_CORE_FILES == {
         "AGENTS.md",
         "TOOLS.md",
-        "GATED-HEARTBEAT.md",
     }

@@ -8,17 +8,19 @@ This folder contains the Jinja2 templates Mission Control syncs into OpenClaw wo
 
 ## Managed ownership model
 
-The authoritative managed trio is:
+The active managed core is:
 
 - `AGENTS.md`
 - `TOOLS.md`
-- `GATED-HEARTBEAT.md`
 
-Those three files are Mission Control managed surfaces. They are overwritten on sync so the
+Those two files are Mission Control managed surfaces. They are overwritten on sync so the
 workspace stays aligned with the current routing and ownership contract.
 
 `HEARTBEAT.md` remains separate on purpose. It is still a compatibility/runtime surface and is
 preserved across update syncs via `PRESERVE_AGENT_EDITABLE_FILES`.
+
+`GATED-HEARTBEAT.md` templates remain in the repo as inactive/dormant assets. They are not part of
+the active worker/lead sync contract.
 
 ## Template routing
 
@@ -26,19 +28,23 @@ Board worker managed files come from:
 
 - `AGENTS.md` -> `BOARD_WORKER_AGENTS.md.j2`
 - `TOOLS.md` -> `BOARD_WORKER_TOOLS.md.j2`
-- `GATED-HEARTBEAT.md` -> `BOARD_WORKER_GATED-HEARTBEAT.md.j2`
 
 Board lead managed files come from:
 
 - `AGENTS.md` -> `BOARD_LEAD_AGENTS.md.j2`
 - `TOOLS.md` -> `BOARD_LEAD_TOOLS.md.j2`
-- `GATED-HEARTBEAT.md` -> `BOARD_LEAD_GATED-HEARTBEAT.md.j2`
 
 Shared or compatibility surfaces:
 
 - Board worker `HEARTBEAT.md` -> `BOARD_HEARTBEAT.md.j2`
 - Board lead `HEARTBEAT.md` -> `BOARD_HEARTBEAT.md.j2`
 - Gateway main `AGENTS.md` -> `GATEWAY_MAIN_AGENTS.md.j2`
+
+Dormant reserved templates:
+
+- `BOARD_WORKER_GATED-HEARTBEAT.md.j2`
+- `BOARD_LEAD_GATED-HEARTBEAT.md.j2`
+- `GROUP_LEAD_GATED-HEARTBEAT.md.j2`
 
 Selection is defined in:
 
@@ -57,10 +63,12 @@ These legacy-looking board template names are thin shims and not separate source
 
 - `BOARD_AGENTS.md.j2` -> includes `BOARD_WORKER_AGENTS.md.j2`
 - `BOARD_TOOLS.md.j2` -> includes `BOARD_WORKER_TOOLS.md.j2`
-- `BOARD_GATED-HEARTBEAT.md.j2` -> includes `BOARD_WORKER_GATED-HEARTBEAT.md.j2`
 
 Keep them as compatibility entrypoints only. New worker behavior belongs in the
 `BOARD_WORKER_*` templates.
+
+`BOARD_GATED-HEARTBEAT.md.j2` is an inactive compatibility shim retained for future use. It is not
+part of the current worker/lead sync contract.
 
 ## Group lead reservation
 
@@ -86,7 +94,7 @@ Provisioning behavior lives in `backend/app/services/openclaw/provisioning.py`:
 
 Current policy:
 
-- Managed trio files are rewritten during sync.
+- Managed core files are rewritten during sync.
 - `HEARTBEAT.md`, `USER.md`, and `MEMORY.md` are preserved during update syncs unless overwrite is explicitly requested.
 - Board-lead sync may delete stale lead/worker-era files when they are outside the current contract.
 

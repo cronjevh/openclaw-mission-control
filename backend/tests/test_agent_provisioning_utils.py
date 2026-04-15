@@ -77,6 +77,33 @@ def test_agent_lifecycle_workspace_path_preserves_tilde_in_workspace_root():
     )
 
 
+def test_should_include_bootstrap_skips_recreating_missing_file_on_update():
+    assert (
+        agent_provisioning._should_include_bootstrap(
+            action="update",
+            force_bootstrap=False,
+            existing_files={},
+        )
+        is False
+    )
+    assert (
+        agent_provisioning._should_include_bootstrap(
+            action="update",
+            force_bootstrap=False,
+            existing_files={"BOOTSTRAP.md": {"name": "BOOTSTRAP.md", "missing": True}},
+        )
+        is False
+    )
+    assert (
+        agent_provisioning._should_include_bootstrap(
+            action="update",
+            force_bootstrap=False,
+            existing_files={"BOOTSTRAP.md": {"name": "BOOTSTRAP.md", "missing": False}},
+        )
+        is True
+    )
+
+
 @pytest.mark.asyncio
 async def test_resolve_agent_auth_token_forces_rotation_when_rotate_tokens_true(monkeypatch):
     agent = _AgentStub(name="Alice")
@@ -229,10 +256,7 @@ def test_rendered_lead_templates_include_specialist_management_guidance():
         r"^<!-- mission-control-managed: role=board_lead file=TOOLS\.md template=BOARD_LEAD_TOOLS\.md\.j2 sha256=[0-9a-f]{64} -->",
         rendered["TOOLS.md"],
     )
-    assert re.match(
-        r"^<!-- mission-control-managed: role=board_lead file=GATED-HEARTBEAT\.md template=BOARD_LEAD_GATED-HEARTBEAT\.md\.j2 sha256=[0-9a-f]{64} -->",
-        rendered["GATED-HEARTBEAT.md"],
-    )
+    assert not rendered["GATED-HEARTBEAT.md"].startswith("<!-- mission-control-managed:")
     assert "### Specialist Provisioning" in rendered["AGENTS.md"]
     assert "`max_agents` excludes the lead itself." in rendered["AGENTS.md"]
     assert "Do not confuse `agents_list`, `sessions_spawn`, or subagent allowlists" in rendered["AGENTS.md"]
@@ -318,10 +342,7 @@ def test_rendered_worker_templates_include_context_loading_and_evidence_contract
         r"^<!-- mission-control-managed: role=board_worker file=TOOLS\.md template=BOARD_WORKER_TOOLS\.md\.j2 sha256=[0-9a-f]{64} -->",
         rendered["TOOLS.md"],
     )
-    assert re.match(
-        r"^<!-- mission-control-managed: role=board_worker file=GATED-HEARTBEAT\.md template=BOARD_WORKER_GATED-HEARTBEAT\.md\.j2 sha256=[0-9a-f]{64} -->",
-        rendered["GATED-HEARTBEAT.md"],
-    )
+    assert not rendered["GATED-HEARTBEAT.md"].startswith("<!-- mission-control-managed:")
     assert "## Context Loading Policy" in rendered["AGENTS.md"]
     assert "## Context Layers" in rendered["AGENTS.md"]
     assert "## Task Bundle Boundary Rule" in rendered["AGENTS.md"]
@@ -432,8 +453,8 @@ def test_board_worker_and_lead_use_distinct_template_maps_and_file_contracts():
     assert manager._template_overrides(worker) != manager._template_overrides(lead)
     assert manager._file_names(worker) == set(agent_provisioning.BOARD_WORKER_GATEWAY_FILES)
     assert manager._file_names(lead) == set(agent_provisioning.BOARD_LEAD_GATEWAY_FILES)
-    assert "GATED-HEARTBEAT.md" in manager._file_names(worker)
-    assert "GATED-HEARTBEAT.md" in manager._file_names(lead)
+    assert "GATED-HEARTBEAT.md" not in manager._file_names(worker)
+    assert "GATED-HEARTBEAT.md" not in manager._file_names(lead)
 
 
 def test_group_lead_keeps_dedicated_templates_instead_of_board_lead_or_group_shared():
@@ -484,7 +505,7 @@ def test_board_lead_stale_file_candidates_cover_old_ambiguous_templates():
 
     assert "AGENTS.md" in stale
     assert "TOOLS.md" in stale
-    assert "GATED-HEARTBEAT.md" in stale
+    assert "GATED-HEARTBEAT.md" not in stale
     assert "HEARTBEAT.md" in stale
     assert "ROUTING.md" in stale
 
@@ -1028,7 +1049,7 @@ async def test_set_agent_files_update_rewrites_managed_file_without_header():
 
 
 @pytest.mark.asyncio
-async def test_set_agent_files_surfaces_unsupported_gated_heartbeat():
+async def test_set_agent_files_tolerates_unsupported_non_managed_gated_heartbeat():
     class _ControlPlaneStub:
         async def ensure_agent_session(self, session_key, *, label=None):
             return None
@@ -1090,23 +1111,124 @@ async def test_set_agent_files_surfaces_unsupported_gated_heartbeat():
         body="# gated",
     )
 
-    with pytest.raises(RuntimeError, match="managed core file as unsupported: GATED-HEARTBEAT.md"):
+    await mgr._set_agent_files(
+        agent_id="agent-x",
+        rendered={"GATED-HEARTBEAT.md": rendered},
+        existing_files={},
+        action="update",
+        managed_template_sources={},
+        managed_changes=changes,
+    )
+
+    assert changes == []
+
+
+@pytest.mark.asyncio
+async def test_set_agent_files_rolls_back_prior_managed_rewrite_when_later_managed_file_fails():
+    class _ControlPlaneStub:
+        def __init__(self):
+            self.writes: list[tuple[str, str]] = []
+
+        async def ensure_agent_session(self, session_key, *, label=None):
+            return None
+
+        async def reset_agent_session(self, session_key):
+            return None
+
+        async def delete_agent_session(self, session_key):
+            return None
+
+        async def upsert_agent(self, registration):
+            return None
+
+        async def delete_agent(self, agent_id, *, delete_files=True):
+            return None
+
+        async def list_agent_files(self, agent_id):
+            return {}
+
+        async def get_agent_file_payload(self, *, agent_id, name):
+            assert agent_id == "agent-x"
+            if name == "AGENTS.md":
+                return "# original agents"
+            return None
+
+        async def set_agent_file(self, *, agent_id, name, content):
+            if name == "TOOLS.md":
+                raise agent_provisioning.OpenClawGatewayError('unsupported file "TOOLS.md"')
+            self.writes.append((name, content))
+
+        async def patch_agent_heartbeats(self, entries):
+            return None
+
+    @dataclass
+    class _GatewayTiny:
+        id: UUID
+        name: str
+        url: str
+        token: str | None
+        workspace_root: str
+        allow_insecure_tls: bool = False
+        disable_device_pairing: bool = False
+
+    class _Manager(agent_provisioning.BaseAgentLifecycleManager):
+        def _agent_id(self, agent):
+            return "agent-x"
+
+        def _build_context(self, *, agent, auth_token, user, board):
+            return {}
+
+    gateway = _GatewayTiny(
+        id=uuid4(),
+        name="G",
+        url="ws://x",
+        token=None,
+        workspace_root="/tmp",
+    )
+    mgr = _Manager(gateway, _ControlPlaneStub())  # type: ignore[arg-type]
+    changes: list[agent_provisioning.ManagedGatewayFileChange] = []
+    rendered_agents = agent_provisioning._with_managed_file_header(
+        role="board_worker",
+        file_name="AGENTS.md",
+        template_source="BOARD_WORKER_AGENTS.md.j2",
+        body="# authoritative agents",
+    )
+    rendered_tools = agent_provisioning._with_managed_file_header(
+        role="board_worker",
+        file_name="TOOLS.md",
+        template_source="BOARD_WORKER_TOOLS.md.j2",
+        body="# authoritative tools",
+    )
+
+    with pytest.raises(RuntimeError, match="managed core file as unsupported: TOOLS.md"):
         await mgr._set_agent_files(
             agent_id="agent-x",
-            rendered={"GATED-HEARTBEAT.md": rendered},
-            existing_files={},
+            rendered={
+                "AGENTS.md": rendered_agents,
+                "TOOLS.md": rendered_tools,
+            },
+            existing_files={
+                "AGENTS.md": {"name": "AGENTS.md", "missing": False},
+            },
             action="update",
-            managed_template_sources={"GATED-HEARTBEAT.md": "BOARD_WORKER_GATED-HEARTBEAT.md.j2"},
+            managed_template_sources={
+                "AGENTS.md": "BOARD_WORKER_AGENTS.md.j2",
+                "TOOLS.md": "BOARD_WORKER_TOOLS.md.j2",
+            },
             managed_role="board_worker",
             managed_changes=changes,
         )
 
+    assert mgr._control_plane.writes == [
+        ("AGENTS.md", rendered_agents),
+        ("AGENTS.md", "# original agents"),
+    ]
     assert changes == [
         agent_provisioning.ManagedGatewayFileChange(
-            file_name="GATED-HEARTBEAT.md",
+            file_name="TOOLS.md",
             action="unsupported",
             reason="missing_file",
-            template_source="BOARD_WORKER_GATED-HEARTBEAT.md.j2",
+            template_source="BOARD_WORKER_TOOLS.md.j2",
         )
     ]
 

@@ -228,7 +228,7 @@ class AgentLifecycleOrchestrator(OpenClawDBService):
                 })
 
         try:
-            provision_changes = await OpenClawGatewayProvisioner().apply_agent_lifecycle(
+            await OpenClawGatewayProvisioner().apply_agent_lifecycle(
                 agent=locked,
                 gateway=gateway,
                 board=board,
@@ -243,9 +243,8 @@ class AgentLifecycleOrchestrator(OpenClawDBService):
                 wakeup_verb=wakeup_verb,
                 board_secrets=board_secrets,
                 board_documents=board_documents,
+                managed_changes=managed_changes,
             )
-            if managed_changes is not None:
-                managed_changes.extend(provision_changes)
         except OpenClawGatewayError as exc:
             locked.last_provision_error = str(exc)
             locked.updated_at = utcnow()

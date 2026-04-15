@@ -72,7 +72,6 @@ MANAGED_CORE_FILES = frozenset(
     {
         "AGENTS.md",
         "TOOLS.md",
-        "GATED-HEARTBEAT.md",
     },
 )
 
@@ -84,7 +83,6 @@ BOARD_WORKER_GATEWAY_FILES = frozenset(
         "IDENTITY.md",
         "USER.md",
         "HEARTBEAT.md",
-        "GATED-HEARTBEAT.md",
         "MEMORY.md",
     },
 )
@@ -99,7 +97,6 @@ BOARD_LEAD_GATEWAY_FILES = frozenset(
         "MEMORY.md",
         "TOOLS.md",
         "HEARTBEAT.md",
-        "GATED-HEARTBEAT.md",
     },
 )
 

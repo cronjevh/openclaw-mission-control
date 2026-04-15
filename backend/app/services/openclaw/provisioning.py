@@ -470,6 +470,12 @@ class _RenderedGatewayFile:
     template_source: str
 
 
+@dataclass(frozen=True, slots=True)
+class _ManagedFileSnapshot:
+    existed: bool
+    content: str | None
+
+
 def _sha256_text(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
@@ -560,6 +566,15 @@ def _extract_file_content(payload: object) -> str | None:
             if isinstance(nested, str):
                 return nested
     return None
+
+
+def _gateway_file_write_priority(name: str) -> tuple[int, str]:
+    priorities = {
+        "GATED-HEARTBEAT.md": 0,
+        "AGENTS.md": 1,
+        "TOOLS.md": 2,
+    }
+    return (priorities.get(name, 100), name)
 
 
 def _render_agent_file_specs(
@@ -1127,8 +1142,36 @@ class BaseAgentLifecycleManager(ABC):
         target_file_names = desired_file_names or set(rendered.keys())
         managed_templates = managed_template_sources or {}
         unsupported_names: list[str] = []
+        managed_snapshots: dict[str, _ManagedFileSnapshot] = {}
+        managed_rewrites: list[ManagedGatewayFileChange] = []
+        written_managed_files: list[str] = []
 
-        for name, content in rendered.items():
+        async def _rollback_managed_writes() -> None:
+            for file_name in reversed(written_managed_files):
+                snapshot = managed_snapshots.get(file_name)
+                if snapshot is None:
+                    continue
+                try:
+                    if snapshot.existed and snapshot.content is not None:
+                        await self._control_plane.set_agent_file(
+                            agent_id=agent_id,
+                            name=file_name,
+                            content=snapshot.content,
+                        )
+                    elif not snapshot.existed:
+                        await self._control_plane.delete_agent_file(agent_id=agent_id, name=file_name)
+                except OpenClawGatewayError as exc:
+                    logger.warning(
+                        "gateway.managed_file.rollback_failed",
+                        extra={
+                            "agent_id": agent_id,
+                            "file_name": file_name,
+                            "error": str(exc),
+                        },
+                    )
+
+        for name in sorted(rendered.keys(), key=_gateway_file_write_priority):
+            content = rendered[name]
             if content == "":
                 continue
             managed_reason: str | None = None
@@ -1149,6 +1192,10 @@ class BaseAgentLifecycleManager(ABC):
                         current_content = None
                     else:
                         current_content = _extract_file_content(payload)
+                managed_snapshots[name] = _ManagedFileSnapshot(
+                    existed=bool(entry and not bool(entry.get("missing"))),
+                    content=current_content,
+                )
                 managed_reason = _classify_managed_file_state(
                     current_content,
                     role=managed_role or expected_header.role,
@@ -1177,6 +1224,7 @@ class BaseAgentLifecycleManager(ABC):
             except OpenClawGatewayError as exc:
                 if "unsupported file" in str(exc).lower():
                     if name in managed_templates:
+                        await _rollback_managed_writes()
                         if managed_changes is not None:
                             managed_changes.append(
                                 ManagedGatewayFileChange(
@@ -1185,14 +1233,17 @@ class BaseAgentLifecycleManager(ABC):
                                     reason=managed_reason or "missing_file",
                                     template_source=managed_templates[name],
                                 )
-                            )
+                        )
                         msg = f"Gateway rejected required managed core file as unsupported: {name}"
                         raise RuntimeError(msg) from exc
                     unsupported_names.append(name)
                     continue
+                if name in managed_templates:
+                    await _rollback_managed_writes()
                 raise
-            if name in managed_templates and managed_changes is not None:
-                managed_changes.append(
+            if name in managed_templates:
+                written_managed_files.append(name)
+                managed_rewrites.append(
                     ManagedGatewayFileChange(
                         file_name=name,
                         action="rewritten",
@@ -1200,6 +1251,9 @@ class BaseAgentLifecycleManager(ABC):
                         template_source=managed_templates[name],
                     )
                 )
+
+        if managed_changes is not None:
+            managed_changes.extend(managed_rewrites)
 
         if agent is not None and agent.is_board_lead and unsupported_names:
             unsupported_sorted = ", ".join(sorted(set(unsupported_names)))
@@ -1244,6 +1298,7 @@ class BaseAgentLifecycleManager(ABC):
         session_label: str | None = None,
         board_secrets: list[dict[str, str]] | None = None,
         board_documents: list[dict[str, str]] | None = None,
+        managed_changes: list[ManagedGatewayFileChange] | None = None,
     ) -> list[ManagedGatewayFileChange]:
         if not self._gateway.workspace_root:
             msg = "gateway_workspace_root is required"
@@ -1291,7 +1346,7 @@ class BaseAgentLifecycleManager(ABC):
             managed_role=self._managed_file_role(agent),
         )
         rendered = {name: spec.content for name, spec in rendered_specs.items()}
-        managed_changes: list[ManagedGatewayFileChange] = []
+        effective_managed_changes = managed_changes if managed_changes is not None else []
 
         await self._set_agent_files(
             agent=agent,
@@ -1307,9 +1362,9 @@ class BaseAgentLifecycleManager(ABC):
                 if name in MANAGED_CORE_FILES
             },
             managed_role=self._managed_file_role(agent),
-            managed_changes=managed_changes,
+            managed_changes=effective_managed_changes,
         )
-        return managed_changes
+        return effective_managed_changes
 
 
 class BoardAgentLifecycleManager(BaseAgentLifecycleManager):
@@ -1567,7 +1622,7 @@ def _should_include_bootstrap(
     if not existing_files:
         return False
     entry = existing_files.get("BOOTSTRAP.md")
-    return not bool(entry and entry.get("missing"))
+    return bool(entry and not bool(entry.get("missing")))
 
 
 def _wakeup_text(agent: Agent, *, verb: str) -> str:
@@ -1627,6 +1682,7 @@ class OpenClawGatewayProvisioner:
         wakeup_verb: str | None = None,
         board_secrets: list[dict[str, str]] | None = None,
         board_documents: list[dict[str, str]] | None = None,
+        managed_changes: list[ManagedGatewayFileChange] | None = None,
     ) -> list[ManagedGatewayFileChange]:
         """Create/update an agent, sync all template files, and optionally wake the agent.
 
@@ -1667,7 +1723,7 @@ class OpenClawGatewayProvisioner:
 
         control_plane = _control_plane_for_gateway(gateway)
         manager = manager_type(gateway, control_plane)
-        managed_changes = await manager.provision(
+        provision_changes = await manager.provision(
             agent=agent,
             board=board,
             session_key=session_key,
@@ -1681,6 +1737,7 @@ class OpenClawGatewayProvisioner:
             session_label=agent.name or "Gateway Agent",
             board_secrets=board_secrets or [],
             board_documents=board_documents or [],
+            managed_changes=managed_changes,
         )
 
         if reset_session:
@@ -1691,7 +1748,7 @@ class OpenClawGatewayProvisioner:
                     raise
 
         if not wake:
-            return managed_changes
+            return provision_changes
 
         client_config = GatewayClientConfig(
             url=gateway.url,
@@ -1707,7 +1764,7 @@ class OpenClawGatewayProvisioner:
             config=client_config,
             deliver=deliver_wakeup,
         )
-        return managed_changes
+        return provision_changes
 
     async def delete_agent_lifecycle(
         self,

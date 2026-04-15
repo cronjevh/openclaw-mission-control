@@ -1211,6 +1211,7 @@ class GroupAgentLifecycleManager(BaseAgentLifecycleManager):
         overrides = dict(BOARD_LEAD_TEMPLATE_MAP)
         overrides["HEARTBEAT.md"] = "GROUP_LEAD_HEARTBEAT.md.j2"
         overrides["AGENTS.md"] = "GROUP_LEAD_AGENTS.md.j2"
+        overrides["TOOLS.md"] = "GROUP_LEAD_TOOLS.md.j2"
         return overrides
 
     def _file_names(self, agent: Agent) -> set[str]:

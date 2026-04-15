@@ -190,11 +190,11 @@ def test_rendered_lead_templates_include_specialist_management_guidance():
         target_date=None,
         goal_confirmed=True,
         require_approval_for_done=True,
-        require_review_before_done=False,
-        comment_required_for_review=False,
-        block_status_changes_with_pending_approval=False,
-        only_lead_can_change_status=False,
-        max_agents=3,
+        require_review_before_done=True,
+        comment_required_for_review=True,
+        block_status_changes_with_pending_approval=True,
+        only_lead_can_change_status=True,
+        max_agents=7,
     )
     gateway = _GatewayStub(
         id=uuid4(),
@@ -223,10 +223,27 @@ def test_rendered_lead_templates_include_specialist_management_guidance():
     assert "### Specialist Provisioning" in rendered["AGENTS.md"]
     assert "`max_agents` excludes the lead itself." in rendered["AGENTS.md"]
     assert "Do not confuse `agents_list`, `sessions_spawn`, or subagent allowlists" in rendered["AGENTS.md"]
+    assert "### Lead Execution Authorization" in rendered["AGENTS.md"]
+    assert "### Assignment Authorization Boundary" in rendered["AGENTS.md"]
+    assert "ASSIGNMENT_AUTHORIZED: true" in rendered["AGENTS.md"]
+    assert "### Control-Plane Notification Discipline" in rendered["AGENTS.md"]
     assert "## Agent Management Quick Reference" in rendered["TOOLS.md"]
     assert 'curl -fsS -X POST "$BASE_URL/api/v1/agent/agents"' in rendered["TOOLS.md"]
+    assert "## Board Lead Route Templates" in rendered["TOOLS.md"]
+    assert "/api/v1/agent/boards/{board_id}/tasks/{task_id}" in rendered["TOOLS.md"]
+    assert "## Backlog Guardrails" in rendered["TOOLS.md"]
     assert "## Purpose" in rendered["GATED-HEARTBEAT.md"]
     assert "## Lead-focused operation filter" in rendered["GATED-HEARTBEAT.md"]
+    assert "## Assignment Authorization Marker" in rendered["GATED-HEARTBEAT.md"]
+    assert "- `require_review_before_done`: `true`" in rendered["GATED-HEARTBEAT.md"]
+    assert "- `require_approval_for_done`: `true`" in rendered["GATED-HEARTBEAT.md"]
+    assert "- `comment_required_for_review`: `true`" in rendered["GATED-HEARTBEAT.md"]
+    assert "- `block_status_changes_with_pending_approval`: `true`" in rendered["GATED-HEARTBEAT.md"]
+    assert "- `only_lead_can_change_status`: `true`" in rendered["GATED-HEARTBEAT.md"]
+    assert "- `max_agents`: `7`" in rendered["GATED-HEARTBEAT.md"]
+    assert "## Spawn-Before-Assign Rule" in rendered["GATED-HEARTBEAT.md"]
+    assert "## Evidence-Backed Review" in rendered["GATED-HEARTBEAT.md"]
+    assert "## Closure Protocol Expectations" in rendered["GATED-HEARTBEAT.md"]
     assert "### Board Lead Loop" in rendered["GATED-HEARTBEAT.md"]
 
 
@@ -409,7 +426,7 @@ def test_group_lead_keeps_dedicated_templates_instead_of_board_lead_or_group_sha
 
     assert overrides["AGENTS.md"] == "GROUP_LEAD_AGENTS.md.j2"
     assert overrides["HEARTBEAT.md"] == "GROUP_LEAD_HEARTBEAT.md.j2"
-    assert overrides["TOOLS.md"] == "BOARD_LEAD_TOOLS.md.j2"
+    assert overrides["TOOLS.md"] == "GROUP_LEAD_TOOLS.md.j2"
     assert "GATED-HEARTBEAT.md" not in manager._file_names(group_lead)
 
 

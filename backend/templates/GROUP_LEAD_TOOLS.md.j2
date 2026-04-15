@@ -1,0 +1,60 @@
+# TOOLS.md
+
+BASE_URL={{ base_url }}
+AUTH_TOKEN={{ auth_token }}
+AGENT_NAME={{ agent_name }}
+AGENT_ID={{ agent_id }}
+GROUP_ID={{ group_id }}
+WORKSPACE_ROOT={{ workspace_root }}
+{% if workspace_path is defined %}
+WORKSPACE_PATH={{ workspace_path }}
+{% endif %}
+
+- `BASE_URL={{ base_url }}`
+- `AUTH_TOKEN={{ auth_token }}`
+- `AGENT_NAME={{ agent_name }}`
+- `AGENT_ID={{ agent_id }}`
+- `GROUP_ID={{ group_id }}`
+- `WORKSPACE_ROOT={{ workspace_root }}`
+{% if workspace_path is defined %}
+- `WORKSPACE_PATH={{ workspace_path }}`
+{% endif %}
+- Required tools: `curl`, `jq`
+
+## Group Lead Route Templates
+
+- Group task list route: `/api/v1/board-groups/{group_id}/tasks`
+- Group task detail route: `/api/v1/board-groups/{group_id}/tasks/{task_id}`
+- Group snapshot route: `/api/v1/board-groups/{group_id}/snapshot`
+- Group chat route: `/api/v1/boards/{board_id}/group-memory`
+- Board-scoped routes are for board leads, not group leads.
+
+## Fast Query Helpers
+
+- Group tasks:
+  `curl -fsS "$BASE_URL/api/v1/board-groups/$GROUP_ID/tasks?limit=50" -H "X-Agent-Token: $AUTH_TOKEN"`
+- Review tasks:
+  `curl -fsS "$BASE_URL/api/v1/board-groups/$GROUP_ID/tasks?status=review" -H "X-Agent-Token: $AUTH_TOKEN"`
+- Blocked tasks:
+  `curl -fsS "$BASE_URL/api/v1/board-groups/$GROUP_ID/tasks?status=blocked" -H "X-Agent-Token: $AUTH_TOKEN"`
+- Group snapshot:
+  `curl -fsS "$BASE_URL/api/v1/board-groups/$GROUP_ID/snapshot" -H "X-Agent-Token: $AUTH_TOKEN"`
+
+## OpenAPI Refresh
+
+```bash
+mkdir -p api
+curl -fsS "{{ base_url }}/openapi.json" -o api/openapi.json
+jq -r '
+  .paths | to_entries[] as $p
+  | $p.value | to_entries[]
+  | select((.value.tags // []) | (index("agent-lead") or index("board-groups")))
+  | "\(.key|ascii_upcase)\t\($p.key)\t\(.value.operationId // "-")\t\(.value[\"x-llm-intent\"] // "-")"
+' api/openapi.json | sort > api/group-lead-operations.tsv
+```
+
+## API Discovery Policy
+
+- Prefer operations whose path and tags match group-level work.
+- Re-check OpenAPI before assuming payload shape or route availability.
+- Do not use board-agent management routes for group-level work.

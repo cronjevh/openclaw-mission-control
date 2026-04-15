@@ -56,6 +56,37 @@ WORKSPACE_PATH={{ workspace_path }}
 - If snapshot shows the lead plus 2 workers and `max_agents=3`, one worker slot remains available.
 - Do not use `agents_list` or `sessions_spawn` to decide whether a persistent board agent can be created.
 - Do not use org-admin `PATCH /api/v1/agents/<agent_id>` with `X-Agent-Token` for board-agent updates; that route expects org-admin auth and will return `401`.
+
+## Board Lead Route Templates
+
+- Task list route: `/api/v1/agent/boards/{board_id}/tasks`
+- Task detail route: `/api/v1/agent/boards/{board_id}/tasks/{task_id}`
+- Board snapshot route: `/api/v1/agent/boards/{board_id}/snapshot`
+- Board agents route: `/api/v1/agent/agents?board_id={board_id}`
+- Forbidden task route families: `/api/v1/agent/tasks`, `/api/v1/tasks`
+- Canonical assignment marker: `ASSIGNMENT_AUTHORIZED: true`
+
+## Fast Query Helpers
+
+- In-progress tasks:
+  `curl -fsS "$BASE_URL/api/v1/agent/boards/$BOARD_ID/tasks?status=in_progress" -H "X-Agent-Token: $AUTH_TOKEN"`
+- Inbox tasks:
+  `curl -fsS "$BASE_URL/api/v1/agent/boards/$BOARD_ID/tasks?status=inbox" -H "X-Agent-Token: $AUTH_TOKEN"`
+- Review tasks:
+  `curl -fsS "$BASE_URL/api/v1/agent/boards/$BOARD_ID/tasks?status=review" -H "X-Agent-Token: $AUTH_TOKEN"`
+- Blocked tasks:
+  `curl -fsS "$BASE_URL/api/v1/agent/boards/$BOARD_ID/tasks?status=blocked" -H "X-Agent-Token: $AUTH_TOKEN"`
+- Task detail:
+  `curl -fsS "$BASE_URL/api/v1/agent/boards/$BOARD_ID/tasks/<task_id>" -H "X-Agent-Token: $AUTH_TOKEN"`
+- Board agents:
+  `curl -fsS "$BASE_URL/api/v1/agent/agents?board_id=$BOARD_ID&limit=100" -H "X-Agent-Token: $AUTH_TOKEN"`
+
+## Backlog Guardrails
+
+- Treat `custom_field_values.backlog` as authoritative when present.
+- Never start or assign a task while `custom_field_values.backlog=true`.
+- Do not clear backlog as a side effect of dependency resolution, recovery handling, or closure follow-up.
+- Re-fetch live task state before assignment instead of trusting copied summaries or stale artifacts.
 {% endif %}
 
 {% if is_main %}

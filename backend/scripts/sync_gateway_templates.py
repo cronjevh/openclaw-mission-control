@@ -112,6 +112,19 @@ async def _run() -> int:
         f"agents_skipped={result.agents_skipped} "
         f"main_updated={result.main_updated}\n",
     )
+    if result.changes:
+        sys.stdout.write("managed_core_changes:\n")
+        for change in result.changes:
+            agent = f"{change.agent_name} ({change.agent_id})" if change.agent_id else "n/a"
+            sys.stdout.write(
+                "change "
+                f"agent={agent} "
+                f"board_id={change.board_id} "
+                f"file={change.file_name} "
+                f"action={change.action} "
+                f"reason={change.reason} "
+                f"template={change.template_source}\n",
+            )
     if result.errors:
         sys.stdout.write("errors:\n")
         for err in result.errors:

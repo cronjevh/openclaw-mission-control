@@ -8,9 +8,10 @@ DB-backed workflows (template sync, lead-agent record creation) live in
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
-import re
 import os
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -43,6 +44,7 @@ from app.services.openclaw.constants import (
     HEARTBEAT_AGENT_TEMPLATE,
     HEARTBEAT_LEAD_TEMPLATE,
     IDENTITY_PROFILE_FIELDS,
+    MANAGED_CORE_FILES,
     PRESERVE_AGENT_EDITABLE_FILES,
 )
 from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
@@ -77,6 +79,10 @@ class ProvisionOptions:
 
 _ROLE_SOUL_MAX_CHARS = 24_000
 _ROLE_SOUL_WORD_RE = re.compile(r"[a-z0-9]+")
+_MANAGED_FILE_HEADER_RE = re.compile(
+    r"^<!-- mission-control-managed: role=(?P<role>\S+) file=(?P<file>\S+) "
+    r"template=(?P<template>\S+) sha256=(?P<sha256>[0-9a-f]{64}) -->\n\n?",
+)
 
 
 def _is_missing_session_error(exc: OpenClawGatewayError) -> bool:
@@ -442,6 +448,185 @@ def _session_key(agent: Agent) -> str:
     return board_agent_session_key(agent.id)
 
 
+@dataclass(frozen=True, slots=True)
+class ManagedGatewayFileChange:
+    file_name: str
+    action: str
+    reason: str
+    template_source: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ManagedFileHeader:
+    role: str
+    file_name: str
+    template_source: str
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class _RenderedGatewayFile:
+    content: str
+    template_source: str
+
+
+def _sha256_text(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _managed_file_header(
+    *,
+    role: str,
+    file_name: str,
+    template_source: str,
+    sha256: str,
+) -> str:
+    return (
+        "<!-- mission-control-managed: "
+        f"role={role} file={file_name} template={template_source} sha256={sha256} -->"
+    )
+
+
+def _split_managed_file_content(content: str) -> tuple[_ManagedFileHeader | None, str]:
+    match = _MANAGED_FILE_HEADER_RE.match(content)
+    if match is None:
+        return None, content
+    header = _ManagedFileHeader(
+        role=match.group("role"),
+        file_name=match.group("file"),
+        template_source=match.group("template"),
+        sha256=match.group("sha256"),
+    )
+    return header, content[match.end() :]
+
+
+def _with_managed_file_header(
+    *,
+    role: str,
+    file_name: str,
+    template_source: str,
+    body: str,
+) -> str:
+    header = _managed_file_header(
+        role=role,
+        file_name=file_name,
+        template_source=template_source,
+        sha256=_sha256_text(body),
+    )
+    if not body:
+        return header
+    return f"{header}\n\n{body}"
+
+
+def _classify_managed_file_state(
+    current_content: str | None,
+    *,
+    role: str,
+    file_name: str,
+    template_source: str,
+    expected_body: str,
+) -> str:
+    if current_content is None:
+        return "missing_file"
+
+    header, current_body = _split_managed_file_content(current_content)
+    if header is None:
+        return "missing_header"
+    if (
+        header.role != role
+        or header.file_name != file_name
+        or header.template_source != template_source
+    ):
+        return "template_mismatch"
+
+    current_hash = _sha256_text(current_body)
+    if current_hash != header.sha256:
+        return "hash_mismatch"
+    if current_hash != _sha256_text(expected_body):
+        return "hash_mismatch"
+    return "in_sync"
+
+
+def _extract_file_content(payload: object) -> str | None:
+    if isinstance(payload, str):
+        return payload
+    if isinstance(payload, dict):
+        content = payload.get("content")
+        if isinstance(content, str):
+            return content
+        file_obj = payload.get("file")
+        if isinstance(file_obj, dict):
+            nested = file_obj.get("content")
+            if isinstance(nested, str):
+                return nested
+    return None
+
+
+def _render_agent_file_specs(
+    context: dict[str, str],
+    agent: Agent,
+    file_names: set[str],
+    *,
+    include_bootstrap: bool,
+    template_overrides: dict[str, str] | None = None,
+    managed_role: str,
+) -> dict[str, _RenderedGatewayFile]:
+    env = _template_env()
+    overrides: dict[str, str] = {}
+    if agent.identity_template:
+        overrides["IDENTITY.md"] = agent.identity_template
+    if agent.soul_template:
+        overrides["SOUL.md"] = agent.soul_template
+
+    rendered: dict[str, _RenderedGatewayFile] = {}
+    for name in sorted(file_names):
+        if name == "BOOTSTRAP.md" and not include_bootstrap:
+            continue
+
+        template_source: str
+        if name == "HEARTBEAT.md":
+            template_source = (
+                template_overrides[name]
+                if template_overrides and name in template_overrides
+                else _heartbeat_template_name(agent)
+            )
+            heartbeat_path = _templates_root() / template_source
+            if not heartbeat_path.exists():
+                msg = f"Missing template file: {template_source}"
+                raise FileNotFoundError(msg)
+            body = env.get_template(template_source).render(**context).strip()
+        else:
+            override = overrides.get(name)
+            if override:
+                template_source = f"inline:{name}"
+                body = env.from_string(override).render(**context).strip()
+            else:
+                template_source = (
+                    template_overrides[name]
+                    if template_overrides and name in template_overrides
+                    else name
+                )
+                if template_source == "SOUL.md":
+                    template_source = "BOARD_SOUL.md.j2"
+                path = _templates_root() / template_source
+                if not path.exists():
+                    msg = f"Missing template file: {template_source}"
+                    raise FileNotFoundError(msg)
+                body = env.get_template(template_source).render(**context).strip()
+
+        content = body
+        if name in MANAGED_CORE_FILES:
+            content = _with_managed_file_header(
+                role=managed_role,
+                file_name=name,
+                template_source=template_source,
+                body=body,
+            )
+        rendered[name] = _RenderedGatewayFile(content=content, template_source=template_source)
+
+    return rendered
+
+
 def _render_agent_files(
     context: dict[str, str],
     agent: Agent,
@@ -450,45 +635,18 @@ def _render_agent_files(
     include_bootstrap: bool,
     template_overrides: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    env = _template_env()
-    overrides: dict[str, str] = {}
-    if agent.identity_template:
-        overrides["IDENTITY.md"] = agent.identity_template
-    if agent.soul_template:
-        overrides["SOUL.md"] = agent.soul_template
-
-    rendered: dict[str, str] = {}
-    for name in sorted(file_names):
-        if name == "BOOTSTRAP.md" and not include_bootstrap:
-            continue
-        if name == "HEARTBEAT.md":
-            heartbeat_template = (
-                template_overrides[name]
-                if template_overrides and name in template_overrides
-                else _heartbeat_template_name(agent)
-            )
-            heartbeat_path = _templates_root() / heartbeat_template
-            if not heartbeat_path.exists():
-                msg = f"Missing template file: {heartbeat_template}"
-                raise FileNotFoundError(msg)
-            rendered[name] = env.get_template(heartbeat_template).render(**context).strip()
-            continue
-        override = overrides.get(name)
-        if override:
-            rendered[name] = env.from_string(override).render(**context).strip()
-            continue
-        template_name = (
-            template_overrides[name] if template_overrides and name in template_overrides else name
-        )
-        if template_name == "SOUL.md":
-            # Use shared Jinja soul template as the default implementation.
-            template_name = "BOARD_SOUL.md.j2"
-        path = _templates_root() / template_name
-        if not path.exists():
-            msg = f"Missing template file: {template_name}"
-            raise FileNotFoundError(msg)
-        rendered[name] = env.get_template(template_name).render(**context).strip()
-    return rendered
+    role = "board_lead" if agent.is_board_lead else "board_worker"
+    return {
+        name: spec.content
+        for name, spec in _render_agent_file_specs(
+            context,
+            agent,
+            file_names,
+            include_bootstrap=include_bootstrap,
+            template_overrides=template_overrides,
+            managed_role=role,
+        ).items()
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -933,6 +1091,9 @@ class BaseAgentLifecycleManager(ABC):
         _ = agent
         return set(DEFAULT_GATEWAY_FILES)
 
+    def _managed_file_role(self, agent: Agent) -> str:
+        return "board_lead" if agent.is_board_lead else "board_worker"
+
     def _preserve_files(self, agent: Agent) -> set[str]:
         _ = agent
         """Files that are expected to evolve inside the agent workspace."""
@@ -956,20 +1117,54 @@ class BaseAgentLifecycleManager(ABC):
         existing_files: dict[str, dict[str, Any]],
         action: str,
         overwrite: bool = False,
+        managed_template_sources: dict[str, str] | None = None,
+        managed_role: str | None = None,
+        managed_changes: list[ManagedGatewayFileChange] | None = None,
     ) -> None:
         preserve_files = (
             self._preserve_files(agent) if agent is not None else set(PRESERVE_AGENT_EDITABLE_FILES)
         )
         target_file_names = desired_file_names or set(rendered.keys())
+        managed_templates = managed_template_sources or {}
         unsupported_names: list[str] = []
 
         for name, content in rendered.items():
             if content == "":
                 continue
+            managed_reason: str | None = None
+            if name in managed_templates:
+                expected_header, expected_body = _split_managed_file_content(content)
+                if expected_header is None:
+                    msg = f"Managed file missing provenance header: {name}"
+                    raise ValueError(msg)
+                entry = existing_files.get(name)
+                current_content: str | None = None
+                if entry and not bool(entry.get("missing")):
+                    try:
+                        payload = await self._control_plane.get_agent_file_payload(
+                            agent_id=agent_id,
+                            name=name,
+                        )
+                    except OpenClawGatewayError:
+                        current_content = None
+                    else:
+                        current_content = _extract_file_content(payload)
+                managed_reason = _classify_managed_file_state(
+                    current_content,
+                    role=managed_role or expected_header.role,
+                    file_name=name,
+                    template_source=managed_templates[name],
+                    expected_body=expected_body,
+                )
             # Preserve "editable" files only during updates. During first-time provisioning,
             # the gateway may pre-create defaults for USER/MEMORY/etc, and we still want to
             # apply Mission Control's templates.
-            if action == "update" and not overwrite and name in preserve_files:
+            if (
+                action == "update"
+                and not overwrite
+                and name in preserve_files
+                and name not in managed_templates
+            ):
                 entry = existing_files.get(name)
                 if entry and not bool(entry.get("missing")):
                     continue
@@ -981,9 +1176,30 @@ class BaseAgentLifecycleManager(ABC):
                 )
             except OpenClawGatewayError as exc:
                 if "unsupported file" in str(exc).lower():
+                    if name in managed_templates:
+                        if managed_changes is not None:
+                            managed_changes.append(
+                                ManagedGatewayFileChange(
+                                    file_name=name,
+                                    action="unsupported",
+                                    reason=managed_reason or "missing_file",
+                                    template_source=managed_templates[name],
+                                )
+                            )
+                        msg = f"Gateway rejected required managed core file as unsupported: {name}"
+                        raise RuntimeError(msg) from exc
                     unsupported_names.append(name)
                     continue
                 raise
+            if name in managed_templates and managed_changes is not None:
+                managed_changes.append(
+                    ManagedGatewayFileChange(
+                        file_name=name,
+                        action="rewritten",
+                        reason=managed_reason or "missing_file",
+                        template_source=managed_templates[name],
+                    )
+                )
 
         if agent is not None and agent.is_board_lead and unsupported_names:
             unsupported_sorted = ", ".join(sorted(set(unsupported_names)))
@@ -1028,7 +1244,7 @@ class BaseAgentLifecycleManager(ABC):
         session_label: str | None = None,
         board_secrets: list[dict[str, str]] | None = None,
         board_documents: list[dict[str, str]] | None = None,
-    ) -> None:
+    ) -> list[ManagedGatewayFileChange]:
         if not self._gateway.workspace_root:
             msg = "gateway_workspace_root is required"
             raise ValueError(msg)
@@ -1066,13 +1282,16 @@ class BaseAgentLifecycleManager(ABC):
             force_bootstrap=options.force_bootstrap,
             existing_files=existing_files,
         )
-        rendered = _render_agent_files(
+        rendered_specs = _render_agent_file_specs(
             context,
             agent,
             file_names,
             include_bootstrap=include_bootstrap,
             template_overrides=self._template_overrides(agent),
+            managed_role=self._managed_file_role(agent),
         )
+        rendered = {name: spec.content for name, spec in rendered_specs.items()}
+        managed_changes: list[ManagedGatewayFileChange] = []
 
         await self._set_agent_files(
             agent=agent,
@@ -1082,7 +1301,15 @@ class BaseAgentLifecycleManager(ABC):
             existing_files=existing_files,
             action=options.action,
             overwrite=options.overwrite,
+            managed_template_sources={
+                name: spec.template_source
+                for name, spec in rendered_specs.items()
+                if name in MANAGED_CORE_FILES
+            },
+            managed_role=self._managed_file_role(agent),
+            managed_changes=managed_changes,
         )
+        return managed_changes
 
 
 class BoardAgentLifecycleManager(BaseAgentLifecycleManager):
@@ -1217,6 +1444,10 @@ class GroupAgentLifecycleManager(BaseAgentLifecycleManager):
     def _file_names(self, agent: Agent) -> set[str]:
         return set(GROUP_LEAD_GATEWAY_FILES)
 
+    def _managed_file_role(self, agent: Agent) -> str:
+        _ = agent
+        return "group_lead"
+
 
 class GatewayMainAgentLifecycleManager(BaseAgentLifecycleManager):
     """Provisioning manager for organization gateway-main agents."""
@@ -1242,6 +1473,10 @@ class GatewayMainAgentLifecycleManager(BaseAgentLifecycleManager):
     def _file_names(self, agent: Agent) -> set[str]:
         _ = agent
         return set(GATEWAY_MAIN_FILES)
+
+    def _managed_file_role(self, agent: Agent) -> str:
+        _ = agent
+        return "gateway_main"
 
     def _preserve_files(self, agent: Agent) -> set[str]:
         _ = agent
@@ -1392,7 +1627,7 @@ class OpenClawGatewayProvisioner:
         wakeup_verb: str | None = None,
         board_secrets: list[dict[str, str]] | None = None,
         board_documents: list[dict[str, str]] | None = None,
-    ) -> None:
+    ) -> list[ManagedGatewayFileChange]:
         """Create/update an agent, sync all template files, and optionally wake the agent.
 
         Lifecycle steps (same for all agent types):
@@ -1432,7 +1667,7 @@ class OpenClawGatewayProvisioner:
 
         control_plane = _control_plane_for_gateway(gateway)
         manager = manager_type(gateway, control_plane)
-        await manager.provision(
+        managed_changes = await manager.provision(
             agent=agent,
             board=board,
             session_key=session_key,
@@ -1456,7 +1691,7 @@ class OpenClawGatewayProvisioner:
                     raise
 
         if not wake:
-            return
+            return managed_changes
 
         client_config = GatewayClientConfig(
             url=gateway.url,
@@ -1472,6 +1707,7 @@ class OpenClawGatewayProvisioner:
             config=client_config,
             deliver=deliver_wakeup,
         )
+        return managed_changes
 
     async def delete_agent_lifecycle(
         self,

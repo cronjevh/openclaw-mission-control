@@ -1,195 +1,115 @@
-# Backend Templates (Product Documentation)
+# Backend Templates
 
-This folder contains the Markdown templates Mission Control syncs into OpenClaw agent workspaces.
+This folder contains the Jinja2 templates Mission Control syncs into OpenClaw workspaces.
 
-- Location in repo: `backend/templates/`
-- Runtime location in backend container: `/app/templates`
-- Render engine: Jinja2
+- Repo path: `backend/templates/`
+- Runtime path: `/app/templates`
+- Renderer: `backend/app/services/openclaw/provisioning.py` via `_template_env()`
 
-## What this is for
+## Managed ownership model
 
-Use these templates to control what an agent sees in workspace files like:
+The authoritative managed trio is:
 
 - `AGENTS.md`
-- `HEARTBEAT.md`
 - `TOOLS.md`
-- `IDENTITY.md`
-- `USER.md`
-- `MEMORY.md`
+- `GATED-HEARTBEAT.md`
 
-When a gateway template sync runs, these templates are rendered with agent/board context and written into each workspace.
+Those three files are Mission Control managed surfaces. They are overwritten on sync so the
+workspace stays aligned with the current routing and ownership contract.
 
-## How rendering works
+`HEARTBEAT.md` remains separate on purpose. It is still a compatibility/runtime surface and is
+preserved across update syncs via `PRESERVE_AGENT_EDITABLE_FILES`.
 
-### Rendering configuration
+## Template routing
 
-Defined in `backend/app/services/openclaw/provisioning.py` (`_template_env()`):
+Board worker managed files come from:
 
-- `StrictUndefined` enabled (missing variables fail fast)
-- `autoescape=False` (Markdown output)
-- `keep_trailing_newline=True`
+- `AGENTS.md` -> `BOARD_WORKER_AGENTS.md.j2`
+- `TOOLS.md` -> `BOARD_WORKER_TOOLS.md.j2`
+- `GATED-HEARTBEAT.md` -> `BOARD_WORKER_GATED-HEARTBEAT.md.j2`
 
-### Context builders
+Board lead managed files come from:
 
-- Board agent context: `_build_context()`
-- Main agent context: `_build_main_context()`
-- User mapping: `_user_context()`
-- Identity mapping: `_identity_context()`
+- `AGENTS.md` -> `BOARD_LEAD_AGENTS.md.j2`
+- `TOOLS.md` -> `BOARD_LEAD_TOOLS.md.j2`
+- `GATED-HEARTBEAT.md` -> `BOARD_LEAD_GATED-HEARTBEAT.md.j2`
 
-## Sync entry points
+Shared or compatibility surfaces:
 
-### API
+- Board worker `HEARTBEAT.md` -> `BOARD_HEARTBEAT.md.j2`
+- Board lead `HEARTBEAT.md` -> `BOARD_HEARTBEAT.md.j2`
+- Gateway main `AGENTS.md` -> `GATEWAY_MAIN_AGENTS.md.j2`
 
-`POST /api/v1/gateways/{gateway_id}/templates/sync`
+Selection is defined in:
 
-- Router: `backend/app/api/gateways.py` (`sync_gateway_templates`)
-- Service: `backend/app/services/openclaw/provisioning_db.py`
-
-### Script
-
-`backend/scripts/sync_gateway_templates.py`
-
-Example:
-
-```bash
-python backend/scripts/sync_gateway_templates.py --gateway-id <uuid>
-```
-
-## Files included in sync
-
-Board-agent default synced files are defined in:
-
-- `backend/app/services/openclaw/constants.py` (`DEFAULT_GATEWAY_FILES`)
-
-Board-lead file contract is defined in:
-
-- `backend/app/services/openclaw/constants.py` (`LEAD_GATEWAY_FILES`)
-
-Lead-only override mapping (when needed) is defined in:
-
-- `backend/app/services/openclaw/constants.py` (`LEAD_TEMPLATE_MAP`)
-
-Shared board-agent mapping (lead + non-lead) is defined in:
-
-- `backend/app/services/openclaw/constants.py` (`BOARD_SHARED_TEMPLATE_MAP`)
-
-Main-agent template mapping is defined in:
-
-- `backend/app/services/openclaw/constants.py` (`MAIN_TEMPLATE_MAP`)
-
-Provisioning selection logic is implemented in:
-
+- `backend/app/services/openclaw/constants.py`
+  - `BOARD_WORKER_TEMPLATE_MAP`
+  - `BOARD_LEAD_TEMPLATE_MAP`
+  - `GATEWAY_MAIN_TEMPLATE_MAP`
 - `backend/app/services/openclaw/provisioning.py`
-  - `BoardAgentLifecycleManager._file_names()`
   - `BoardAgentLifecycleManager._template_overrides()`
+  - `BoardAgentLifecycleManager._file_names()`
   - `GatewayMainAgentLifecycleManager._template_overrides()`
 
-Lead-only stale template files are cleaned up during sync by:
+## Compatibility shims
 
+These legacy-looking board template names are thin shims and not separate sources of truth:
+
+- `BOARD_AGENTS.md.j2` -> includes `BOARD_WORKER_AGENTS.md.j2`
+- `BOARD_TOOLS.md.j2` -> includes `BOARD_WORKER_TOOLS.md.j2`
+- `BOARD_GATED-HEARTBEAT.md.j2` -> includes `BOARD_WORKER_GATED-HEARTBEAT.md.j2`
+
+Keep them as compatibility entrypoints only. New worker behavior belongs in the
+`BOARD_WORKER_*` templates.
+
+## Group lead reservation
+
+`GROUP_LEAD_*` templates are reserved for actual group leads. They are not the source of truth for
+board leads or board workers.
+
+## Sync and overwrite policy
+
+File contracts live in `backend/app/services/openclaw/constants.py`:
+
+- `BOARD_WORKER_GATEWAY_FILES`
+- `BOARD_LEAD_GATEWAY_FILES`
+- `GROUP_LEAD_GATEWAY_FILES`
+- `GATEWAY_MAIN_FILES`
+- `MANAGED_CORE_FILES`
+- `PRESERVE_AGENT_EDITABLE_FILES`
+
+Provisioning behavior lives in `backend/app/services/openclaw/provisioning.py`:
+
+- `_render_agent_file_specs()`
+- `BaseAgentLifecycleManager._set_agent_files()`
 - `BoardAgentLifecycleManager._stale_file_candidates()`
 
-## HEARTBEAT.md selection logic
+Current policy:
 
-All agent types (main + board lead + board non-lead) render `HEARTBEAT.md` from:
+- Managed trio files are rewritten during sync.
+- `HEARTBEAT.md`, `USER.md`, and `MEMORY.md` are preserved during update syncs unless overwrite is explicitly requested.
+- Board-lead sync may delete stale lead/worker-era files when they are outside the current contract.
 
-- `BOARD_HEARTBEAT.md.j2` via `BOARD_SHARED_TEMPLATE_MAP`
+## Rendering notes
 
-Role-specific behavior is controlled inside that template with:
-- `is_main_agent`
-- `is_board_lead`
+The renderer uses:
 
-## OpenAPI refresh location
+- `StrictUndefined`
+- `autoescape=False`
+- `keep_trailing_newline=True`
 
-Lead OpenAPI download/index generation is intentionally documented in:
+Context builders:
 
-- `BOARD_TOOLS.md.j2`
+- `_build_context()` for board-scoped agents
+- `_build_main_context()` for gateway-main agents
+- `_user_context()` for user fields
+- `_identity_context()` for identity fields
 
-This avoids relying on startup hooks to populate `api/openapi.json`.
+## Guardrails
 
-## Template variables reference
+Before changing templates:
 
-### Core keys (all templates)
-
-- `agent_name`, `agent_id`, `session_key`
-- `base_url`, `auth_token`, `main_session_key`
-- `workspace_root`
-
-### User keys
-
-- `user_name`, `user_preferred_name`, `user_pronouns`, `user_timezone`
-- `user_notes`, `user_context`
-
-### Identity keys
-
-- `identity_role`, `identity_communication_style`, `identity_emoji`
-- `identity_autonomy_level`, `identity_verbosity`, `identity_output_format`, `identity_update_cadence`
-- `identity_purpose`, `identity_personality`, `identity_custom_instructions`
-
-### Board-agent-only keys
-
-- `board_id`, `board_name`, `board_type`
-- `board_objective`, `board_success_metrics`, `board_target_date`
-- `board_goal_confirmed`, `is_board_lead`
-- `workspace_path`
-- `board_rule_require_approval_for_done`
-- `board_rule_require_review_before_done`
-- `board_rule_comment_required_for_review`
-- `board_rule_block_status_changes_with_pending_approval`
-- `board_rule_only_lead_can_change_status`
-- `board_rule_max_agents`
-
-## OpenAPI role tags for agents
-
-Agent-facing endpoints expose role tags in OpenAPI so heartbeat files can filter
-operations without path regex hacks:
-
-- `agent-lead`: board lead workflows (delegation/review/coordination)
-- `agent-worker`: non-lead board execution workflows
-- `agent-main`: gateway main / cross-board control-plane workflows
-
-Example filter:
-
-```bash
-curl -s "$BASE_URL/openapi.json" \
-  | jq -r '.paths | to_entries[] | .key as $path
-    | .value | to_entries[]
-    | select((.value.tags // []) | index("agent-lead"))
-    | "\(.key|ascii_upcase)\t\($path)\t\(.value.operationId // "-")"'
-```
-
-## Safe change checklist
-
-Before merging template changes:
-
-1. Do not introduce new `{{ var }}` placeholders unless context builders provide them.
-2. Keep changes additive where possible.
-3. Review worker (`DEFAULT_*`), lead (`LEAD_*`), and `MAIN_*` templates when changing shared behavior.
-4. Preserve agent-editable files behavior (`PRESERVE_AGENT_EDITABLE_FILES`).
-5. Run docs quality checks and CI.
-6. Keep heartbeat templates under injected-context size limits (20,000 chars each).
-
-## Local validation
-
-### Fast check
-
-Run CI-relevant docs checks locally:
-
-```bash
-make docs-check
-```
-
-### Full validation
-
-- Push branch
-- Confirm PR checks are green
-- Optionally run template sync on a dev gateway and inspect generated workspace files
-
-## FAQ
-
-### Why did rendering fail after adding a variable?
-
-Because `StrictUndefined` is enabled. Add that key to `_build_context()` / `_build_main_context()` (and related mappers) before using it in templates.
-
-### Why didn’t my edit appear in an agent workspace?
-
-Template sync may not have run yet, or the target file is preserved as agent-editable. Check sync status and preservation rules in constants.
+1. Do not add new `{{ ... }}` placeholders unless the context builders provide them.
+2. Keep the worker/lead ownership split explicit.
+3. Do not move managed behavior back into the ambiguous `BOARD_*` shim files.
+4. Keep heartbeat-family templates under the injected-context limit tested in `test_template_size_budget.py`.

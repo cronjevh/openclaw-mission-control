@@ -21,7 +21,7 @@ from sqlalchemy import asc, func, or_
 from sqlmodel import col, select
 from sse_starlette.sse import EventSourceResponse
 
-from app.core.agent_tokens import generate_stable_agent_token, verify_agent_token
+from app.core.agent_tokens import generate_stable_agent_token
 from app.core.logging import TRACE_LEVEL
 from app.core.time import utcnow
 from app.db import crud
@@ -44,7 +44,11 @@ from app.schemas.agents import (
     AgentUpdate,
 )
 from app.schemas.common import OkResponse
-from app.schemas.gateways import GatewayTemplatesSyncError, GatewayTemplatesSyncResult
+from app.schemas.gateways import (
+    GatewayTemplatesSyncChange,
+    GatewayTemplatesSyncError,
+    GatewayTemplatesSyncResult,
+)
 from app.services.activity_log import record_activity
 from app.services.openclaw.constants import (
     _TOOLS_KV_RE,
@@ -76,6 +80,7 @@ from app.services.openclaw.internal.session_keys import (
 from app.services.openclaw.lifecycle_orchestrator import AgentLifecycleOrchestrator
 from app.services.openclaw.policies import OpenClawAuthorizationPolicy
 from app.services.openclaw.provisioning import (
+    ManagedGatewayFileChange,
     OpenClawGatewayControlPlane,
     OpenClawGatewayProvisioner,
 )
@@ -456,6 +461,37 @@ def _append_sync_error(
     )
 
 
+def _append_sync_change(
+    result: GatewayTemplatesSyncResult,
+    *,
+    change: ManagedGatewayFileChange,
+    agent: Agent | None = None,
+    board: Board | None = None,
+) -> None:
+    result.changes.append(
+        GatewayTemplatesSyncChange(
+            agent_id=agent.id if agent else None,
+            agent_name=agent.name if agent else None,
+            board_id=board.id if board else None,
+            file_name=change.file_name,
+            action=change.action,
+            reason=change.reason,
+            template_source=change.template_source,
+        )
+    )
+
+
+def _append_sync_changes(
+    result: GatewayTemplatesSyncResult,
+    *,
+    changes: list[ManagedGatewayFileChange],
+    agent: Agent | None = None,
+    board: Board | None = None,
+) -> None:
+    for change in changes:
+        _append_sync_change(result, change=change, agent=agent, board=board)
+
+
 async def _rotate_agent_token(session: AsyncSession, agent: Agent) -> str:
     token = mint_agent_token(agent)
     agent.updated_at = utcnow()
@@ -552,6 +588,7 @@ async def _sync_one_agent(
     agent: Agent,
     board: Board,
 ) -> bool:
+    managed_changes: list[ManagedGatewayFileChange] = []
     auth_token, fatal, rotated, previous_hash = await _resolve_agent_auth_token(
         ctx,
         result,
@@ -582,6 +619,7 @@ async def _sync_one_agent(
                     wakeup_verb="updated",
                     clear_confirm_token=False,
                     raise_gateway_errors=True,
+                    managed_changes=managed_changes,
                 )
             except HTTPException as exc:
                 if exc.status_code == status.HTTP_502_BAD_GATEWAY:
@@ -592,6 +630,7 @@ async def _sync_one_agent(
         await ctx.backoff.run(_do_provision)
         result.agents_updated += 1
     except TimeoutError as exc:  # pragma: no cover - gateway/network dependent
+        _append_sync_changes(result, changes=managed_changes, agent=agent, board=board)
         result.agents_skipped += 1
         _append_sync_error(result, agent=agent, board=board, message=str(exc))
         if rotated:
@@ -599,6 +638,7 @@ async def _sync_one_agent(
             return True
         return True
     except (OSError, RuntimeError, ValueError) as exc:  # pragma: no cover
+        _append_sync_changes(result, changes=managed_changes, agent=agent, board=board)
         result.agents_skipped += 1
         _append_sync_error(
             result,
@@ -611,6 +651,7 @@ async def _sync_one_agent(
             return True
         return False
     except HTTPException as exc:
+        _append_sync_changes(result, changes=managed_changes, agent=agent, board=board)
         result.agents_skipped += 1
         _append_sync_error(
             result,
@@ -623,6 +664,7 @@ async def _sync_one_agent(
             return True
         return False
     else:
+        _append_sync_changes(result, changes=managed_changes, agent=agent, board=board)
         return False
 
 
@@ -630,6 +672,7 @@ async def _sync_main_agent(
     ctx: _SyncContext,
     result: GatewayTemplatesSyncResult,
 ) -> bool:
+    managed_changes: list[ManagedGatewayFileChange] = []
     main_agent = (
         await Agent.objects.all()
         .filter(col(Agent.gateway_id) == ctx.gateway.id)
@@ -679,6 +722,7 @@ async def _sync_main_agent(
                     wakeup_verb="updated",
                     clear_confirm_token=False,
                     raise_gateway_errors=True,
+                    managed_changes=managed_changes,
                 )
             except HTTPException as exc:
                 if exc.status_code == status.HTTP_502_BAD_GATEWAY:
@@ -688,11 +732,13 @@ async def _sync_main_agent(
 
         await ctx.backoff.run(_do_provision_main)
     except TimeoutError as exc:  # pragma: no cover - gateway/network dependent
+        _append_sync_changes(result, changes=managed_changes, agent=main_agent)
         _append_sync_error(result, agent=main_agent, message=str(exc))
         if rotated:
             await _restore_rotated_token_hash(ctx.session, main_agent.id, previous_hash)
         stop_sync = True
     except (OSError, RuntimeError, ValueError) as exc:  # pragma: no cover
+        _append_sync_changes(result, changes=managed_changes, agent=main_agent)
         _append_sync_error(
             result,
             agent=main_agent,
@@ -701,6 +747,7 @@ async def _sync_main_agent(
         if rotated:
             await _restore_rotated_token_hash(ctx.session, main_agent.id, previous_hash)
     except HTTPException as exc:
+        _append_sync_changes(result, changes=managed_changes, agent=main_agent)
         _append_sync_error(
             result,
             agent=main_agent,
@@ -709,6 +756,7 @@ async def _sync_main_agent(
         if rotated:
             await _restore_rotated_token_hash(ctx.session, main_agent.id, previous_hash)
     else:
+        _append_sync_changes(result, changes=managed_changes, agent=main_agent)
         result.main_updated = True
     return stop_sync
 

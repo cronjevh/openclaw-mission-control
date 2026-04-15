@@ -33,7 +33,7 @@ from app.services.openclaw.db_service import OpenClawDBService
 from app.services.openclaw.gateway_resolver import optional_gateway_client_config
 from app.services.openclaw.gateway_rpc import OpenClawGatewayError
 from app.services.openclaw.internal.agent_key import agent_key
-from app.services.openclaw.provisioning import OpenClawGatewayControlPlane
+from app.services.openclaw.provisioning import ManagedGatewayFileChange, OpenClawGatewayControlPlane
 from app.services.openclaw.lifecycle_queue import (
     QueuedAgentLifecycleReconcile,
     enqueue_lifecycle_reconcile,
@@ -154,6 +154,7 @@ class AgentLifecycleOrchestrator(OpenClawDBService):
         wakeup_verb: str | None = None,
         clear_confirm_token: bool = False,
         raise_gateway_errors: bool = True,
+        managed_changes: list[ManagedGatewayFileChange] | None = None,
     ) -> Agent:
         """Provision or update any agent under a per-agent lock."""
 
@@ -227,7 +228,7 @@ class AgentLifecycleOrchestrator(OpenClawDBService):
                 })
 
         try:
-            await OpenClawGatewayProvisioner().apply_agent_lifecycle(
+            provision_changes = await OpenClawGatewayProvisioner().apply_agent_lifecycle(
                 agent=locked,
                 gateway=gateway,
                 board=board,
@@ -243,6 +244,8 @@ class AgentLifecycleOrchestrator(OpenClawDBService):
                 board_secrets=board_secrets,
                 board_documents=board_documents,
             )
+            if managed_changes is not None:
+                managed_changes.extend(provision_changes)
         except OpenClawGatewayError as exc:
             locked.last_provision_error = str(exc)
             locked.updated_at = utcnow()
@@ -255,7 +258,25 @@ class AgentLifecycleOrchestrator(OpenClawDBService):
                     detail=f"Gateway {action} failed: {exc}",
                 ) from exc
             return locked
-        except (OSError, RuntimeError, ValueError) as exc:
+        except RuntimeError as exc:
+            locked.last_provision_error = str(exc)
+            locked.updated_at = utcnow()
+            self.session.add(locked)
+            await self.session.commit()
+            await self.session.refresh(locked)
+            if raise_gateway_errors:
+                message = str(exc)
+                if "unsupported" in message.lower():
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=f"Gateway {action} failed: {message}",
+                    ) from exc
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Unexpected error {action}ing gateway provisioning.",
+                ) from exc
+            return locked
+        except (OSError, ValueError) as exc:
             locked.last_provision_error = str(exc)
             locked.updated_at = utcnow()
             self.session.add(locked)

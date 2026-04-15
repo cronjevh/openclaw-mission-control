@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from app.models.agents import Agent
 from app.services.openclaw.constants import DEFAULT_HEARTBEAT_CONFIG
+from app.services.openclaw.constants import MANAGED_CORE_FILES
 from app.services.openclaw.constants import PRESERVE_AGENT_EDITABLE_FILES
 from app.services.openclaw.db_agent_state import ensure_heartbeat_config
 
@@ -33,9 +34,15 @@ def test_ensure_heartbeat_config_uses_operational_default() -> None:
 
 def test_preserve_editable_files_covers_curated_board_runtime_files() -> None:
     assert PRESERVE_AGENT_EDITABLE_FILES == {
-        "AGENTS.md",
-        "TOOLS.md",
         "HEARTBEAT.md",
         "USER.md",
         "MEMORY.md",
+    }
+
+
+def test_managed_core_files_cover_authoritative_sync_trio() -> None:
+    assert MANAGED_CORE_FILES == {
+        "AGENTS.md",
+        "TOOLS.md",
+        "GATED-HEARTBEAT.md",
     }

@@ -79,6 +79,18 @@ class GatewayTemplatesSyncError(SQLModel):
     message: str
 
 
+class GatewayTemplatesSyncChange(SQLModel):
+    """Per-file managed-core change entry from a gateway template sync operation."""
+
+    agent_id: UUID | None = None
+    agent_name: str | None = None
+    board_id: UUID | None = None
+    file_name: str
+    action: str
+    reason: str
+    template_source: str
+
+
 class GatewayTemplatesSyncResult(SQLModel):
     """Summary payload returned by gateway template sync endpoints."""
 
@@ -88,4 +100,5 @@ class GatewayTemplatesSyncResult(SQLModel):
     agents_updated: int
     agents_skipped: int
     main_updated: bool
+    changes: list[GatewayTemplatesSyncChange] = Field(default_factory=list)
     errors: list[GatewayTemplatesSyncError] = Field(default_factory=list)

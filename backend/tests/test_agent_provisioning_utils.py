@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -220,6 +221,18 @@ def test_rendered_lead_templates_include_specialist_management_guidance():
         template_overrides=agent_provisioning.BOARD_LEAD_TEMPLATE_MAP,
     )
 
+    assert re.match(
+        r"^<!-- mission-control-managed: role=board_lead file=AGENTS\.md template=BOARD_LEAD_AGENTS\.md\.j2 sha256=[0-9a-f]{64} -->",
+        rendered["AGENTS.md"],
+    )
+    assert re.match(
+        r"^<!-- mission-control-managed: role=board_lead file=TOOLS\.md template=BOARD_LEAD_TOOLS\.md\.j2 sha256=[0-9a-f]{64} -->",
+        rendered["TOOLS.md"],
+    )
+    assert re.match(
+        r"^<!-- mission-control-managed: role=board_lead file=GATED-HEARTBEAT\.md template=BOARD_LEAD_GATED-HEARTBEAT\.md\.j2 sha256=[0-9a-f]{64} -->",
+        rendered["GATED-HEARTBEAT.md"],
+    )
     assert "### Specialist Provisioning" in rendered["AGENTS.md"]
     assert "`max_agents` excludes the lead itself." in rendered["AGENTS.md"]
     assert "Do not confuse `agents_list`, `sessions_spawn`, or subagent allowlists" in rendered["AGENTS.md"]
@@ -297,6 +310,18 @@ def test_rendered_worker_templates_include_context_loading_and_evidence_contract
         template_overrides=agent_provisioning.BOARD_WORKER_TEMPLATE_MAP,
     )
 
+    assert re.match(
+        r"^<!-- mission-control-managed: role=board_worker file=AGENTS\.md template=BOARD_WORKER_AGENTS\.md\.j2 sha256=[0-9a-f]{64} -->",
+        rendered["AGENTS.md"],
+    )
+    assert re.match(
+        r"^<!-- mission-control-managed: role=board_worker file=TOOLS\.md template=BOARD_WORKER_TOOLS\.md\.j2 sha256=[0-9a-f]{64} -->",
+        rendered["TOOLS.md"],
+    )
+    assert re.match(
+        r"^<!-- mission-control-managed: role=board_worker file=GATED-HEARTBEAT\.md template=BOARD_WORKER_GATED-HEARTBEAT\.md\.j2 sha256=[0-9a-f]{64} -->",
+        rendered["GATED-HEARTBEAT.md"],
+    )
     assert "## Context Loading Policy" in rendered["AGENTS.md"]
     assert "## Context Layers" in rendered["AGENTS.md"]
     assert "## Task Bundle Boundary Rule" in rendered["AGENTS.md"]
@@ -428,6 +453,40 @@ def test_group_lead_keeps_dedicated_templates_instead_of_board_lead_or_group_sha
     assert overrides["HEARTBEAT.md"] == "GROUP_LEAD_HEARTBEAT.md.j2"
     assert overrides["TOOLS.md"] == "GROUP_LEAD_TOOLS.md.j2"
     assert "GATED-HEARTBEAT.md" not in manager._file_names(group_lead)
+
+
+def test_board_compatibility_shims_include_worker_authoritative_templates():
+    templates_root = agent_provisioning._templates_root()
+
+    assert (templates_root / "BOARD_AGENTS.md.j2").read_text() == (
+        '{% include "BOARD_WORKER_AGENTS.md.j2" %}\n'
+    )
+    assert (templates_root / "BOARD_TOOLS.md.j2").read_text() == (
+        '{% include "BOARD_WORKER_TOOLS.md.j2" %}\n'
+    )
+    assert (templates_root / "BOARD_GATED-HEARTBEAT.md.j2").read_text() == (
+        '{% include "BOARD_WORKER_GATED-HEARTBEAT.md.j2" %}\n'
+    )
+
+
+def test_board_lead_stale_file_candidates_cover_old_ambiguous_templates():
+    gateway = _GatewayStub(
+        id=uuid4(),
+        name="Acme",
+        url="ws://gateway.example/ws",
+        token=None,
+        workspace_root="/tmp/openclaw",
+    )
+    manager = agent_provisioning.BoardAgentLifecycleManager(gateway, _ControlPlaneStub())  # type: ignore[arg-type]
+    lead = _AgentStub(name="Lead", is_board_lead=True)
+
+    stale = manager._stale_file_candidates(lead)
+
+    assert "AGENTS.md" in stale
+    assert "TOOLS.md" in stale
+    assert "GATED-HEARTBEAT.md" in stale
+    assert "HEARTBEAT.md" in stale
+    assert "ROUTING.md" in stale
 
 
 def test_gateway_main_uses_explicit_main_template_map():
@@ -781,6 +840,275 @@ async def test_set_agent_files_update_overwrite_writes_preserved_user_md():
         overwrite=True,
     )
     assert ("USER.md", "filled") in cp.writes
+
+
+@pytest.mark.asyncio
+async def test_set_agent_files_update_rewrites_drifted_managed_file():
+    class _ControlPlaneStub:
+        def __init__(self):
+            self.writes: list[tuple[str, str]] = []
+
+        async def ensure_agent_session(self, session_key, *, label=None):
+            return None
+
+        async def reset_agent_session(self, session_key):
+            return None
+
+        async def delete_agent_session(self, session_key):
+            return None
+
+        async def upsert_agent(self, registration):
+            return None
+
+        async def delete_agent(self, agent_id, *, delete_files=True):
+            return None
+
+        async def list_agent_files(self, agent_id):
+            return {}
+
+        async def get_agent_file_payload(self, *, agent_id, name):
+            assert agent_id == "agent-x"
+            assert name == "AGENTS.md"
+            return (
+                "<!-- mission-control-managed: role=board_worker file=AGENTS.md "
+                "template=BOARD_WORKER_AGENTS.md.j2 "
+                "sha256=0000000000000000000000000000000000000000000000000000000000000000 -->\n\n"
+                "# drifted"
+            )
+
+        async def set_agent_file(self, *, agent_id, name, content):
+            self.writes.append((name, content))
+
+        async def patch_agent_heartbeats(self, entries):
+            return None
+
+    @dataclass
+    class _GatewayTiny:
+        id: UUID
+        name: str
+        url: str
+        token: str | None
+        workspace_root: str
+        allow_insecure_tls: bool = False
+        disable_device_pairing: bool = False
+
+    class _Manager(agent_provisioning.BaseAgentLifecycleManager):
+        def _agent_id(self, agent):
+            return "agent-x"
+
+        def _build_context(self, *, agent, auth_token, user, board):
+            return {}
+
+    gateway = _GatewayTiny(
+        id=uuid4(),
+        name="G",
+        url="ws://x",
+        token=None,
+        workspace_root="/tmp",
+    )
+    cp = _ControlPlaneStub()
+    mgr = _Manager(gateway, cp)  # type: ignore[arg-type]
+    changes: list[agent_provisioning.ManagedGatewayFileChange] = []
+    rendered = agent_provisioning._with_managed_file_header(
+        role="board_worker",
+        file_name="AGENTS.md",
+        template_source="BOARD_WORKER_AGENTS.md.j2",
+        body="# authoritative",
+    )
+
+    await mgr._set_agent_files(
+        agent_id="agent-x",
+        rendered={"AGENTS.md": rendered},
+        existing_files={"AGENTS.md": {"name": "AGENTS.md", "missing": False}},
+        action="update",
+        managed_template_sources={"AGENTS.md": "BOARD_WORKER_AGENTS.md.j2"},
+        managed_role="board_worker",
+        managed_changes=changes,
+    )
+
+    assert cp.writes == [("AGENTS.md", rendered)]
+    assert changes == [
+        agent_provisioning.ManagedGatewayFileChange(
+            file_name="AGENTS.md",
+            action="rewritten",
+            reason="hash_mismatch",
+            template_source="BOARD_WORKER_AGENTS.md.j2",
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_set_agent_files_update_rewrites_managed_file_without_header():
+    class _ControlPlaneStub:
+        def __init__(self):
+            self.writes: list[tuple[str, str]] = []
+
+        async def ensure_agent_session(self, session_key, *, label=None):
+            return None
+
+        async def reset_agent_session(self, session_key):
+            return None
+
+        async def delete_agent_session(self, session_key):
+            return None
+
+        async def upsert_agent(self, registration):
+            return None
+
+        async def delete_agent(self, agent_id, *, delete_files=True):
+            return None
+
+        async def list_agent_files(self, agent_id):
+            return {}
+
+        async def get_agent_file_payload(self, *, agent_id, name):
+            assert agent_id == "agent-x"
+            assert name == "TOOLS.md"
+            return "# legacy tools"
+
+        async def set_agent_file(self, *, agent_id, name, content):
+            self.writes.append((name, content))
+
+        async def patch_agent_heartbeats(self, entries):
+            return None
+
+    @dataclass
+    class _GatewayTiny:
+        id: UUID
+        name: str
+        url: str
+        token: str | None
+        workspace_root: str
+        allow_insecure_tls: bool = False
+        disable_device_pairing: bool = False
+
+    class _Manager(agent_provisioning.BaseAgentLifecycleManager):
+        def _agent_id(self, agent):
+            return "agent-x"
+
+        def _build_context(self, *, agent, auth_token, user, board):
+            return {}
+
+    gateway = _GatewayTiny(
+        id=uuid4(),
+        name="G",
+        url="ws://x",
+        token=None,
+        workspace_root="/tmp",
+    )
+    cp = _ControlPlaneStub()
+    mgr = _Manager(gateway, cp)  # type: ignore[arg-type]
+    changes: list[agent_provisioning.ManagedGatewayFileChange] = []
+    rendered = agent_provisioning._with_managed_file_header(
+        role="board_worker",
+        file_name="TOOLS.md",
+        template_source="BOARD_WORKER_TOOLS.md.j2",
+        body="# authoritative tools",
+    )
+
+    await mgr._set_agent_files(
+        agent_id="agent-x",
+        rendered={"TOOLS.md": rendered},
+        existing_files={"TOOLS.md": {"name": "TOOLS.md", "missing": False}},
+        action="update",
+        managed_template_sources={"TOOLS.md": "BOARD_WORKER_TOOLS.md.j2"},
+        managed_role="board_worker",
+        managed_changes=changes,
+    )
+
+    assert cp.writes == [("TOOLS.md", rendered)]
+    assert changes == [
+        agent_provisioning.ManagedGatewayFileChange(
+            file_name="TOOLS.md",
+            action="rewritten",
+            reason="missing_header",
+            template_source="BOARD_WORKER_TOOLS.md.j2",
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_set_agent_files_surfaces_unsupported_gated_heartbeat():
+    class _ControlPlaneStub:
+        async def ensure_agent_session(self, session_key, *, label=None):
+            return None
+
+        async def reset_agent_session(self, session_key):
+            return None
+
+        async def delete_agent_session(self, session_key):
+            return None
+
+        async def upsert_agent(self, registration):
+            return None
+
+        async def delete_agent(self, agent_id, *, delete_files=True):
+            return None
+
+        async def list_agent_files(self, agent_id):
+            return {}
+
+        async def get_agent_file_payload(self, *, agent_id, name):
+            return None
+
+        async def set_agent_file(self, *, agent_id, name, content):
+            raise agent_provisioning.OpenClawGatewayError("unsupported file")
+
+        async def patch_agent_heartbeats(self, entries):
+            return None
+
+    @dataclass
+    class _GatewayTiny:
+        id: UUID
+        name: str
+        url: str
+        token: str | None
+        workspace_root: str
+        allow_insecure_tls: bool = False
+        disable_device_pairing: bool = False
+
+    class _Manager(agent_provisioning.BaseAgentLifecycleManager):
+        def _agent_id(self, agent):
+            return "agent-x"
+
+        def _build_context(self, *, agent, auth_token, user, board):
+            return {}
+
+    gateway = _GatewayTiny(
+        id=uuid4(),
+        name="G",
+        url="ws://x",
+        token=None,
+        workspace_root="/tmp",
+    )
+    mgr = _Manager(gateway, _ControlPlaneStub())  # type: ignore[arg-type]
+    changes: list[agent_provisioning.ManagedGatewayFileChange] = []
+    rendered = agent_provisioning._with_managed_file_header(
+        role="board_worker",
+        file_name="GATED-HEARTBEAT.md",
+        template_source="BOARD_WORKER_GATED-HEARTBEAT.md.j2",
+        body="# gated",
+    )
+
+    with pytest.raises(RuntimeError, match="managed core file as unsupported: GATED-HEARTBEAT.md"):
+        await mgr._set_agent_files(
+            agent_id="agent-x",
+            rendered={"GATED-HEARTBEAT.md": rendered},
+            existing_files={},
+            action="update",
+            managed_template_sources={"GATED-HEARTBEAT.md": "BOARD_WORKER_GATED-HEARTBEAT.md.j2"},
+            managed_role="board_worker",
+            managed_changes=changes,
+        )
+
+    assert changes == [
+        agent_provisioning.ManagedGatewayFileChange(
+            file_name="GATED-HEARTBEAT.md",
+            action="unsupported",
+            reason="missing_file",
+            template_source="BOARD_WORKER_GATED-HEARTBEAT.md.j2",
+        )
+    ]
 
 
 @pytest.mark.asyncio

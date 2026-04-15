@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -271,6 +271,7 @@ _OUTPUT_DIRS = {"deliverables", "output", "artifacts", "reports", "drafts"}
 _SYSTEM_FILES = {
     "AGENTS.md",
     "BOOTSTRAP.md",
+    "GATED-HEARTBEAT.md",
     "HEARTBEAT.md",
     "SOUL.md",
     "TOOLS.md",

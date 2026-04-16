@@ -2,7 +2,8 @@ param(
     [string]$EnvPath = "backend/.env",
     [string]$BaseUrl = "http://localhost:8002",
     [string]$AgentsPath = "/api/v1/agents",
-    [string]$OutputPath = "backend/simplified-templates/template-update.json"
+    [string]$OutputPath = "backend/simplified-templates/template-update.json",
+    [string]$RenderRoot = "backend/simplified-templates/testmerge"
 )
 
 function Get-DotEnvValue {
@@ -94,20 +95,27 @@ function Get-TemplateValueMap {
         [Parameter(Mandatory = $true)]
         [string]$AuthToken,
         [Parameter(Mandatory = $true)]
-        [string]$WorkspaceRoot
+        [string]$WorkspaceRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$WorkspacePath
     )
 
     $map = [ordered]@{}
-    $workspacePath = Join-Path $WorkspaceRoot "workspace-mc-$($Detail.id)"
 
     $map.base_url = $BaseUrl
     $map.auth_token = $AuthToken
     $map.workspace_root = $WorkspaceRoot
-    $map.workspace_path = $workspacePath
+    $map.workspace_path = $WorkspacePath
     $map.board_id = [string]$Detail.board_id
     $map.name = [string]$Detail.name
     $map.id = [string]$Detail.id
-    $map["identity_profile.role"] = "analyst/architect/tech-writer agent"
+    $resolvedRole = $null
+    if ($Detail.identity_profile -and $Detail.identity_profile.PSObject.Properties["role"]) {
+        $resolvedRole = [string]$Detail.identity_profile.role
+    } elseif ($Detail.PSObject.Properties["role"]) {
+        $resolvedRole = [string]$Detail.role
+    }
+    $map["identity_profile.role"] = $resolvedRole
 
     if ($Detail.identity_profile) {
         foreach ($property in $Detail.identity_profile.PSObject.Properties) {
@@ -145,7 +153,96 @@ function Get-TemplateValueMap {
 
     return [pscustomobject]@{
         Values        = $map
-        WorkspacePath = $workspacePath
+        WorkspacePath = $WorkspacePath
+    }
+}
+
+function Get-AgentTemplatePrefix {
+    param(
+        [Parameter(Mandatory = $true)]
+        $Detail
+    )
+
+    $isLead = $false
+    if ($Detail.PSObject.Properties["is_board_lead"]) {
+        $isLead = [bool]$Detail.is_board_lead
+    }
+    if (-not $isLead -and $Detail.PSObject.Properties["is_gateway_main"]) {
+        $isLead = [bool]$Detail.is_gateway_main
+    }
+
+    if ($isLead) {
+        return "BOARD_LEAD_"
+    }
+
+    return "BOARD_WORKER_"
+}
+
+function Get-AgentWorkspacePath {
+    param(
+        [Parameter(Mandatory = $true)]
+        $Detail,
+        [Parameter(Mandatory = $true)]
+        [string]$RenderRoot
+    )
+
+    $isLead = $false
+    if ($Detail.PSObject.Properties["is_board_lead"]) {
+        $isLead = [bool]$Detail.is_board_lead
+    }
+    if (-not $isLead -and $Detail.PSObject.Properties["is_gateway_main"]) {
+        $isLead = [bool]$Detail.is_gateway_main
+    }
+
+    if ($isLead) {
+        if (-not $Detail.board_id) {
+            return $null
+        }
+
+        return Join-Path $RenderRoot "workspace-lead-$([string]$Detail.board_id)"
+    }
+
+    if (-not $Detail.id) {
+        throw "Worker agent '$($Detail.name)' is missing id."
+    }
+
+    return Join-Path $RenderRoot "workspace-mc-$([string]$Detail.id)"
+}
+
+function Render-WorkspaceTemplates {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TemplatePrefix,
+        [Parameter(Mandatory = $true)]
+        [string]$TargetWorkspacePath,
+        [Parameter(Mandatory = $true)]
+        $Values
+    )
+
+    $templateFiles = Get-ChildItem -Path 'backend/simplified-templates' -Filter "$TemplatePrefix*.md" -File | Sort-Object Name
+
+    foreach ($templateFile in $templateFiles) {
+        $targetFileName = $templateFile.Name -replace ('^' + [regex]::Escape($TemplatePrefix)), ''
+        $targetPath = Join-Path $TargetWorkspacePath $targetFileName
+        $targetDirectory = Split-Path -Parent $targetPath
+        if ($targetDirectory -and -not (Test-Path -LiteralPath $targetDirectory)) {
+            New-Item -ItemType Directory -Path $targetDirectory -Force | Out-Null
+        }
+        $existingContent = if (Test-Path -LiteralPath $targetPath) {
+            Get-Content -LiteralPath $targetPath -Raw
+        } else {
+            $null
+        }
+        $templateContent = Get-Content -LiteralPath $templateFile.FullName -Raw
+        $renderedContent = Render-TemplateContent -Content $templateContent -Values $Values
+
+        if ($null -ne $existingContent -and -not $existingContent.EndsWith("`n")) {
+            $renderedContent = $renderedContent -replace '\r?\n\z', ''
+        } elseif ($null -ne $existingContent -and -not $renderedContent.EndsWith("`n")) {
+            $renderedContent += "`n"
+        }
+
+        [System.IO.File]::WriteAllText($targetPath, $renderedContent)
     }
 }
 
@@ -187,14 +284,6 @@ $result = [pscustomobject]@{
 
 $result | ConvertTo-Json -Depth 50 | Set-Content -LiteralPath $OutputPath
 
-$detail = $result.list.items.Where({ $_.name -eq 'Athena' }) | Select-Object -First 1
-if (-not $detail) {
-    throw "Could not find the Athena agent in the fetched agent list."
-}
-
-$templateValueMap = Get-TemplateValueMap -Detail $detail -BaseUrl $BaseUrl -AuthToken (Get-StableAgentToken -AgentId ([string]$detail.id) -LocalAuthToken $localAuthToken) -WorkspaceRoot $workspaceRoot
-$templateFiles = Get-ChildItem -Path 'backend/simplified-templates' -Filter 'BOARD_WORKER_*.md' -File | Sort-Object Name
-
 function Render-TemplateContent {
     param(
         [Parameter(Mandatory = $true)]
@@ -224,22 +313,45 @@ function Render-TemplateContent {
     return $rendered
 }
 
-foreach ($templateFile in $templateFiles) {
-    $targetFileName = $templateFile.Name -replace '^BOARD_WORKER_', ''
-    $targetPath = Join-Path $templateValueMap.WorkspacePath $targetFileName
-    $existingContent = if (Test-Path -LiteralPath $targetPath) {
-        Get-Content -LiteralPath $targetPath -Raw
-    } else {
-        $null
-    }
-    $templateContent = Get-Content -LiteralPath $templateFile.FullName -Raw
-    $renderedContent = Render-TemplateContent -Content $templateContent -Values $templateValueMap.Values
+function Render-AgentTemplates {
+    param(
+        [Parameter(Mandatory = $true)]
+        $Detail,
+        [Parameter(Mandatory = $true)]
+        [string]$BaseUrl,
+        [Parameter(Mandatory = $true)]
+        [string]$WorkspaceRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$LocalAuthToken,
+        [Parameter(Mandatory = $true)]
+        [string]$RenderRoot
+    )
 
-    if ($null -ne $existingContent -and -not $existingContent.EndsWith("`n")) {
-        $renderedContent = $renderedContent -replace '\r?\n\z', ''
-    } elseif ($null -ne $existingContent -and -not $renderedContent.EndsWith("`n")) {
-        $renderedContent += "`n"
+    $templatePrefix = Get-AgentTemplatePrefix -Detail $Detail
+    $workspacePath = Get-AgentWorkspacePath -Detail $Detail -RenderRoot $RenderRoot
+    if (-not $workspacePath) {
+        Write-Host "Skipping agent '$($Detail.name)' because no render workspace could be resolved."
+        return
     }
+    $templateValueMap = Get-TemplateValueMap `
+        -Detail $Detail `
+        -BaseUrl $BaseUrl `
+        -AuthToken (Get-StableAgentToken -AgentId ([string]$Detail.id) -LocalAuthToken $LocalAuthToken) `
+        -WorkspaceRoot $WorkspaceRoot `
+        -WorkspacePath $workspacePath
 
-    [System.IO.File]::WriteAllText($targetPath, $renderedContent)
+    Render-WorkspaceTemplates -TemplatePrefix $templatePrefix -TargetWorkspacePath $templateValueMap.WorkspacePath -Values $templateValueMap.Values
+}
+
+if (-not (Test-Path -LiteralPath $RenderRoot)) {
+    New-Item -ItemType Directory -Path $RenderRoot -Force | Out-Null
+}
+
+foreach ($detail in $agentDetails) {
+    Render-AgentTemplates `
+        -Detail $detail `
+        -BaseUrl $BaseUrl `
+        -WorkspaceRoot $workspaceRoot `
+        -LocalAuthToken $localAuthToken `
+        -RenderRoot $RenderRoot
 }

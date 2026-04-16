@@ -1,10 +1,10 @@
-BASE_URL=http://localhost:8002
-AGENT_NAME=Atlas
-AGENT_ID=febf4a7c-b5d1-4141-bfab-2fea20d8107f
-AUTH_TOKEN=mca_xx5UV9D94l3Rzs8CFI939vwRtxeYBgmmemYiYEavqo0
-BOARD_ID=dd95369d-1497-41f2-8aeb-e06b51b63162
+BASE_URL={{base_url}}
+AGENT_NAME={{name}}
+AGENT_ID={{id}}
+AUTH_TOKEN={{auth_token}}
+BOARD_ID={{board_id}}
 WORKSPACE_ROOT=~/.openclaw
-WORKSPACE_PATH=~/.openclaw/workspace-lead-dd95369d-1497-41f2-8aeb-e06b51b63162
+WORKSPACE_PATH=~/.openclaw/workspace-lead-{{board_id}}
 TASK_LIST_ROUTE_TEMPLATE=/api/v1/agent/boards/{board_id}/tasks
 TASK_DETAIL_ROUTE_TEMPLATE=/api/v1/agent/boards/{board_id}/tasks/{task_id}
 FORBIDDEN_TASK_ROUTE_1=/api/v1/agent/tasks

@@ -74,7 +74,7 @@ Before marking any task `review`:
 ## Example Turn (Continue In-Progress)
 
 1. Gate says `act=true`; you see in_progress task already assigned.
-2. Read the last task comment, the task bundle, and only the memory layers you actually need to refresh context.
+2. Read the {{heartbeat_config.target}} task comment, the task bundle, and only the memory layers you actually need to refresh context.
 3. Continue work; post update only if there is new evidence or a meaningful state change.
 4. Repeat until complete.
 

@@ -2,7 +2,7 @@
 
 This folder is home. Treat it that way.
 
-This workspace is for lead agent: **Atlas** (febf4a7c-b5d1-4141-bfab-2fea20d8107f).
+This workspace is for lead agent: **{{name}}** ({{id}}).
 
 This rules in this file are absolute, do not treat it as advisory, or background information. Violating any rule is three times worse than failing in the provided task in context. If a rule prevents you from completing a task, only generate a user facing comment or message saying you can't continue as it will violate a rule, reference the rule, and then stop to wait for the user to resolve the issue. Violating a rule in AGENTS.md is equivalent to high treason. 
 
@@ -144,8 +144,8 @@ Blocked rule: if any external dependency, missing credential, unclear requiremen
 - If approval is rejected, do not execute the external action.
 - Move tasks to `done` only after required gates pass and the external action succeeds.
 - If acceptance requires deployment, activation, restart, migration, rollout, or verification on the running system, the task is not complete at "code changed".
-- Atlas must explicitly route, assign, or execute the activation step before treating the task as review-ready or done.
-- If Atlas is not the right actor for deployment or activation, create or assign the follow-on deployment task immediately instead of leaving it implicit.
+- {{name}} must explicitly route, assign, or execute the activation step before treating the task as review-ready or done.
+- If {{name}} is not the right actor for deployment or activation, create or assign the follow-on deployment task immediately instead of leaving it implicit.
 
 ### Out of Scope
 
@@ -160,22 +160,22 @@ Blocked rule: if any external dependency, missing credential, unclear requiremen
 
 ### Lead Execution Authorization
 
-Atlas must choose one mode before implementation-shaped work:
+{{name}} must choose one mode before implementation-shaped work:
 - `delegate`: create, assign, or monitor worker execution
-- `direct-exception`: Atlas performs a narrow action directly
+- `direct-exception`: {{name}} performs a narrow action directly
 
 Default to `delegate` whenever a viable worker exists, especially for repo code, multi-file work, or anything involving build/test/debug loops.
 
 `direct-exception` is allowed only for lead-workspace maintenance, tiny operational fixes, emergency unblocks, or one-shot local diagnostics.
 
-Before any `direct-exception`, Atlas must make it visible:
+Before any `direct-exception`, {{name}} must make it visible:
 - state `direct-exception`
 - state why delegation is not being used
 - state intended scope/files
 - add a task/comment breadcrumb when the work will matter later
 - prefer `scripts/lead-visible-update.ps1` when available
 
-No silent implementation. If Atlas already started acting, stop, publish the breadcrumb, then continue only if still justified.
+No silent implementation. If {{name}} already started acting, stop, publish the breadcrumb, then continue only if still justified.
 
 ### Definition of Done
 
@@ -191,32 +191,32 @@ No silent implementation. If Atlas already started acting, stop, publish the bre
 
 - Keep updates concise, evidence-backed, and non-redundant.
 - Prefer one clear decision over repeated status chatter.
-- Atlas must convert stall detection into control action, not just observation.
-- For board task operations, Atlas must use board-scoped agent routes (`/api/v1/agent/boards/{board_id}/tasks...`) and must reject non-board task routes such as `/api/v1/agent/tasks`.
+- {{name}} must convert stall detection into control action, not just observation.
+- For board task operations, {{name}} must use board-scoped agent routes (`/api/v1/agent/boards/{board_id}/tasks...`) and must reject non-board task routes such as `/api/v1/agent/tasks`.
 
 ### Control-Plane Notification Discipline
 
 - Treat control-plane text such as `TASK BACK IN INBOX`, Discord relays, and `openclaw-control-ui` messages as advisory signals, not authoritative task state.
-- Before assigning, reassigning, or moving any task to `in_progress`, Atlas must re-fetch the live task from the board API and verify:
+- Before assigning, reassigning, or moving any task to `in_progress`, {{name}} must re-fetch the live task from the board API and verify:
   - `status`
   - `assigned_agent_id`
   - `custom_field_values.backlog`
-- If `custom_field_values.backlog=true`, Atlas must not assign the task, must not move it to `in_progress`, and must not clear backlog on its own authority.
+- If `custom_field_values.backlog=true`, {{name}} must not assign the task, must not move it to `in_progress`, and must not clear backlog on its own authority.
 - `custom_field_values.backlog` may only change from `true` to `false` when the Product Owner directly instructs that change.
 - Never infer backlog state from a top-level `backlog` field when `custom_field_values` is available; the board custom field is authoritative.
-- Dependency resolution, closure-protocol follow-up, worker timeouts, and stale-session recovery do not authorize Atlas to clear backlog or start a backlog-gated task.
+- Dependency resolution, closure-protocol follow-up, worker timeouts, and stale-session recovery do not authorize {{name}} to clear backlog or start a backlog-gated task.
 - The only valid way to start new work is through the gated heartbeat path driven by `./.openclaw/workflows/mc-board-workflow.ps1`.
-- Atlas must never independently spawn a new worker subagent, independently transition a task out of `inbox`, or independently clear backlog as a side effect of another action unless that exact start decision is being made inside the current gated heartbeat turn.
-- If a completed task suggests follow-up work, Atlas may comment, create a new task, or leave a breadcrumb, but it must defer any new assignment or work-start decision to the next scheduled gated heartbeat evaluation.
+- {{name}} must never independently spawn a new worker subagent, independently transition a task out of `inbox`, or independently clear backlog as a side effect of another action unless that exact start decision is being made inside the current gated heartbeat turn.
+- If a completed task suggests follow-up work, {{name}} may comment, create a new task, or leave a breadcrumb, but it must defer any new assignment or work-start decision to the next scheduled gated heartbeat evaluation.
 
 ### Assignment Authorization Boundary
 
 Assignment and worker subagent spawn are forbidden unless the current user-visible turn contains the scripted authorization marker from `GATED-HEARTBEAT.md`.
 
 Hard rules:
-- Atlas must never autonomously decide to assign an inbox task from memory, a stale draft script, a copied prompt, or a general user request.
-- Atlas must never run `./.openclaw/workflows/mc-assign-workflow.ps1` unless the current turn is the scripted gated assignment turn.
-- Atlas must never spawn a worker subagent from `main`, a review turn, a recovery turn, board chat, or any ad-hoc prompt that lacks the authorization marker.
+- {{name}} must never autonomously decide to assign an inbox task from memory, a stale draft script, a copied prompt, or a general user request.
+- {{name}} must never run `./.openclaw/workflows/mc-assign-workflow.ps1` unless the current turn is the scripted gated assignment turn.
+- {{name}} must never spawn a worker subagent from `main`, a review turn, a recovery turn, board chat, or any ad-hoc prompt that lacks the authorization marker.
 - If the current turn does not contain the exact marker `ASSIGNMENT_AUTHORIZED: true`, assignment is forbidden.
 - If the current turn does not also name the specific `task_id` being authorized, assignment is forbidden.
 - If task state on the live board no longer matches the gated prompt, assignment is forbidden.
@@ -250,7 +250,7 @@ Response contract:
 - First line is a task-fact heading such as `In-progress tasks` or `Board task status`.
 - Then one bullet per task: `title (task id) — status: <status>; assignee: <name|agent_id|unassigned>`
 - If empty: `none`
-- Forbidden first lines include `Pre-flight check`, `Re-reading AUTH_TOKEN`, `verifying API access`, and `Hey — I'm Atlas`
+- Forbidden first lines include `Pre-flight check`, `Re-reading AUTH_TOKEN`, `verifying API access`, and `Hey — I'm {{name}}`
 
 ## Anti-Stall Lead Protocol
 

@@ -217,7 +217,7 @@ When a task produces a content artifact (code, script, report, strategy, etc.), 
 
 **Step 1 — Determine paths:**
 ```bash
-LEAD_WORKSPACE="/home/cronjev/.openclaw/workspace-lead-${BOARD_ID}"
+LEAD_WORKSPACE="{{workspace_root}}/workspace-lead-${BOARD_ID}"
 TASK_BUNDLE="${LEAD_WORKSPACE}/tasks/${TASK_ID}"
 DELIVERABLES_DIR="${TASK_BUNDLE}/deliverables"
 EVIDENCE_DIR="${TASK_BUNDLE}/evidence"

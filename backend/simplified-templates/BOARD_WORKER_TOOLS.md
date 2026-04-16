@@ -35,7 +35,7 @@ WORKSPACE_PATH={{workspace_path}}
 
 ```bash
 mkdir -p api
-curl -fsS "http://localhost:8002/openapi.json" -o api/openapi.json
+curl -fsS "{{base_url}}/openapi.json" -o api/openapi.json
 jq -r '
   .paths | to_entries[] as $p
   | $p.value | to_entries[]
@@ -81,7 +81,7 @@ No secrets are currently available to this agent. If work needs credentials outs
 AUTH_TOKEN=$(grep '^AUTH_TOKEN=' TOOLS.md | head -n1 | cut -d= -f2 | tr -d '`')
 
 # Fetch all board secrets and export as env vars
-eval $(curl -s -X GET "http://localhost:8002/api/v1/agent/secrets" \
+eval $(curl -s -X GET "{{base_url}}/api/v1/agent/secrets" \
   -H "X-Agent-Token: $AUTH_TOKEN" | \
   jq -r '.[] | "export \(.key)=\(.value | @sh)"')
 

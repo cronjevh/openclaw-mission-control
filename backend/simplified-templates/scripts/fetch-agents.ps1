@@ -3,7 +3,7 @@ param(
     [string]$BaseUrl = "http://localhost:8002",
     [string]$AgentsPath = "/api/v1/agents",
     [string]$OutputPath = "backend/simplified-templates/template-update.json",
-    [string]$RenderRoot = "backend/simplified-templates/testmerge"
+    [string]$RenderRoot = "/home/cronjev/.openclaw"
 )
 
 function Get-DotEnvValue {

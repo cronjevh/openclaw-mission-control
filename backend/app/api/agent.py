@@ -27,6 +27,7 @@ from app.models.gateways import Gateway
 from app.models.tags import Tag
 from app.models.task_dependencies import TaskDependency
 from app.models.tasks import Task
+from app.models.task_evidence import TaskEvidenceArtifact, TaskEvidenceCheck, TaskEvidencePacket
 from app.models.agent_schedules import AgentSchedule
 from app.schemas.agents import (
     AgentCreate,
@@ -58,6 +59,9 @@ from app.schemas.health import AgentHealthStatusResponse
 from app.schemas.pagination import DefaultLimitOffsetPage
 from app.schemas.tags import TagRef
 from app.schemas.tasks import TaskCommentCreate, TaskCommentRead, TaskCreate, TaskRead, TaskUpdate
+from app.api.tasks import apply_default_evidence_closure_for_okr_tasks
+from app.services.task_evidence import list_task_evidence_packets
+from app.schemas.task_evidence import TaskEvidencePacketCreate, TaskEvidencePacketRead
 from app.schemas.view_models import BoardSnapshot
 from app.services.activity_log import record_activity
 from app.services.board_snapshot import build_board_snapshot
@@ -844,6 +848,7 @@ async def create_task(
     """
     _guard_board_access(agent_ctx, board)
     _require_board_lead(agent_ctx)
+    payload = apply_default_evidence_closure_for_okr_tasks(payload)
     data = payload.model_dump(
         exclude={"depends_on_task_ids", "tag_ids", "custom_field_values"},
     )
@@ -1035,6 +1040,170 @@ async def get_task(
         task=task,
         board_id=task.board_id,
     )
+
+
+@router.get(
+    "/boards/{board_id}/tasks/{task_id}/evidence-packets",
+    response_model=list[TaskEvidencePacketRead],
+    tags=AGENT_BOARD_TAGS,
+    openapi_extra=_agent_board_openapi_hints(
+        intent="agent_task_evidence_discovery",
+        when_to_use=[
+            "Agent needs to retrieve evidence packets for a task to review progress or verify completion.",
+        ],
+        routing_examples=[
+            {
+                "input": {
+                    "intent": "list evidence packets for a task",
+                    "required_privilege": "any_agent",
+                },
+                "decision": "agent_task_evidence_discovery",
+            }
+        ],
+    ),
+)
+async def list_task_evidence_packets_for_agent(
+    task: Task = TASK_DEP,
+    session: AsyncSession = SESSION_DEP,
+    agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
+) -> list[TaskEvidencePacketRead]:
+    """List evidence packets for a task, visible to the authenticated agent."""
+    _guard_task_access(agent_ctx, task)
+    return await list_task_evidence_packets(session, task_id=task.id)
+
+
+@router.post(
+    "/boards/{board_id}/tasks/{task_id}/evidence-packets",
+    response_model=TaskEvidencePacketRead,
+    tags=AGENT_BOARD_TAGS,
+    openapi_extra=_agent_board_openapi_hints(
+        intent="agent_task_evidence_create",
+        when_to_use=[
+            "Agent needs to submit evidence for a task to demonstrate completion or progress.",
+        ],
+        routing_examples=[
+            {
+                "input": {
+                    "intent": "create evidence packet for task closure",
+                    "required_privilege": "any_agent",
+                },
+                "decision": "agent_task_evidence_create",
+            }
+        ],
+    ),
+)
+async def create_task_evidence_packet_for_agent(
+    payload: TaskEvidencePacketCreate,
+    task: Task = TASK_DEP,
+    session: AsyncSession = SESSION_DEP,
+    agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
+) -> TaskEvidencePacketRead:
+    """Create a new evidence packet for a task as an agent."""
+    _guard_task_access(agent_ctx, task)
+    if task.board_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Task board_id is required.",
+        )
+
+    from app.core.time import utcnow
+
+    now = utcnow()
+    task_class = payload.task_class or task.task_class
+    packet = TaskEvidencePacket(
+        board_id=task.board_id,
+        task_id=task.id,
+        created_by_agent_id=agent_ctx.agent.id,
+        created_by_user_id=None,
+        task_class=task_class,
+        status=payload.status,
+        summary=payload.summary,
+        implementation_delta=payload.implementation_delta,
+        review_notes=payload.review_notes,
+        submitted_at=(now if payload.status in {"submitted", "accepted"} else None),
+    )
+    session.add(packet)
+    await session.flush()
+
+    primary_artifact_index = None
+    if payload.artifacts:
+        primary_indexes = [
+            idx for idx, artifact in enumerate(payload.artifacts) if artifact.is_primary
+        ]
+        if len(primary_indexes) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Evidence packets may declare only one primary artifact.",
+            )
+        primary_artifact_index = primary_indexes[0] if primary_indexes else 0
+
+    created_artifact_ids: list[UUID] = []
+    for idx, artifact_payload in enumerate(payload.artifacts):
+        relative_path = (
+            artifact_payload.relative_path.strip()
+            if artifact_payload.relative_path
+            else None
+        )
+        artifact = TaskEvidenceArtifact(
+            packet_id=packet.id,
+            task_id=task.id,
+            kind=artifact_payload.kind,
+            label=artifact_payload.label,
+            workspace_agent_id=artifact_payload.workspace_agent_id,
+            workspace_agent_name=artifact_payload.workspace_agent_name,
+            workspace_root_key=artifact_payload.workspace_root_key,
+            relative_path=relative_path,
+            display_path=(
+                artifact_payload.display_path
+                or (
+                    f"{artifact_payload.workspace_agent_name}/{relative_path}"
+                    if artifact_payload.workspace_agent_name and relative_path
+                    else relative_path
+                )
+            ),
+            origin_kind=artifact_payload.origin_kind,
+            is_primary=(primary_artifact_index == idx),
+        )
+        session.add(artifact)
+        await session.flush()
+        created_artifact_ids.append(artifact.id)
+
+    for check_payload in payload.checks:
+        check = TaskEvidenceCheck(
+            packet_id=packet.id,
+            task_id=task.id,
+            kind=check_payload.kind,
+            label=check_payload.label,
+            status=check_payload.status,
+            command=check_payload.command,
+            result_summary=check_payload.result_summary,
+        )
+        session.add(check)
+
+    if primary_artifact_index is not None and created_artifact_ids:
+        packet.primary_artifact_id = created_artifact_ids[primary_artifact_index]
+    packet.updated_at = now
+    session.add(packet)
+
+    # Keep task metadata lightweight and explicit when the packet provides it.
+    if task_class is not None and task.task_class is None:
+        task.task_class = task_class
+    task.updated_at = now
+    session.add(task)
+
+    await session.commit()
+
+    packets = await list_task_evidence_packets(session, task_id=task.id)
+    created_packet = next(
+        (item for item in packets if item.id == packet.id),
+        None,
+    )
+    if created_packet is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Evidence packet was created but could not be loaded.",
+        )
+    return created_packet
 
 
 @router.delete(

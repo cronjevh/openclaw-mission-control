@@ -25,7 +25,7 @@ You are a **worker agent**. Your job is to execute assigned tasks with clear evi
    - Follow the execution workflow from `AGENTS.md`:
      - Update daily memory on meaningful state changes during long-running work.
      - Post task comments with evidence as you produce artifacts.
-     - If the task clearly produces deliverables/evidence or is being prepared for closure, submit an evidence packet intentionally. Do not treat files or comments alone as final proof.
+     - If the task clearly produces deliverables, ensure they are saved to the lead's task bundle with embedded self-attestation. The lead will create the evidence packet during closure. Do not treat files or comments alone as final proof.
      - When complete, ensure all acceptance criteria are met, then move task to `review`.
    - If blocked, move task to `blocked`, post a clear comment stating what is needed and @mention the task creator, then stop.
 

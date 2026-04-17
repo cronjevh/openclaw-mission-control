@@ -35,6 +35,13 @@ Record decisions, constraints, lessons, and useful context. Skip the secrets unl
 - This is your curated memory — the distilled essence, not raw logs.
 - Over time, review your daily files and update `MEMORY.md` with what is worth keeping.
 
+## Response Style Rules
+- Do not begin responses with praise, validation, agreement theater, or emotional calibration.
+- Forbidden opener patterns include direct variants such as `you're absolutely right`, `you're right`, `you're right to question this`, `good catch`, `great point`, `excellent question`, `totally`, `exactly`, and similar phrasing whose main purpose is to validate the user before answering.
+- When the user reports a bug, questions an explanation, or challenges incorrect behavior, respond with the answer, correction, uncertainty, or next diagnostic step immediately. Skip affirmation unless it is materially necessary to clarify factual correctness.
+- Do not imply the user is correct unless you have established that they are correct. If the user is wrong or partially wrong, state the correction plainly and continue with the useful answer.
+- Preferred pattern: start with the substantive answer in the first sentence. Examples: `The issue is...`, `That behavior happens because...`, `The earlier answer was incorrect...`, `I don't have enough evidence to confirm that yet...`.
+
 ## Write It Down - No Mental Notes
 
 Do not rely on mental notes.
@@ -294,17 +301,48 @@ If you narrow scope to prep-only, update the task description or create a subtas
 A milestone is complete only when evidence is posted and delivery status is updated.
 
 **Closure Discipline (mandatory):**
-- Before moving **any** task to `done`, run `scripts/review-task-evidence.ps1 -TaskId <id>` and verify:
-  - `evidence_packet_count >= 1`
-  - The canonical packet declares a primary artifact
-  - No `problems` array in preflight
-  - `recommendation` is `can_move_to_done`
-- If evidence is missing, **do not close**. Either:
-  - Request the worker submit an evidence packet, OR
-  - Have the lead create it via `scripts/submit-task-evidence.ps1` using the actual deliverable files
-- Deliverables or raw `evidence/` files alone do not satisfy closure. Evidence must be intentionally linked through a packet.
-- Only after evidence is confirmed should the task be patched to `done` and a closure summary comment posted.
-- Treat closure without evidence as a process violation; log to `.learnings/LEARNINGS.md` and correct immediately.
+
+**Step 1 — Verify worker deliverable**
+- Open the deliverable file from the task's `deliverables/` directory in the lead workspace.
+- Check that it contains embedded self-attestation (Self-Test Results or Validation section).
+- Ensure the deliverable meets the acceptance criteria.
+
+**Step 2 — Determine verification path**
+- **If you can directly verify** the deliverable (e.g., run a script, read a doc, check syntax), proceed to Step 3.
+- **If you cannot verify** (complex functional test, integration, or requires specialist tools), choose:
+  - **Option A:** Send the task back to the worker (comment @agent with revision request)
+  - **Option B:** Create a new verification task (dependent on this one) assigned to a specialist reviewer (Athena/Hermes)
+
+**Step 3 — Create evidence packet**
+If verification succeeded, create the evidence packet using the centralized script:
+
+```bash
+/home/cronjev/mission-control-tfsmrt/scripts/submit-task-evidence.ps1 \
+  -TaskId <TASK_ID> \
+  -ArtifactPath "tasks/<TASK_ID>/deliverables/<filename>" \
+  -Summary "Lead verification: <brief summary>" \
+  -CheckKind verification \
+  -CheckLabel "Lead review and acceptance" \
+  -CheckStatus passed \
+  -CheckCommand "Manual review of self-attestation and deliverable" \
+  -CheckResultSummary "<key findings confirming deliverable meets criteria>"
+```
+
+The script uses your lead AUTH_TOKEN and posts to the agent-scoped endpoint. The evidence packet attributes the verification to you (the lead).
+
+**Step 4 — Preflight and closure**
+- Run `scripts/review-task-evidence.ps1 -TaskId <id>` to preflight.
+- Verify `evidence_packet_count >= 1`, primary artifact present, no problems, recommendation `can_move_to_done`.
+- Only then move the task to `done` and post a closure summary.
+
+**Important:** 
+- Do NOT ask the worker to submit an evidence packet; the lead creates it after verification.
+- For documentation/analysis tasks where programmatic evidence is impossible, your attestation (a short markdown file in `evidence/` summarizing why the deliverable satisfies requirements) is valid evidence. Use the script to submit it as a supporting artifact or include the reasoning in `-CheckResultSummary`.
+- Deliverables or raw `evidence/` files alone do not satisfy closure. An evidence packet must exist.
+
+**Enforcement:** Treat closure without evidence as a process violation; log to `.learnings/LEARNINGS.md` and correct immediately.
+
+**Note on self-attestation:** Workers must embed validation evidence directly in their deliverables (see worker Evidence Protocol). The lead should verify this embedded self-attestation when reviewing evidence packets.
 
 ## Delivery Status Template
 

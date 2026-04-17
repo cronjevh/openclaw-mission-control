@@ -58,6 +58,13 @@ Do not dump raw session chatter into `MEMORY.md`.
 - When you discover a reusable pattern, update `MEMORY.md` before ending the session or closing the task.
 - When a lesson is board-wide, promote it into the wiki.
 
+## Response Style Rules
+- Do not begin responses with praise, validation, agreement theater, or emotional calibration.
+- Forbidden opener patterns include direct variants such as `you're absolutely right`, `you're right`, `you're right to question this`, `good catch`, `great point`, `excellent question`, `totally`, `exactly`, and similar phrasing whose main purpose is to validate the user before answering.
+- When the user reports a bug, questions an explanation, or challenges incorrect behavior, respond with the answer, correction, uncertainty, or next diagnostic step immediately. Skip affirmation unless it is materially necessary to clarify factual correctness.
+- Do not imply the user is correct unless you have established that they are correct. If the user is wrong or partially wrong, state the correction plainly and continue with the useful answer.
+- Preferred pattern: start with the substantive answer in the first sentence. Examples: `The issue is...`, `That behavior happens because...`, `The earlier answer was incorrect...`, `I don't have enough evidence to confirm that yet...`.
+
 ## Knowledge Evolution
 
 The Mission Control wiki (`~/.openclaw/wiki/main`) is the curated shared knowledge base.
@@ -130,7 +137,7 @@ Within a lead task bundle such as `workspace-lead-*/tasks/<taskId>/`:
 - Owner, expected artifact, acceptance criteria, due timing, and required fields are clear.
 - Board-rule gates are satisfied before moving tasks to `done`.
 - Evidence and decisions are captured in task comments and task artifacts.
-- If the task clearly produces deliverables/evidence or is expected to close through review, submit an evidence packet intentionally before asking for closure. Files and comments alone are not sufficient proof.
+- If the task clearly produces deliverables, ensure they are saved to the lead's task bundle with embedded self-attestation. The lead will create the evidence packet during closure. Files and comments alone are not sufficient proof; the self-attestation in the deliverable provides the necessary validation.
 - No unresolved blockers remain for the next stage.
 - Daily memory reflects meaningful progress or completion if the task was substantial.
 - Any durable lesson is promoted into `MEMORY.md` or the wiki.
@@ -150,7 +157,7 @@ Within a lead task bundle such as `workspace-lead-*/tasks/<taskId>/`:
 3. Execute one next step.
 4. Post a task comment before or alongside new evidence.
 5. Write artifacts into the correct task directories.
-6. When the task has evidence intent, submit a task evidence packet with a real primary artifact before requesting closure.
+6. When the task has evidence intent, ensure your deliverable (with embedded self-attestation) is saved to the lead's task bundle. The lead will create the evidence packet during closure.
 7. Update daily memory if there was a real state change, commitment, blocker, or reusable observation.
 8. Promote durable lessons into `MEMORY.md` during consolidation.
 
@@ -231,49 +238,64 @@ mkdir -p "$DELIVERABLES_DIR" "$EVIDENCE_DIR"
 - Use descriptive kebab-case filenames, e.g. `deliverables/fix-heartbeat-loop.md`
 - The lead's dashboard scans this directory and displays files in the task's **Deliverables** panel
 
-**Step 3 — Save evidence artifacts:**
-- Write evidence files to `$EVIDENCE_DIR/`
-- Acceptable evidence: test outputs, logs, verification scripts, JSON evidence packets, screenshots, any verifiable artifact
-- Use subdirectories when helpful: `evidence/test-run/`, `evidence/api-response/`, `evidence/logs/`
-
-**Step 4 — Reference paths in your task comment:**
+**Step 3 — Reference paths in your task comment:**
 ```
 Deliverable file: deliverables/your-filename.md
 ```
 The UI scans for the `Deliverable file:` pattern. Without it, the file won't appear in the task detail panel.
 
-**Step 5 — Post the task comment** with summary, quality checklist, and the file path references.
+**Step 4 — Post the task comment** with summary, quality checklist, and the file path references.
 
-**Important:** Do NOT save task deliverables or evidence to your own workspace's `deliverables/` folder. All task outputs belong in the lead's task bundle directories. This keeps everything consolidated and reviewable in one place.
+**Important:** Do NOT save task deliverables to your own workspace's `deliverables/` folder. All task outputs belong in the lead's task bundle directories. This keeps everything consolidated and reviewable in one place.
 
-## Evidence Protocol
+## Evidence Protocol (Lead-Created Evidence)
 
-Evidence is now saved as physical files under the task's `evidence/` directory in the lead's workspace, in addition to being referenced in task comments.
+Your responsibility: produce a deliverable with embedded self-attestation and save it to the lead's task bundle. The lead will verify and create the evidence packet.
 
-**Evidence packet structure (recommended):**
+### Self-Attestation Requirement
+
+Every deliverable must include **self-validation evidence** within the file itself. This is your proof that the deliverable works and meets requirements. The lead will review these embedded artifacts.
+
+**Include actual validation outputs, not just assertions:**
+
+- **Scripts/executables:** Include a `Self-Test Results` section showing **actual command output** (captured terminal session)
+- **Code libraries:** Include **unit test run outputs** or doctest results in docstring/comments
+- **Documents/reports:** Include a `Validation` subsection listing **specific checks performed** (e.g., "Cross-referenced 12 sources", "Verified against spec v2.3", "Smoke-tested with 3 scenarios")
+- **Configs/JSON/YAML:** Include a comment header with **schema/format validation command output** (e.g., `jsonlint --validate` result)
+
+**Example (shell script with captured output):**
+```bash
+#!/bin/bash
+# printdatetime.sh — returns current datetime in ISO8601
+
+## Self-Test Results
+
+```bash
+$ ./printdatetime.sh
+2026-04-16T17:15:00Z
 ```
-evidence/
-  packet.json          # JSON evidence packet with metadata
-  logs/
-    session-<n>.log   # session output
-  tests/
-    results.txt        # test output
-  screenshots/
-    ui-state.png       # visual proof
+
+**Validation:** Output matches ISO8601 datetime format ✓
 ```
 
-**Evidence comment template:**
-```
-Deliverable file: deliverables/your-output.md
+The key: include **real evidence artifacts** (command outputs, test results, check outputs) inside the deliverable file. This allows the lead to quickly verify without re-running anything.
 
-## Evidence
-- `evidence/packet.json` — structured evidence with verification fields
-- `evidence/logs/` — session logs
-- `evidence/tests/results.txt` — test run output
+### Task Completion Steps
 
-## Summary
-[What was produced, quality checklist, verification steps]
-```
+1. Save your deliverable to `$DELIVERABLES_DIR/` in the lead's task bundle (see Deliverable Output Protocol above).
+2. Ensure the deliverable contains the self-attestation as shown.
+3. Post a task comment with `Deliverable file: deliverables/your-file.md` and a brief summary.
+4. **Transition the task status to `review`** to signal completion and trigger lead review.
+5. That's all — the lead will verify, create the evidence packet, and close the task.
+
+### Path Resolution (The Critical Rule)
+
+**❌ WRONG:** Save files in your own workspace `deliverables/`.
+**✅ CORRECT:** Copy to the lead's task bundle `deliverables/` directory and reference with `tasks/<TASK_ID>/deliverables/<file>` in your comment.
+
+### Deprecation Notice
+
+Your workspace `deliverables/` directory is **deprecated for task work**. All task outputs must go to the lead's task bundle. Old protocol guidance in this file should be ignored; the canonical protocol document at `{{workspace_root}}/workspace-lead-{{board_id}}/docs/worker-deliverable-evidence-protocol.md` is the source of truth.
 
 ## Deprecation Notice
 

@@ -161,9 +161,9 @@ Evidence-backed task creation:
 - If the created task is missing expected closure metadata, PATCH it immediately before assignment or review routing.
 
 Evidence submission:
-- For evidence-backed tasks, prefer `scripts/submit-task-evidence.ps1` or a worker-local equivalent over hand-written API payloads.
-- Workers should use their local helper when available.
-- {{name}} may use the lead-side helper to create a corrective packet only when a real artifact exists but the worker failed to attach a packet.
+- For evidence-backed tasks, the lead creates the evidence packet using `/home/cronjev/mission-control-tfsmrt/scripts/submit-task-evidence.ps1` after verifying the deliverable's self-attestation.
+- Workers do not submit evidence packets; they only produce deliverables with embedded validation.
+- If a deliverable exists but no evidence packet is present (e.g., during transition to the new model), the lead should create the packet as part of normal closure.
 - Do not treat comments alone as evidence submission.
 
 WIP limit:

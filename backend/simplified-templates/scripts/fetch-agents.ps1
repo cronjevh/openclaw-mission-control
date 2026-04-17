@@ -220,6 +220,9 @@ function Render-WorkspaceTemplates {
     )
 
     $templateFiles = Get-ChildItem -Path 'backend/simplified-templates' -Filter "$TemplatePrefix*.md" -File | Sort-Object Name
+    $templateLimitBytes = 20KB
+    $renderedTemplates = @()
+    $renderedBytes = 0
 
     foreach ($templateFile in $templateFiles) {
         $targetFileName = $templateFile.Name -replace ('^' + [regex]::Escape($TemplatePrefix)), ''
@@ -242,7 +245,19 @@ function Render-WorkspaceTemplates {
             $renderedContent += "`n"
         }
 
-        [System.IO.File]::WriteAllText($targetPath, $renderedContent)
+        $renderedBytes += [System.Text.Encoding]::UTF8.GetByteCount($renderedContent)
+        $renderedTemplates += [pscustomobject]@{
+            Path    = $targetPath
+            Content = $renderedContent
+        }
+    }
+
+    if ($renderedBytes -ge $templateLimitBytes) {
+        throw "Rendered template bundle for '$TemplatePrefix' is $renderedBytes bytes, which meets or exceeds the 20 KB limit. Reduce the rendered output before distributing it."
+    }
+
+    foreach ($renderedTemplate in $renderedTemplates) {
+        [System.IO.File]::WriteAllText($renderedTemplate.Path, $renderedTemplate.Content)
     }
 }
 

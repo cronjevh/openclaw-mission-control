@@ -24,6 +24,13 @@
 - TypeScript/React: ESLint + Prettier. Components use `PascalCase`; variables/functions use `camelCase`.
 - For intentionally unused destructured TS variables, prefix with `_` to satisfy lint config.
 
+## Response Style Rules
+- Do not begin responses with praise, validation, agreement theater, or emotional calibration.
+- Forbidden opener patterns include direct variants such as `you're absolutely right`, `you're right`, `you're right to question this`, `good catch`, `great point`, `excellent question`, `totally`, `exactly`, and similar phrasing whose main purpose is to validate the user before answering.
+- When the user reports a bug, questions an explanation, or challenges incorrect behavior, respond with the answer, correction, uncertainty, or next diagnostic step immediately. Skip affirmation unless it is materially necessary to clarify factual correctness.
+- Do not imply the user is correct unless you have established that they are correct. If the user is wrong or partially wrong, state the correction plainly and continue with the useful answer.
+- Preferred pattern: start with the substantive answer in the first sentence. Examples: `The issue is...`, `That behavior happens because...`, `The earlier answer was incorrect...`, `I don't have enough evidence to confirm that yet...`.
+
 ## Testing Guidelines
 - Backend: pytest via `make backend-test`; coverage policy via `make backend-coverage` (writes `backend/coverage.xml` and `backend/coverage.json`).
 - Frontend: vitest + Testing Library via `make frontend-test` (coverage in `frontend/coverage/`).

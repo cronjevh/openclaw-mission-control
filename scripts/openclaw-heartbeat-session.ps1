@@ -737,3 +737,104 @@ function Invoke-MissionControlHeartbeatQueueProcessor {
         Release-MissionControlHeartbeatQueueLock -QueuePaths $lockState.paths
     }
 }
+
+function Get-MissionControlHeartbeatDispatchStates {
+    param(
+        [Parameter(Mandatory = $true)]$DispatchResult
+    )
+
+    $activeTasks = @($DispatchResult.tasks | Where-Object { $_ -and $_.id })
+    if ($activeTasks.Count -eq 0) {
+        return @($DispatchResult)
+    }
+
+    $dispatchStates = @()
+    foreach ($task in $activeTasks) {
+        $taskDispatchState = [ordered]@{
+            act = $DispatchResult.act
+            reason = $DispatchResult.reason
+            agentRole = $DispatchResult.agentRole
+            boardId = $DispatchResult.boardId
+            agentId = $DispatchResult.agentId
+            summary = $DispatchResult.summary
+            tasks = @($task)
+        }
+
+        $dispatchStates += [pscustomobject]$taskDispatchState
+    }
+
+    return $dispatchStates
+}
+
+function Invoke-MissionControlHeartbeatWorkflow {
+    param(
+        [Parameter(Mandatory = $true)][string]$WorkspacePath,
+        [Parameter(Mandatory = $true)][string]$AgentId,
+        [Parameter(Mandatory = $true)][string]$BoardId,
+        [Parameter(Mandatory = $true)][string]$AgentRole,
+        [Parameter(Mandatory = $true)][string]$InvocationAgent,
+        [Parameter(Mandatory = $true)][string]$DispatchScriptPath,
+        [Parameter(Mandatory = $true)][string]$StatePath,
+        [Parameter(Mandatory = $true)][string]$WorkflowScriptPath,
+        [int]$QueueTimeoutSec = 600,
+        [switch]$ProcessQueue
+    )
+
+    if ($ProcessQueue) {
+        [void](Invoke-MissionControlHeartbeatQueueProcessor `
+            -WorkspacePath $WorkspacePath `
+            -InvocationAgent $InvocationAgent `
+            -TimeoutSec $QueueTimeoutSec)
+        return 0
+    }
+
+    if (Test-MissionControlHeartbeatQueueProcessing -WorkspacePath $WorkspacePath) {
+        Write-Host 'OK # queue processing'
+        return 0
+    }
+
+    try {
+        & pwsh -NoProfile -File $DispatchScriptPath `
+            -AgentId $AgentId `
+            -BoardId $BoardId `
+            -AgentRole $AgentRole `
+            -WorkspacePath $WorkspacePath | Out-File $StatePath
+    }
+    catch {
+        Write-Host 'OK # dispatch failed'
+        return 0
+    }
+
+    if (-not (Test-Path -LiteralPath $StatePath)) {
+        Write-Host 'OK # dispatch state missing'
+        return 0
+    }
+
+    $dispatchResult = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
+    if ($dispatchResult.act -ne $true) {
+        Write-Host "OK # act=false ($($dispatchResult.reason))"
+        return 0
+    }
+
+    $dispatchStates = @(Get-MissionControlHeartbeatDispatchStates -DispatchResult $dispatchResult)
+    $queued = 0
+    $skipped = 0
+    foreach ($dispatchState in $dispatchStates) {
+        if (Add-MissionControlHeartbeatQueueItem `
+            -WorkspacePath $WorkspacePath `
+            -InvocationAgent $InvocationAgent `
+            -DispatchState $dispatchState) {
+            $queued++
+        }
+        else {
+            $skipped++
+        }
+    }
+
+    [void](Start-MissionControlHeartbeatQueueProcessor `
+        -WorkspacePath $WorkspacePath `
+        -ScriptPath $WorkflowScriptPath)
+
+    Write-Host "OK # queued=$queued skipped=$skipped"
+    return 0
+}

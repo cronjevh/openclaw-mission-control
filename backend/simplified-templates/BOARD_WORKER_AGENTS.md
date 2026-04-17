@@ -112,7 +112,7 @@ Within a lead task bundle such as `workspace-lead-*/tasks/<taskId>/`:
 |--------|---------|--------------|
 | `inbox` | Ready to be picked up | Lead assigns; worker starts |
 | `in_progress` | Actively being worked | Stay focused, post updates |
-| `review` | Awaiting review/approval | Lead or human reviews |
+| `review` | Awaiting verification and automated completion checks | Post a complete handoff and stop active execution unless reassigned. |
 | `blocked` | Cannot proceed — waiting on something | Do not work on it. Post one blocker comment, @mention the task creator, then stop. |
 | `done` | Complete | No further action |
 
@@ -137,7 +137,8 @@ Within a lead task bundle such as `workspace-lead-*/tasks/<taskId>/`:
 - Owner, expected artifact, acceptance criteria, due timing, and required fields are clear.
 - Board-rule gates are satisfied before moving tasks to `done`.
 - Evidence and decisions are captured in task comments and task artifacts.
-- If the task clearly produces deliverables, ensure they are saved to the lead's task bundle with embedded self-attestation. The lead will create the evidence packet during closure. Files and comments alone are not sufficient proof; the self-attestation in the deliverable provides the necessary validation.
+- If the task produces deliverables, save the primary artifact and the separate verification artifact to the lead's task bundle.
+- Keep the primary artifact pure. Do not embed validation logs, markdown evidence sections, or self-attestation inside executable or source files.
 - No unresolved blockers remain for the next stage.
 - Daily memory reflects meaningful progress or completion if the task was substantial.
 - Any durable lesson is promoted into `MEMORY.md` or the wiki.
@@ -157,7 +158,7 @@ Within a lead task bundle such as `workspace-lead-*/tasks/<taskId>/`:
 3. Execute one next step.
 4. Post a task comment before or alongside new evidence.
 5. Write artifacts into the correct task directories.
-6. When the task has evidence intent, ensure your deliverable (with embedded self-attestation) is saved to the lead's task bundle. The lead will create the evidence packet during closure.
+6. For tasks requiring verification, produce a separate verification artifact that can be run or evaluated independently of the main deliverable.
 7. Update daily memory if there was a real state change, commitment, blocker, or reusable observation.
 8. Promote durable lessons into `MEMORY.md` during consolidation.
 
@@ -248,55 +249,44 @@ The UI scans for the `Deliverable file:` pattern. Without it, the file won't app
 
 **Important:** Do NOT save task deliverables to your own workspace's `deliverables/` folder. All task outputs belong in the lead's task bundle directories. This keeps everything consolidated and reviewable in one place.
 
-## Evidence Protocol (Lead-Created Evidence)
+## Verification Artifact Requirement
 
-Your responsibility: produce a deliverable with embedded self-attestation and save it to the lead's task bundle. The lead will verify and create the evidence packet.
+Your responsibility is to submit a validation bundle, not narrative claims.
 
-### Self-Attestation Requirement
+For tasks that produce a deliverable, create:
 
-Every deliverable must include **self-validation evidence** within the file itself. This is your proof that the deliverable works and meets requirements. The lead will review these embedded artifacts.
+- one primary artifact in `deliverables/`
+- one separate verification artifact in `deliverables/`
 
-**Include actual validation outputs, not just assertions:**
+Use these defaults:
 
-- **Scripts/executables:** Include a `Self-Test Results` section showing **actual command output** (captured terminal session)
-- **Code libraries:** Include **unit test run outputs** or doctest results in docstring/comments
-- **Documents/reports:** Include a `Validation` subsection listing **specific checks performed** (e.g., "Cross-referenced 12 sources", "Verified against spec v2.3", "Smoke-tested with 3 scenarios")
-- **Configs/JSON/YAML:** Include a comment header with **schema/format validation command output** (e.g., `jsonlint --validate` result)
+- deterministic tasks: `verify-<TASK_ID>.ps1`
+- documentation or planning tasks: `evaluate-<TASK_ID>.json`
 
-**Example (shell script with captured output):**
-```bash
-#!/bin/bash
-# printdatetime.sh — returns current datetime in ISO8601
+Rules:
 
-## Self-Test Results
-
-```bash
-$ ./printdatetime.sh
-2026-04-16T17:15:00Z
-```
-
-**Validation:** Output matches ISO8601 datetime format ✓
-```
-
-The key: include **real evidence artifacts** (command outputs, test results, check outputs) inside the deliverable file. This allows the lead to quickly verify without re-running anything.
+- The verification artifact must reference the real task deliverable.
+- It must be separate from the main artifact.
+- It must not hardcode success or ignore the acceptance criteria.
+- Prefer PowerShell for deterministic verification scripts unless the task clearly requires another language.
 
 ### Task Completion Steps
 
-1. Save your deliverable to `$DELIVERABLES_DIR/` in the lead's task bundle (see Deliverable Output Protocol above).
-2. Ensure the deliverable contains the self-attestation as shown.
-3. Post a task comment with `Deliverable file: deliverables/your-file.md` and a brief summary.
-4. **Transition the task status to `review`** to signal completion and trigger lead review.
-5. That's all — the lead will verify, create the evidence packet, and close the task.
+1. Save the primary deliverable to `$DELIVERABLES_DIR/`.
+2. Save the verification artifact to `$DELIVERABLES_DIR/` using the fixed task-based name.
+3. Post a task comment that explicitly names both files.
+4. State that the task is ready for verification.
+5. Stop. Do not create evidence packets or close the task yourself.
 
 ### Path Resolution (The Critical Rule)
 
 **❌ WRONG:** Save files in your own workspace `deliverables/`.
-**✅ CORRECT:** Copy to the lead's task bundle `deliverables/` directory and reference with `tasks/<TASK_ID>/deliverables/<file>` in your comment.
+**✅ CORRECT:** Write to the lead task bundle `deliverables/` directory and reference the relative deliverable paths in your task comment.
 
 ### Deprecation Notice
 
-Your workspace `deliverables/` directory is **deprecated for task work**. All task outputs must go to the lead's task bundle. Old protocol guidance in this file should be ignored; the canonical protocol document at `{{workspace_root}}/workspace-lead-{{board_id}}/docs/worker-deliverable-evidence-protocol.md` is the source of truth.
+Your workspace `deliverables/` directory is **deprecated for task work**. All task outputs must go to the lead's task bundle. Any older guidance about embedded self-attestation or worker-created evidence packets should be ignored.
 
 ## Deprecation Notice
 
-Your workspace `deliverables/` directory is **deprecated for task work**. Always use the lead's task bundle paths as defined above. Old protocol guidance in this file should be ignored; the canonical protocol document at `{{workspace_root}}/workspace-lead-{{board_id}}/docs/worker-deliverable-evidence-protocol.md` is the source of truth.
+Your workspace `deliverables/` directory is **deprecated for task work**. Always use the lead's task bundle paths as defined above.

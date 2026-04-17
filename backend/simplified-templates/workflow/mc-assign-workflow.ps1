@@ -14,7 +14,7 @@ $ErrorActionPreference = 'Stop'
 $BoardId = '{{board_id}}'
 $LeadAgentId = "lead-$BoardId"
 $WorkspacePath = '{{workspace_root}}/workspace-lead-$BoardId'
-$SharedScript = '/home/cronjev/mission-control-tfsmrt/scripts/mc-assign-workflow.ps1'
+$SharedScript = '/home/cronjev/mission-control-tfsmrt/scripts/mc-board-assign.ps1'
 
 if (-not (Test-Path -LiteralPath $SharedScript)) {
     throw "Shared script not found: $SharedScript"

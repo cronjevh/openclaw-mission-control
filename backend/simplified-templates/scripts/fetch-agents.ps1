@@ -3,7 +3,9 @@ param(
     [string]$BaseUrl = "http://localhost:8002",
     [string]$AgentsPath = "/api/v1/agents",
     [string]$OutputPath = "backend/simplified-templates/template-update.json",
-    [string]$RenderRoot = "/home/cronjev/.openclaw"
+    [string]$RenderRoot = "/home/cronjev/.openclaw",
+    [switch]$ReverseRenderWorkspaces,
+    [string[]]$ReverseRenderAgentNames = @()
 )
 
 function Get-DotEnvValue {
@@ -328,6 +330,37 @@ function Render-TemplateContent {
     return $rendered
 }
 
+function Reverse-RenderTemplateContent {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Content,
+        [Parameter(Mandatory = $true)]
+        $Values
+    )
+
+    $rendered = $Content
+    $keys = $Values.Keys | Where-Object {
+        $value = [string]$Values[$_]
+        -not [string]::IsNullOrEmpty($value)
+    } | Sort-Object { ([string]$Values[$_]).Length } -Descending
+
+    foreach ($key in $keys) {
+        $value = [string]$Values[$key]
+        $placeholder = "{{ $key }}"
+        $escapedValue = [regex]::Escape($value)
+        $rendered = [regex]::Replace(
+            $rendered,
+            $escapedValue,
+            [System.Text.RegularExpressions.MatchEvaluator]{
+                param($match)
+                return $placeholder
+            }
+        )
+    }
+
+    return $rendered
+}
+
 function Render-WorkflowTemplates {
     param(
         [Parameter(Mandatory = $true)]
@@ -387,11 +420,86 @@ function Render-AgentTemplates {
     Render-WorkflowTemplates -TargetWorkspacePath $templateValueMap.WorkspacePath -Values $templateValueMap.Values
 }
 
+function Reverse-RenderWorkspaceTemplates {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TemplatePrefix,
+        [Parameter(Mandatory = $true)]
+        [string]$SourceWorkspacePath,
+        [Parameter(Mandatory = $true)]
+        $Values
+    )
+
+    $templateFiles = Get-ChildItem -Path 'backend/simplified-templates' -Filter "$TemplatePrefix*.md" -File | Sort-Object Name
+
+    foreach ($templateFile in $templateFiles) {
+        $workspaceFileName = $templateFile.Name -replace ('^' + [regex]::Escape($TemplatePrefix)), ''
+        $workspacePath = Join-Path $SourceWorkspacePath $workspaceFileName
+        if (-not (Test-Path -LiteralPath $workspacePath)) {
+            Write-Host "Skipping reverse render for '$($templateFile.Name)' because workspace file was not found: $workspacePath"
+            continue
+        }
+
+        $workspaceContent = Get-Content -LiteralPath $workspacePath -Raw
+        $templateContent = Reverse-RenderTemplateContent -Content $workspaceContent -Values $Values
+        [System.IO.File]::WriteAllText($templateFile.FullName, $templateContent)
+    }
+}
+
+function Reverse-RenderAgentTemplates {
+    param(
+        [Parameter(Mandatory = $true)]
+        $Detail,
+        [Parameter(Mandatory = $true)]
+        [string]$BaseUrl,
+        [Parameter(Mandatory = $true)]
+        [string]$WorkspaceRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$LocalAuthToken,
+        [Parameter(Mandatory = $true)]
+        [string]$RenderRoot
+    )
+
+    $templatePrefix = Get-AgentTemplatePrefix -Detail $Detail
+    $workspacePath = Get-AgentWorkspacePath -Detail $Detail -RenderRoot $RenderRoot
+    if (-not $workspacePath) {
+        Write-Host "Skipping reverse render for agent '$($Detail.name)' because no workspace path could be resolved."
+        return
+    }
+    if (-not (Test-Path -LiteralPath $workspacePath)) {
+        Write-Host "Skipping reverse render for agent '$($Detail.name)' because workspace path was not found: $workspacePath"
+        return
+    }
+
+    $templateValueMap = Get-TemplateValueMap `
+        -Detail $Detail `
+        -BaseUrl $BaseUrl `
+        -AuthToken (Get-StableAgentToken -AgentId ([string]$Detail.id) -LocalAuthToken $LocalAuthToken) `
+        -WorkspaceRoot $WorkspaceRoot `
+        -WorkspacePath $workspacePath
+
+    Reverse-RenderWorkspaceTemplates -TemplatePrefix $templatePrefix -SourceWorkspacePath $templateValueMap.WorkspacePath -Values $templateValueMap.Values
+}
+
 if (-not (Test-Path -LiteralPath $RenderRoot)) {
     New-Item -ItemType Directory -Path $RenderRoot -Force | Out-Null
 }
 
 foreach ($detail in $agentDetails) {
+    if ($ReverseRenderWorkspaces) {
+        if ($ReverseRenderAgentNames.Count -gt 0 -and $detail.name -notin $ReverseRenderAgentNames) {
+            continue
+        }
+
+        Reverse-RenderAgentTemplates `
+            -Detail $detail `
+            -BaseUrl $BaseUrl `
+            -WorkspaceRoot $workspaceRoot `
+            -LocalAuthToken $localAuthToken `
+            -RenderRoot $RenderRoot
+        continue
+    }
+
     Render-AgentTemplates `
         -Detail $detail `
         -BaseUrl $BaseUrl `

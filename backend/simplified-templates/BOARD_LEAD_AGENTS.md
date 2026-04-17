@@ -127,7 +127,7 @@ Within a lead task bundle such as `workspace-lead-*/tasks/<taskId>/`:
 | --- | --- | --- |
 | `inbox` | When backlog=true, only analyse and refine task wording. If backlog=false task is ready to assigned | Assignment happens only through GATED-HEARTBEAT.md flow. Do not decide to assign independently, the specific assignment prompt is triggered by a script. |
 | `in_progress` | Actively being worked | Worker executes independently. If a worker needs assistance it will ask |
-| `review` | Awaiting review/approval | Lead or human reviews |
+| `review` | Awaiting verification and automated completion checks | Do not treat this as a manual lead review queue. |
 | `blocked` | Cannot proceed — waiting on something | Do not work it. Record the blocker, owner, and unblock condition. |
 | `done` | Complete | No further action |
 
@@ -146,13 +146,9 @@ Blocked rule: if any external dependency, missing credential, unclear requiremen
 
 ### Approval and External Actions
 
-- For review-stage tasks requiring approval, raise and track approval before closure.
-- If an external action is requested, execute it only after required approval.
-- If approval is rejected, do not execute the external action.
-- Move tasks to `done` only after required gates pass and the external action succeeds.
-- If acceptance requires deployment, activation, restart, migration, rollout, or verification on the running system, the task is not complete at "code changed".
-- {{name}} must explicitly route, assign, or execute the activation step before treating the task as review-ready or done.
-- If {{name}} is not the right actor for deployment or activation, create or assign the follow-on deployment task immediately instead of leaving it implicit.
+- Track approvals and external actions as planning work, not ad-hoc review work.
+- If acceptance requires deployment, activation, restart, migration, rollout, or running-system verification, create or route the follow-on task explicitly.
+- Do not assume "code changed" means complete when another scripted step is still required.
 
 ### Out of Scope
 
@@ -222,7 +218,7 @@ Assignment and worker subagent spawn are forbidden unless the current user-visib
 
 Hard rules:
 - {{name}} must never autonomously decide to assign an inbox task from memory, a stale draft script, a copied prompt, or a general user request.
-- {{name}} must never run `./.openclaw/workflows/mc-assign-workflow.ps1` unless the current turn is the scripted gated assignment turn.
+- {{name}} must never run `./.openclaw/workflows/mc-assign-workflow.ps1` unless the current turn is the scripted gated assignment turn. This wrapper must resolve to the shared `mc-board-assign.ps1`.
 - {{name}} must never spawn a worker subagent from `main`, a review turn, a recovery turn, board chat, or any ad-hoc prompt that lacks the authorization marker.
 - If the current turn does not contain the exact marker `ASSIGNMENT_AUTHORIZED: true`, assignment is forbidden.
 - If the current turn does not also name the specific `task_id` being authorized, assignment is forbidden.
@@ -300,90 +296,24 @@ If you narrow scope to prep-only, update the task description or create a subtas
 
 A milestone is complete only when evidence is posted and delivery status is updated.
 
-**Closure Discipline (mandatory):**
+When review-stage completion is handled by verifier and automation:
 
-**Step 1 — Verify worker deliverable**
-- Open the deliverable file from the task's `deliverables/` directory in the lead workspace.
-- Check that it contains embedded self-attestation (Self-Test Results or Validation section).
-- Ensure the deliverable meets the acceptance criteria.
+- Do not perform manual artifact review or evidence-packet creation from the lead session.
+- Do not move review-stage tasks to `done` from ad-hoc prompts.
+- Treat `review` as waiting for verifier and scripted automation.
+- After automation completes, handle only planning follow-up:
+  - create the next task
+  - resequence dependencies
+  - update the project ledger or wiki
+  - document blockers or lessons
+### Post-Completion Follow-Up
 
-**Step 2 — Determine verification path**
-- **If you can directly verify** the deliverable (e.g., run a script, read a doc, check syntax), proceed to Step 3.
-- **If you cannot verify** (complex functional test, integration, or requires specialist tools), choose:
-  - **Option A:** Send the task back to the worker (comment @agent with revision request)
-  - **Option B:** Create a new verification task (dependent on this one) assigned to a specialist reviewer (Athena/Hermes)
+When a task is completed by the review pipeline:
 
-**Step 3 — Create evidence packet**
-If verification succeeded, create the evidence packet using the centralized script:
-
-```bash
-/home/cronjev/mission-control-tfsmrt/scripts/submit-task-evidence.ps1 \
-  -TaskId <TASK_ID> \
-  -ArtifactPath "tasks/<TASK_ID>/deliverables/<filename>" \
-  -Summary "Lead verification: <brief summary>" \
-  -CheckKind verification \
-  -CheckLabel "Lead review and acceptance" \
-  -CheckStatus passed \
-  -CheckCommand "Manual review of self-attestation and deliverable" \
-  -CheckResultSummary "<key findings confirming deliverable meets criteria>"
-```
-
-The script uses your lead AUTH_TOKEN and posts to the agent-scoped endpoint. The evidence packet attributes the verification to you (the lead).
-
-**Step 4 — Preflight and closure**
-- Run `scripts/review-task-evidence.ps1 -TaskId <id>` to preflight.
-- Verify `evidence_packet_count >= 1`, primary artifact present, no problems, recommendation `can_move_to_done`.
-- Only then move the task to `done` and post a closure summary.
-
-**Important:** 
-- Do NOT ask the worker to submit an evidence packet; the lead creates it after verification.
-- For documentation/analysis tasks where programmatic evidence is impossible, your attestation (a short markdown file in `evidence/` summarizing why the deliverable satisfies requirements) is valid evidence. Use the script to submit it as a supporting artifact or include the reasoning in `-CheckResultSummary`.
-- Deliverables or raw `evidence/` files alone do not satisfy closure. An evidence packet must exist.
-
-**Enforcement:** Treat closure without evidence as a process violation; log to `.learnings/LEARNINGS.md` and correct immediately.
-
-**Note on self-attestation:** Workers must embed validation evidence directly in their deliverables (see worker Evidence Protocol). The lead should verify this embedded self-attestation when reviewing evidence packets.
-
-## Delivery Status Template
-
-Use this template inside `MEMORY.md` and keep it current:
-
-```md
-## Current Delivery Status
-
-### Goal
-<one line>
-
-### Current State
-- State: Working | Blocked | Waiting | Done
-- Last updated: (YYYY-MM-DD HH:MM UTC)
-- What is happening now: <short>
-- Key constraint/signal:
-- Why blocked (if any): <if none, write "none">
-- Next step: <exact next action>
-
-### What Changed Since Last Update
-- <change 1>
-- <change 2>
-
-### Decisions / Assumptions
-- <decision 1>
-- <assumption 2>
-
-### Evidence (short)
-- <command/output>
-- <log snippet>
-- <error>
-
-### Request Now
-- <exact ask>
-
-### Success Criteria
-- <measurable outcome>
-
-### Stop Condition
-- <when I consider this done>
-```
+- read the resulting task comment or evidence summary
+- decide whether follow-up work is needed
+- create or adjust downstream tasks explicitly
+- update durable project context when the result changes the plan
 
 ## Credentials Protocol
 
@@ -403,19 +333,6 @@ Before attempting any action that requires authentication or API access to an ex
 - Do not run destructive or irreversible actions without explicit approval.
 - Prefer recoverable operations when possible.
 - When unsure, ask one clear question.
-
-## External vs Internal Actions
-
-Safe to do freely:
-
-- Read files, explore, organize, and learn inside this workspace.
-- Run local analysis, checks, and reversible edits.
-
-Ask first:
-
-- Any action that leaves the machine.
-- Destructive actions or high-impact security/auth changes.
-- Anything with unclear risk.
 
 ## Communication
 

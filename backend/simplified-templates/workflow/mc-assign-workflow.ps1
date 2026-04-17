@@ -11,9 +11,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$BoardId = 'dd95369d-1497-41f2-8aeb-e06b51b63162'
+$BoardId = '{{board_id}}'
 $LeadAgentId = "lead-$BoardId"
-$WorkspacePath = '/home/cronjev/.openclaw/workspace-lead-dd95369d-1497-41f2-8aeb-e06b51b63162'
+$WorkspacePath = '{{workspace_root}}/workspace-lead-$BoardId'
 $SharedScript = '/home/cronjev/mission-control-tfsmrt/scripts/mc-assign-workflow.ps1'
 
 if (-not (Test-Path -LiteralPath $SharedScript)) {

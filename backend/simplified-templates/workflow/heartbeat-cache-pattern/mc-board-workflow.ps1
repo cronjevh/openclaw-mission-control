@@ -7,8 +7,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$AgentId = 'dd95369d-1497-41f2-8aeb-e06b51b63162'
-$BoardId = 'dd95369d-1497-41f2-8aeb-e06b51b63162'
+$AgentId = '{{id}}'
+$BoardId = '{{board_id}}'
 $Wsp = "/home/cronjev/.openclaw/workspace-lead-$BoardId"
 $State = Join-Path $Wsp '.openclaw/workflows/.dispatch-state-latest.json'
 $SharedScriptsRoot = '/home/cronjev/mission-control-tfsmrt/scripts'

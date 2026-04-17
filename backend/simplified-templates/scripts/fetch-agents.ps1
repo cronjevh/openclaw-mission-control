@@ -220,7 +220,7 @@ function Render-WorkspaceTemplates {
     )
 
     $templateFiles = Get-ChildItem -Path 'backend/simplified-templates' -Filter "$TemplatePrefix*.md" -File | Sort-Object Name
-    $templateLimitBytes = 20KB
+    $templateLimitBytes = 40KB
     $renderedTemplates = @()
     $renderedBytes = 0
 
@@ -328,6 +328,34 @@ function Render-TemplateContent {
     return $rendered
 }
 
+function Render-WorkflowTemplates {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TargetWorkspacePath,
+        [Parameter(Mandatory = $true)]
+        $Values
+    )
+
+    $sourcePath = (Resolve-Path -Path 'backend/simplified-templates/workflow').ProviderPath
+    $targetBase = Join-Path $TargetWorkspacePath '.openclaw/workflows'
+
+    if (-not (Test-Path -LiteralPath $sourcePath)) {
+        Write-Host "Workflow source path not found: $sourcePath"
+        return
+    }
+
+    Get-ChildItem -Path $sourcePath -Recurse -File | ForEach-Object {
+        $relativePath = $_.FullName.Substring($sourcePath.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+        $targetPath = Join-Path $targetBase $relativePath
+        $targetDirectory = Split-Path -Parent $targetPath
+        if ($targetDirectory -and -not (Test-Path -LiteralPath $targetDirectory)) {
+            New-Item -ItemType Directory -Path $targetDirectory -Force | Out-Null
+        }
+        $content = Get-Content -LiteralPath $_.FullName -Raw
+        $renderedContent = Render-TemplateContent -Content $content -Values $Values
+        [System.IO.File]::WriteAllText($targetPath, $renderedContent)
+    }
+}
 function Render-AgentTemplates {
     param(
         [Parameter(Mandatory = $true)]
@@ -356,6 +384,7 @@ function Render-AgentTemplates {
         -WorkspacePath $workspacePath
 
     Render-WorkspaceTemplates -TemplatePrefix $templatePrefix -TargetWorkspacePath $templateValueMap.WorkspacePath -Values $templateValueMap.Values
+    Render-WorkflowTemplates -TargetWorkspacePath $templateValueMap.WorkspacePath -Values $templateValueMap.Values
 }
 
 if (-not (Test-Path -LiteralPath $RenderRoot)) {

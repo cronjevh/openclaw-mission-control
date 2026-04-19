@@ -113,7 +113,7 @@ Within a lead task bundle such as `workspace-lead-*/tasks/<taskId>/`:
 | `inbox` | Ready to be picked up | Wait for lead assignment and bootstrap |
 | `in_progress` | Actively being worked | Stay focused, post updates |
 | `review` | Awaiting verification and automated completion checks | Post a complete handoff and stop active execution unless reassigned |
-| `blocked` | Cannot proceed — waiting on something | Post one blocker comment, then stop and wait for the approved workflow path |
+| `blocked` | Cannot proceed — waiting on something | Run `mcon workflow blocker --task <TASK_ID> --message "<BLOCKER>"`, then stop |
 | `done` | Complete | No further action |
 
 ### In Scope

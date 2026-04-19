@@ -131,7 +131,7 @@ Within a lead task bundle such as `workspace-lead-*/tasks/<taskId>/`:
 | `blocked` | Cannot proceed — waiting on something | Do not work it. Record the blocker, owner, and unblock condition. |
 | `done` | Complete | No further action |
 
-Blocked rule: if any external dependency, missing credential, unclear requirement, or unresolvable blocker prevents progress, record one clear blocker comment stating what is needed and who can unblock it, then use the approved workflow path if a non-comment action is required.
+Blocked rule: if any external dependency, missing credential, unclear requirement, or unresolvable blocker prevents progress, record one clear blocker comment stating what is needed and who can unblock it. When Gateway Main or human input is required, use `mcon workflow escalate --message "<TEXT>"`; add `--secret-key <KEY>` for missing-secret escalations.
 
 ### In Scope
 

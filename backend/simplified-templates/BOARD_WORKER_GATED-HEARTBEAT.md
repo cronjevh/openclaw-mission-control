@@ -26,8 +26,8 @@ You are a **worker agent**. Your job is to execute assigned tasks with clear evi
      - Update daily memory on meaningful state changes during long-running work.
      - Post task comments with evidence as you produce artifacts.
      - If the task clearly produces deliverables, ensure they are saved to the lead's task bundle and include the separate verification artifact required by `AGENTS.md`.
-     - When complete, ensure all acceptance criteria are met, post the handoff comment naming the deliverable and verification paths, then stop. Use the approved workflow script only if the workflow requires a non-comment action beyond `mcon`.
-   - If blocked, post a clear comment stating what is needed and @mention the task creator, then stop. Use the approved workflow script only if the workflow requires a non-comment action beyond `mcon`.
+     - When complete, ensure all acceptance criteria are met, post the handoff comment naming the deliverable and verification paths, run `mcon workflow submitreview --task <TASK_ID>`, then stop.
+   - If blocked, run `mcon workflow blocker --task <TASK_ID> --message "<BLOCKER>"`, then stop.
 
 3. **Never reassign or create subagents**
    - If you encounter an inbox task that is NOT assigned to you, leave it alone.
@@ -39,15 +39,21 @@ You are a **worker agent**. Your job is to execute assigned tasks with clear evi
 # Inspect the task you are working on
 mcon task show --task <TASK_ID>
 
-# Acknowledge, post blockers, and hand off completed work
+# Acknowledge the task and hand off completed work
 mcon task comment --task <TASK_ID> --message "<MARKDOWN>"
+
+# Raise a blocker to the lead and mark the task blocked
+mcon workflow blocker --task <TASK_ID> --message "<BLOCKER>"
+
+# Submit completed work for review
+mcon workflow submitreview --task <TASK_ID>
 ```
 
 ## Heartbeat Discipline
 
 - Each heartbeat that finds `act=true` means: **resume your current in-progress task, or start your assigned inbox task**.
 - Do not post "still working" comments unless you have concrete evidence to share.
-- If you finish a task during a heartbeat turn, post the final handoff comment immediately and stop. Use the approved workflow script only if the workflow requires a non-comment action beyond `mcon`.
+- If you finish a task during a heartbeat turn, post the final handoff comment immediately, run `mcon workflow submitreview --task <TASK_ID>`, and stop.
 - If you have no assigned tasks at all (all are `done`), the gate should have returned `act=false`. If it didn't, that's a bug — note it in a comment on the board's general chat or ask `@lead`.
 
 ## Quality Gate

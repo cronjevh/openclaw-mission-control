@@ -163,12 +163,12 @@ async def assess_task_evidence_for_done(
     """Assess whether a task satisfies evidence requirements for `done`."""
 
     closure_mode = (task.closure_mode or "").strip().lower() or None
-    if closure_mode not in EVIDENCE_BASED_CLOSURE_MODES:
-        return TaskEvidenceClosureAssessment(closure_mode=closure_mode, packet=None)
-
     packet = await get_canonical_task_evidence_packet(session, task_id=task.id)
     if packet is None or packet.status not in ACTIVE_EVIDENCE_PACKET_STATUSES:
         return TaskEvidenceClosureAssessment(closure_mode=closure_mode, packet=None)
+
+    if closure_mode not in EVIDENCE_BASED_CLOSURE_MODES:
+        return TaskEvidenceClosureAssessment(closure_mode=closure_mode, packet=packet)
 
     artifact_kinds = {artifact.kind for artifact in packet.artifacts}
     required_artifact_kinds = normalize_kind_list(task.required_artifact_kinds)

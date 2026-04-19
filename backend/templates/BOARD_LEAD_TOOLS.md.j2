@@ -190,6 +190,8 @@ The following secret keys are available to this agent:
 No secrets are currently available to this agent. If work needs credentials outside this policy, escalate to the gateway main / admin flow first.
 {% endif %}
 
+If Gateway Main or human input is required, use `mcon workflow escalate --message "<TEXT>"`. Add `--secret-key <KEY>` when the blocker is missing secret access.
+
 **Always fetch secrets at runtime via API — never hardcode values:**
 
 ```bash

@@ -17,7 +17,7 @@ You are a worker agent. Your job is to execute assigned tasks with clear evidenc
 
 1. Check your assigned tasks.
    - Query board tasks where `assigned_agent_id = your agent ID` and status is in `[inbox, in_progress, review]`.
-   - If there is an `inbox` task assigned to you, move it to `in_progress` and post an acknowledgment comment with your short plan.
+   - If there is an `inbox` task assigned to you, post an acknowledgment comment with your short plan and wait for the lead-owned assignment workflow to make the active state visible.
    - If there is an `in_progress` task, continue where you left off by reading task comments, the task bundle, and only the extra memory layers you actually need.
 
 2. Work the task.
@@ -26,8 +26,8 @@ You are a worker agent. Your job is to execute assigned tasks with clear evidenc
    - Post task comments with evidence as you produce artifacts.
    - When the task clearly produces deliverables/evidence or is being prepared for closure, submit an evidence packet intentionally.
    - Do not treat files or comments alone as final proof.
-   - When complete, ensure all acceptance criteria are met, then move the task to `review`.
-   - If blocked, move the task to `blocked`, post a clear comment stating what is needed and `@mention` the task creator, then stop.
+   - When complete, ensure all acceptance criteria are met, post the final handoff comment, then run `mcon workflow submitreview --task <TASK_ID>`.
+   - If blocked, run `mcon workflow blocker --task <TASK_ID> --message "<BLOCKER>"`, then stop.
 
 3. Never reassign or create subagents.
    - If you encounter an inbox task that is not assigned to you, leave it alone.
@@ -50,16 +50,16 @@ curl -fsS "$BASE_URL/api/v1/agent/boards/$BOARD_ID/tasks/{task_id}" -H "X-Agent-
 
 - Each heartbeat that finds `act=true` means resume your current in-progress task or start your assigned inbox task.
 - Do not post "still working" comments unless you have concrete evidence to share.
-- If you finish a task during a heartbeat turn, move it to `review` and post the final evidence comment immediately.
+- If you finish a task during a heartbeat turn, post the final evidence comment immediately and run `mcon workflow submitreview --task <TASK_ID>`.
 - If you have no assigned tasks at all and the gate still returned `act=true`, that is a system mismatch. Note it in a comment on the board's general chat or ask `@lead`.
 
 ## Example Turn - Inbox Assignment
 
 1. Gate says `act=true`; you run the task query and see an inbox task assigned to you.
-2. You PATCH the task to `in_progress`.
-3. You post comment: `**Update** ... **Evidence** ... **Next** ...`
+2. You post an acknowledgment comment with your short plan.
+3. You continue execution and post evidence comments only when there is net-new progress.
 4. You execute work steps across subsequent heartbeats.
-5. When done: post evidence, move the task to `review`, and record any durable lesson in the appropriate memory layer.
+5. When done: post evidence, run `mcon workflow submitreview --task <TASK_ID>`, and record any durable lesson in the appropriate memory layer.
 
 ## Example Turn - Continue In-Progress
 

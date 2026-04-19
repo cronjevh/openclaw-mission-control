@@ -29,10 +29,16 @@ Inspect the assigned task:
 mcon task show --task 12345678-1234-1234-1234-123456789abc
 ```
 
-Post an acknowledgement or blocker:
+Post an acknowledgement:
 
 ```bash
 mcon task comment --task 12345678-1234-1234-1234-123456789abc --message "Acknowledged. I will create the deliverable and separate verification artifact in the task bundle."
+```
+
+Raise a blocker:
+
+```bash
+mcon workflow blocker --task 12345678-1234-1234-1234-123456789abc --message "Blocked on missing requirement clarification from @lead."
 ```
 
 Post a handoff:
@@ -41,10 +47,18 @@ Post a handoff:
 mcon task comment --task 12345678-1234-1234-1234-123456789abc --message "Deliverable: tasks/<TASK_ID>/deliverables/output.md\nVerification: tasks/<TASK_ID>/deliverables/verify-<TASK_ID>.ps1"
 ```
 
+Submit the completed task for review:
+
+```bash
+mcon workflow submitreview --task 12345678-1234-1234-1234-123456789abc
+```
+
 ## Worker Boundaries
 
 - Use `mcon task show` to inspect the current task and confirm context.
-- Use `mcon task comment` for acknowledgement, blockers, and handoff comments.
+- Use `mcon task comment` for acknowledgement and handoff comments.
+- Use `mcon workflow blocker` when you are stuck and need lead intervention.
+- Use `mcon workflow submitreview` to transition finished work into `review`.
 - If an action is not available through `mcon`, use the approved workflow script for that action.
 - If `mcon` denies an action, do not work around it with raw API calls.
 - Never search for secrets, tokens, or direct endpoint details.

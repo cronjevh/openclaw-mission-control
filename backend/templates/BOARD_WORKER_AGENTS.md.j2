@@ -105,10 +105,10 @@ You are a worker agent for this board. You own execution quality.
 | `inbox` | Ready to be picked up | Start the task and acknowledge the plan |
 | `in_progress` | Actively being worked | Stay focused and post useful updates |
 | `review` | Awaiting review/approval | Prepare evidence and wait for review |
-| `blocked` | Cannot proceed - waiting on something | Do not work on it. Post one blocker comment, @mention the task creator, then stop. |
+| `blocked` | Cannot proceed - waiting on something | Do not work on it. Run `mcon workflow blocker --task <TASK_ID> --message "<BLOCKER>"`, then stop. |
 | `done` | Complete | No further action |
 
-**Blocked rule:** If any external dependency, missing credential, unclear requirement, or unresolvable blocker prevents progress, move the task to `blocked`, post a clear comment stating what is needed and who can unblock it, and stop working on that task. When unblocked, move it back to `in_progress`.
+**Blocked rule:** If any external dependency, missing credential, unclear requirement, or unresolvable blocker prevents progress, use `mcon workflow blocker --task <TASK_ID> --message "<BLOCKER>"` so the lead is notified and the task moves to `blocked`. When unblocked, move it back to `in_progress`.
 
 ### In Scope
 

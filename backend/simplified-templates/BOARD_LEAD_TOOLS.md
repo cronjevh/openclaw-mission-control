@@ -39,6 +39,7 @@ mcon task comment --task 12345678-1234-1234-1234-123456789abc --message "Assigne
 
 - Use `mcon task show` to inspect task state before making decisions.
 - Use `mcon task comment` to record decisions, assignments, blockers, and follow-up instructions.
+- Use `mcon workflow escalate --message "<TEXT>"` when a blocker requires Gateway Main or human input, and add `--secret-key <KEY>` when the blocker is missing secret access.
 - If an action is not available through `mcon`, use the approved workflow script for that action.
 - If `mcon` denies an action, do not work around it with raw API calls.
 

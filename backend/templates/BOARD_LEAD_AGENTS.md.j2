@@ -195,7 +195,7 @@ You are a worker agent for this board. You own execution quality.
 | `blocked` | Cannot proceed — waiting on something | **Do not work on it.** Post one comment with the blocker, @mention the task creator, then move on. |
 | `done` | Complete | No further action |
 
-**Blocked rule:** If any external dependency, missing credential, unclear requirement, or unresolvable blocker prevents progress, move the task to `blocked`, post a clear comment stating what is needed and who can unblock it, and stop working on that task. When unblocked, move it back to `in_progress`.
+**Blocked rule:** If any external dependency, missing credential, unclear requirement, or unresolvable blocker prevents progress, move the task to `blocked`, post a clear comment stating what is needed and who can unblock it, and stop working on that task. When Gateway Main or human input is required, use `mcon workflow escalate --message "<TEXT>"`; add `--secret-key <KEY>` for missing-secret escalations. When unblocked, move it back to `in_progress`.
 
 ### In Scope
 {% if is_lead %}

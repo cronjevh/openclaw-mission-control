@@ -43,6 +43,7 @@ async def _seed_board_task_and_agent(
     closure_mode: str | None = None,
     required_artifact_kinds: list[str] | None = None,
     required_check_kinds: list[str] | None = None,
+    description: str | None = None,
 ) -> tuple[Board, Task, Agent]:
     organization_id = uuid4()
     gateway = Gateway(
@@ -71,6 +72,7 @@ async def _seed_board_task_and_agent(
         id=uuid4(),
         board_id=board.id,
         title="Task",
+        description=description,
         status=task_status,
         assigned_agent_id=agent.id,
         closure_mode=closure_mode,
@@ -303,6 +305,50 @@ async def test_legacy_manual_review_tasks_still_close_without_evidence() -> None
                 actor=_agent_actor(agent),
             )
 
+            assert updated.status == "done"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_evidence_intent_signal_tasks_close_with_submitted_packet_and_primary_artifact() -> None:
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            _board, task, agent = await _seed_board_task_and_agent(
+                session,
+                description="Deliverable file: deliverables/show-disk-space.sh",
+            )
+
+            created = await task_evidence_api.create_task_evidence(
+                payload=TaskEvidencePacketCreate(
+                    status="submitted",
+                    summary="Verifier validated the deliverable.",
+                    artifacts=[
+                        {
+                            "kind": "deliverable",
+                            "label": "show-disk-space.sh",
+                            "relative_path": "deliverables/show-disk-space.sh",
+                            "display_path": "deliverables/show-disk-space.sh",
+                            "origin_kind": "workspace_file",
+                            "is_primary": True,
+                        }
+                    ],
+                ),
+                task=task,
+                session=session,
+                actor=_agent_actor(agent),
+            )
+
+            updated = await tasks_api.update_task(
+                payload=TaskUpdate(status="done"),
+                task=task,
+                session=session,
+                actor=_agent_actor(agent),
+            )
+
+            assert created.primary_artifact is not None
+            assert created.primary_artifact.kind == "deliverable"
             assert updated.status == "done"
     finally:
         await engine.dispose()

@@ -89,33 +89,30 @@ function New-MissionControlHeartbeatPrompt {
         }
 
         $taskDir = Split-Path -Path $taskDataPath -Parent
+        $deliverablesDir = if ($task.PSObject.Properties.Name -contains 'deliverables_directory' -and $task.deliverables_directory) {
+            [string]$task.deliverables_directory
+        } else {
+            Join-Path $taskDir 'deliverables'
+        }
+        $evidenceDir = if ($task.PSObject.Properties.Name -contains 'evidence_directory' -and $task.evidence_directory) {
+            [string]$task.evidence_directory
+        } else {
+            Join-Path $taskDir 'evidence'
+        }
+        $resolvedTaskDir = if ($task.PSObject.Properties.Name -contains 'task_directory' -and $task.task_directory) {
+            [string]$task.task_directory
+        } else {
+            $taskDir
+        }
+
         $taskRefs += [ordered]@{
             id = $task.id
             status = $task.status
             taskDataPath = $taskDataPath
-            taskDir = $taskDir
-            deliverablesDir = Join-Path $taskDir 'deliverables'
-            evidenceDir = Join-Path $taskDir 'evidence'
+            taskDir = $resolvedTaskDir
+            deliverablesDir = $deliverablesDir
+            evidenceDir = $evidenceDir
         }
-    }
-
-    $reviewTasks = @($taskRefs | Where-Object { $_.status -eq 'review' })
-    if ($tasks.Count -eq 1 -and $reviewTasks.Count -eq 1) {
-        $taskRef = $reviewTasks[0]
-        return @"
-# REVIEW
-Task has been submitted for review. Review now according to the review rules.
-
-Use this task bundle as the authoritative local context:
-- [taskData.json]($($taskRef.taskDataPath))
-- [deliverables/]($($taskRef.deliverablesDir))
-- [evidence/]($($taskRef.evidenceDir))
-
-Task directory:
-- [$(Split-Path -Path $taskRef.taskDir -Leaf)]($($taskRef.taskDir))
-
-AUTH_TOKEN=$authToken
-"@
     }
 
     $assignmentAuthorized = $false

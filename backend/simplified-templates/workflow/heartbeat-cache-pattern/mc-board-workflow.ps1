@@ -9,14 +9,14 @@ $ErrorActionPreference = 'Stop'
 
 $AgentId = '{{id}}'
 $BoardId = '{{board_id}}'
-$Wsp = "/home/cronjev/.openclaw/workspace-lead-$BoardId"
+$Wsp = '{{workspace_path}}'
 $State = Join-Path $Wsp '.openclaw/workflows/.dispatch-state-latest.json'
 $SharedScriptsRoot = '/home/cronjev/mission-control-tfsmrt/scripts'
 $Dispatch = Join-Path $SharedScriptsRoot 'mc-board-dispatch.ps1'
 $HeartbeatHelper = Join-Path $SharedScriptsRoot 'openclaw-heartbeat-session.ps1'
 $QueueTimeoutSec = 600
-$AgentRole = if ($AgentId -eq $BoardId) { 'lead' } else { 'worker' }
-$InvocationAgent = if ($AgentId -eq $BoardId) { "lead-$BoardId" } else { "mc-$AgentId" }
+$AgentRole = '{{agent_render_role}}'
+$InvocationAgent = if ($AgentRole -eq 'lead') { "lead-$BoardId" } else { "mc-$AgentId" }
 
 . $HeartbeatHelper
 

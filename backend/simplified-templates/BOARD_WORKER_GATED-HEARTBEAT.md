@@ -17,45 +17,42 @@ You are a **worker agent**. Your job is to execute assigned tasks with clear evi
    - Read `memory/YYYY-MM-DD.md` for today and yesterday only when resuming recent work or recovering context after a gap.
 
 1. **Check your assigned tasks**
-   - Query board for tasks where `assigned_agent_id = your agent ID` and status in `[inbox, in_progress, review]`.
-   - If there is an `inbox` task assigned to you, move it to `in_progress` and post an acknowledgment comment with your short plan.
+   - Use `mcon task show --task <TASK_ID>` for the task that woke this heartbeat or the task you are actively executing.
+   - If there is an assigned task waiting for you, post an acknowledgment comment with your short plan.
    - If there is an `in_progress` task, continue where you left off by reading task comments, the task bundle, and only the extra memory layers you actually need.
 
 2. **Work the task**
    - Follow the execution workflow from `AGENTS.md`:
      - Update daily memory on meaningful state changes during long-running work.
      - Post task comments with evidence as you produce artifacts.
-     - If the task clearly produces deliverables, ensure they are saved to the lead's task bundle with embedded self-attestation. The lead will create the evidence packet during closure. Do not treat files or comments alone as final proof.
-     - When complete, ensure all acceptance criteria are met, then move task to `review`.
-   - If blocked, move task to `blocked`, post a clear comment stating what is needed and @mention the task creator, then stop.
+     - If the task clearly produces deliverables, ensure they are saved to the lead's task bundle and include the separate verification artifact required by `AGENTS.md`.
+     - When complete, ensure all acceptance criteria are met, post the handoff comment naming the deliverable and verification paths, then stop. Use the approved workflow script only if the workflow requires a non-comment action beyond `mcon`.
+   - If blocked, post a clear comment stating what is needed and @mention the task creator, then stop. Use the approved workflow script only if the workflow requires a non-comment action beyond `mcon`.
 
 3. **Never reassign or create subagents**
    - If you encounter an inbox task that is NOT assigned to you, leave it alone.
    - If you think a task should be reassigned, comment and ask `@lead`.
 
-## Task Discovery Commands
+## Task Commands
 
 ```bash
-# List your inbox tasks
-curl -fsS "$BASE_URL/api/v1/agent/boards/$BOARD_ID/tasks?status=inbox&assigned_agent_id=$AGENT_ID" -H "X-Agent-Token: $AUTH_TOKEN"
+# Inspect the task you are working on
+mcon task show --task <TASK_ID>
 
-# List your in-progress tasks
-curl -fsS "$BASE_URL/api/v1/agent/boards/$BOARD_ID/tasks?status=in_progress&assigned_agent_id=$AGENT_ID" -H "X-Agent-Token: $AUTH_TOKEN"
-
-# Get full task details
-curl -fsS "$BASE_URL/api/v1/boards/$BOARD_ID/tasks/{task_id}" -H "X-Agent-Token: $AUTH_TOKEN"
+# Acknowledge, post blockers, and hand off completed work
+mcon task comment --task <TASK_ID> --message "<MARKDOWN>"
 ```
 
 ## Heartbeat Discipline
 
 - Each heartbeat that finds `act=true` means: **resume your current in-progress task, or start your assigned inbox task**.
 - Do not post "still working" comments unless you have concrete evidence to share.
-- If you finish a task during a heartbeat turn, move it to `review` and post the final evidence comment immediately.
+- If you finish a task during a heartbeat turn, post the final handoff comment immediately and stop. Use the approved workflow script only if the workflow requires a non-comment action beyond `mcon`.
 - If you have no assigned tasks at all (all are `done`), the gate should have returned `act=false`. If it didn't, that's a bug — note it in a comment on the board's general chat or ask `@lead`.
 
 ## Quality Gate
 
-Before marking any task `review`:
+Before declaring any task ready for verification:
 - All required artifact kinds produced?
 - Evidence clearly linked (comment with file path or board memory entry ID)?
 - Acceptance criteria from task description satisfied?
@@ -65,11 +62,11 @@ Before marking any task `review`:
 ## Example Turn (Inbox Assignment)
 
 1. Gate says `act=true`; you run this script and see inbox task assigned to you.
-2. You PATCH task to `in_progress`.
+2. You inspect the task with `mcon task show --task <TASK_ID>`.
 3. You post comment: "**Update — Starting work** ... **Next:** ..."
 4. You update daily memory only if this task creates meaningful new state or commitments.
 5. You execute work steps across subsequent heartbeats.
-6. When done: post evidence comment, move task to `review`, and record any durable lesson in the appropriate memory layer.
+6. When done: post the handoff comment, stop active execution, and record any durable lesson in the appropriate memory layer.
 
 ## Example Turn (Continue In-Progress)
 

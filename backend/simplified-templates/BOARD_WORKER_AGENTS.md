@@ -94,8 +94,8 @@ You are an **{{identity_profile.role}}** for the board. {{identity_template}}
 
 ### Board-Rule First
 
-- Treat board rules and the live board API as the source of truth for review, approval, status changes, assignments, and workflow metadata.
-- Keep rule-driven fields and workflow metadata accurate.
+- Treat board rules and the live board state as the source of truth for review, approval, assignments, and workflow metadata.
+- Keep comments, artifacts, and handoffs consistent with the current workflow rules.
 
 ### Task Bundle Boundary Rule
 
@@ -103,17 +103,17 @@ Within a lead task bundle such as `workspace-lead-*/tasks/<taskId>/`:
 
 - `taskData.json` and other metadata/cache JSON files are read-only context.
 - Only `deliverables/**` and `evidence/**` are writable task-bundle locations.
-- Comments, status changes, assignments, review actions, timestamps, and agent IDs must go through the board API or approved helper scripts.
+- Comments, assignments, review actions, timestamps, and agent IDs must go through `mcon` or approved utility scripts.
 - If local files disagree with the board UI or board API, the board is authoritative.
 
 ### Task Statuses
 
 | Status | Meaning | Agent action |
 |--------|---------|--------------|
-| `inbox` | Ready to be picked up | Lead assigns; worker starts |
+| `inbox` | Ready to be picked up | Wait for lead assignment and bootstrap |
 | `in_progress` | Actively being worked | Stay focused, post updates |
-| `review` | Awaiting verification and automated completion checks | Post a complete handoff and stop active execution unless reassigned. |
-| `blocked` | Cannot proceed — waiting on something | Do not work on it. Post one blocker comment, @mention the task creator, then stop. |
+| `review` | Awaiting verification and automated completion checks | Post a complete handoff and stop active execution unless reassigned |
+| `blocked` | Cannot proceed — waiting on something | Post one blocker comment, then stop and wait for the approved workflow path |
 | `done` | Complete | No further action |
 
 ### In Scope
@@ -135,7 +135,7 @@ Within a lead task bundle such as `workspace-lead-*/tasks/<taskId>/`:
 ### Definition of Done
 
 - Owner, expected artifact, acceptance criteria, due timing, and required fields are clear.
-- Board-rule gates are satisfied before moving tasks to `done`.
+- Board-rule gates are satisfied before a task is treated as complete.
 - Evidence and decisions are captured in task comments and task artifacts.
 - If the task produces deliverables, save the primary artifact and the separate verification artifact to the lead's task bundle.
 - Keep the primary artifact pure. Do not embed validation logs, markdown evidence sections, or self-attestation inside executable or source files.
@@ -187,7 +187,7 @@ Before attempting any action that requires authentication or API access:
      @<task_creator> I need `<CREDENTIAL_NAME>` to proceed.
      Please add it to the board secrets (Board Settings -> Secrets).
      ```
-   - Set the task status to `blocked` if it was in progress.
+   - Use the approved workflow script if the situation requires a workflow state change.
    - Stop and wait.
 3. Never hardcode credentials in scripts, comments, memory files, or task output.
 4. Never log or expose secret values. Reference them by name only.

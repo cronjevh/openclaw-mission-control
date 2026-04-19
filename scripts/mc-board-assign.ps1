@@ -244,6 +244,27 @@ function Get-TaskProjection {
     return $taskProjection
 }
 
+function Get-TaskBundlePaths {
+    param(
+        [Parameter(Mandatory = $true)][string]$LeadWorkspacePath,
+        [Parameter(Mandatory = $true)][string]$TaskId
+    )
+
+    $taskBundleDir = Join-Path $LeadWorkspacePath "tasks/$TaskId"
+    $deliverablesDir = Join-Path $taskBundleDir 'deliverables'
+    $evidenceDir = Join-Path $taskBundleDir 'evidence'
+
+    Ensure-Directory -Path $taskBundleDir | Out-Null
+    Ensure-Directory -Path $deliverablesDir | Out-Null
+    Ensure-Directory -Path $evidenceDir | Out-Null
+
+    return [ordered]@{
+        task_directory = $taskBundleDir
+        deliverables_directory = $deliverablesDir
+        evidence_directory = $evidenceDir
+    }
+}
+
 function Get-CommentsProjection {
     param($Comments = $null)
 
@@ -333,6 +354,14 @@ function New-BootstrapBundle {
         $normalizedComments = @($Comments | Where-Object { $null -ne $_ })
     }
 
+    $taskBundlePaths = Get-TaskBundlePaths -LeadWorkspacePath $LeadWorkspacePath -TaskId $TaskId
+    $verificationArtifactPath = $null
+    if ($TaskData.title -match 'plan|planning|document|documentation|note|strategy|report|analysis') {
+        $verificationArtifactPath = Join-Path $taskBundlePaths.deliverables_directory "evaluate-$TaskId.json"
+    } else {
+        $verificationArtifactPath = Join-Path $taskBundlePaths.deliverables_directory "verify-$TaskId.ps1"
+    }
+
     return [ordered]@{
         metadata = [ordered]@{
             task_id = $TaskId
@@ -348,21 +377,29 @@ function New-BootstrapBundle {
         }
         task_context = [ordered]@{
             task = Get-TaskProjection -TaskData $TaskData
+            task_bundle_paths = $taskBundlePaths
             comments = Get-CommentsProjection -Comments $normalizedComments
         }
         retrieved_knowledge = @(Get-ProjectKnowledge -LeadWorkspacePath $LeadWorkspacePath -TaskData $TaskData)
         lead_handoff = [ordered]@{
+            exact_output_contract = [ordered]@{
+                task_bundle_directory = $taskBundlePaths.task_directory
+                deliverables_directory = $taskBundlePaths.deliverables_directory
+                evidence_directory = $taskBundlePaths.evidence_directory
+                required_verification_artifact_path = $verificationArtifactPath
+            }
             immediate_execution_instructions = @(
                 'Do not duplicate or restate your workspace bootstrap files; they are already injected by OpenClaw.',
                 'Treat the lead assignment patch as the canonical claim step.',
                 'Treat any task status inside the bootstrap bundle as advisory context only; the live board state and lead assignment patch are authoritative.',
                 'After the assignment patch becomes visible, post one concise task comment acknowledging the task and your short plan.',
                 'Execute the task.',
-                'Produce the requested primary deliverable in the lead task bundle deliverables directory.',
+                "Produce the requested primary deliverable inside: $($taskBundlePaths.deliverables_directory)",
                 'Also produce a separate verification artifact: for deterministic work, a runnable verification script; for documentation or planning work, an evaluation spec for an LLM runner.',
-                'Use a fixed verification-artifact name based on the task id: deterministic tasks should use verify-<TASK_ID>.ps1; documentation/planning tasks should use evaluate-<TASK_ID>.json.',
+                "Write the verification artifact to this exact path unless the task clearly requires a different extension: $verificationArtifactPath",
                 'Prefer PowerShell for verification scripts unless the task clearly requires another runtime.',
                 'Keep the main deliverable pure; do not embed self-test prose or attestation inside it.',
+                'Do not write task outputs to the lead workspace root deliverables directory or your own workspace deliverables directory.',
                 'When complete, post a handoff comment naming both deliverable paths explicitly and then move the task to review.',
                 'If blocked, comment with the exact blocker and stop.'
             )
@@ -475,6 +512,9 @@ if ($comments.Count -gt 0) {
 $bundle = New-BootstrapBundle @bundleParams
 $bundle | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $bundlePath -Encoding UTF8
 
+$taskBundlePaths = $bundle.task_context.task_bundle_paths
+$requiredVerificationArtifactPath = $bundle.lead_handoff.exact_output_contract.required_verification_artifact_path
+
 if ($BundleOnly) {
     [ordered]@{
         ok = $true
@@ -515,14 +555,15 @@ Required behavior:
 - Treat any task status shown in the bootstrap bundle as advisory context only; if the lead assignment patch is visible, proceed even if bundled task status still says `inbox`.
 - After the assignment patch becomes visible, post one concise task comment acknowledging the task and your short plan.
 - Then execute the task.
-- Produce the requested main deliverable in the lead task bundle deliverables directory.
+- Use this exact task bundle directory: $($taskBundlePaths.task_directory)
+- Write the main deliverable inside: $($taskBundlePaths.deliverables_directory)
 - Also produce a separate verification artifact:
   - deterministic task: a runnable verification script, preferably in PowerShell
   - documentation/planning task: an evaluation spec for an LLM runner with structured pass/fail output
-- Use a fixed verification-artifact name based on the task id:
-  - deterministic task: verify-$TaskId.ps1
-  - documentation/planning task: evaluate-$TaskId.json
+- Write the verification artifact to this exact path: $requiredVerificationArtifactPath
 - Keep the main deliverable pure; do not embed self-test prose, validation notes, or attestation inside it.
+- Do not write outputs to the lead workspace root deliverables directory.
+- Do not write outputs to your own workspace deliverables directory.
 - When complete, post a handoff comment naming both deliverable paths explicitly and move the task to review.
 - If blocked, comment with the exact blocker and stop.
 "@

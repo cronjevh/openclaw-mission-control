@@ -88,6 +88,67 @@ function Get-AgentId {
     throw "Agent record does not include an id field."
 }
 
+function Get-AgentResolvedRole {
+    param(
+        [Parameter(Mandatory = $true)]
+        $Detail
+    )
+
+    if ($Detail.identity_profile -and $Detail.identity_profile.PSObject.Properties["role"]) {
+        $value = [string]$Detail.identity_profile.role
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            return $value.Trim()
+        }
+    }
+
+    if ($Detail.PSObject.Properties["role"]) {
+        $value = [string]$Detail.role
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            return $value.Trim()
+        }
+    }
+
+    return $null
+}
+
+function Test-IsVerifierRole {
+    param(
+        [string]$Role
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Role)) {
+        return $false
+    }
+
+    return $Role.Trim().Equals("verifier", [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Get-AgentRenderRole {
+    param(
+        [Parameter(Mandatory = $true)]
+        $Detail
+    )
+
+    $isLead = $false
+    if ($Detail.PSObject.Properties["is_board_lead"]) {
+        $isLead = [bool]$Detail.is_board_lead
+    }
+    if (-not $isLead -and $Detail.PSObject.Properties["is_gateway_main"]) {
+        $isLead = [bool]$Detail.is_gateway_main
+    }
+
+    if ($isLead) {
+        return 'lead'
+    }
+
+    $resolvedRole = Get-AgentResolvedRole -Detail $Detail
+    if (Test-IsVerifierRole -Role $resolvedRole) {
+        return 'verifier'
+    }
+
+    return 'worker'
+}
+
 function Get-TemplateValueMap {
     param(
         [Parameter(Mandatory = $true)]
@@ -108,15 +169,11 @@ function Get-TemplateValueMap {
     $map.auth_token = $AuthToken
     $map.workspace_root = $WorkspaceRoot
     $map.workspace_path = $WorkspacePath
+    $map.agent_render_role = Get-AgentRenderRole -Detail $Detail
     $map.board_id = [string]$Detail.board_id
     $map.name = [string]$Detail.name
     $map.id = [string]$Detail.id
-    $resolvedRole = $null
-    if ($Detail.identity_profile -and $Detail.identity_profile.PSObject.Properties["role"]) {
-        $resolvedRole = [string]$Detail.identity_profile.role
-    } elseif ($Detail.PSObject.Properties["role"]) {
-        $resolvedRole = [string]$Detail.role
-    }
+    $resolvedRole = Get-AgentResolvedRole -Detail $Detail
     $map["identity_profile.role"] = $resolvedRole
 
     if ($Detail.identity_profile) {
@@ -177,6 +234,11 @@ function Get-AgentTemplatePrefix {
         return "BOARD_LEAD_"
     }
 
+    $resolvedRole = Get-AgentResolvedRole -Detail $Detail
+    if (Test-IsVerifierRole -Role $resolvedRole) {
+        return "BOARD_VERIFIER_"
+    }
+
     return "BOARD_WORKER_"
 }
 
@@ -205,7 +267,7 @@ function Get-AgentWorkspacePath {
     }
 
     if (-not $Detail.id) {
-        throw "Worker agent '$($Detail.name)' is missing id."
+        throw "Agent '$($Detail.name)' is missing id."
     }
 
     return Join-Path $RenderRoot "workspace-mc-$([string]$Detail.id)"

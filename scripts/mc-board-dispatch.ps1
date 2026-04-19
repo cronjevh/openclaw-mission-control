@@ -16,7 +16,7 @@ param(
     [Parameter(Mandatory)]
     [string]$AgentId,
 
-    [ValidateSet('lead', 'worker')]
+    [ValidateSet('lead', 'worker', 'verifier')]
     [string]$AgentRole,
 
     [string]$WorkspacePath,
@@ -168,6 +168,14 @@ function Get-AgentRoleValue {
     }
 
     if ($workspaceLeaf -like 'workspace-mc-*') {
+        $agentsPath = Join-Path $WorkspacePathValue 'AGENTS.md'
+        if (Test-Path -LiteralPath $agentsPath) {
+            $agentsContent = Get-Content -LiteralPath $agentsPath -Raw
+            if ($agentsContent -match '(?im)^\s*this workspace is for verifier agent:') {
+                return 'verifier'
+            }
+        }
+
         return 'worker'
     }
 
@@ -217,6 +225,15 @@ function Get-TaskDirectoryPath {
     )
 
     return (Join-Path (Join-Path $WorkspacePath 'tasks') $TaskId)
+}
+
+function Get-LeadWorkspacePath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BoardId
+    )
+
+    return "/home/cronjev/.openclaw/workspace-lead-$BoardId"
 }
 
 function Invoke-LeadRosterApi {
@@ -316,20 +333,27 @@ function Write-TaskContextBundle {
         [string]$InvocationAgentId,
         [string]$BaseUri,
         [string]$AuthToken,
-        $TaskSummary
+        $TaskSummary,
+        [string]$TaskBundleWorkspacePath
     )
 
     if (-not $TaskSummary -or -not $TaskSummary.id) {
         return $null
     }
 
-    $taskDir = Get-TaskDirectoryPath -WorkspacePath $WorkspacePath -TaskId $TaskSummary.id
-    if (-not (Test-Path -LiteralPath $taskDir)) {
-        New-Item -ItemType Directory -Path $taskDir -Force | Out-Null
+    $taskContextDir = Get-TaskDirectoryPath -WorkspacePath $WorkspacePath -TaskId $TaskSummary.id
+    if (-not (Test-Path -LiteralPath $taskContextDir)) {
+        New-Item -ItemType Directory -Path $taskContextDir -Force | Out-Null
     }
+
+    if (-not $TaskBundleWorkspacePath) {
+        $TaskBundleWorkspacePath = $WorkspacePath
+    }
+
+    $taskDir = Get-TaskDirectoryPath -WorkspacePath $TaskBundleWorkspacePath -TaskId $TaskSummary.id
     $taskDeliverablesDir = Join-Path $taskDir 'deliverables'
     $taskEvidenceDir = Join-Path $taskDir 'evidence'
-    foreach ($dir in @($taskDeliverablesDir, $taskEvidenceDir)) {
+    foreach ($dir in @($taskDir, $taskDeliverablesDir, $taskEvidenceDir)) {
         if (-not (Test-Path -LiteralPath $dir)) {
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
         }
@@ -348,7 +372,7 @@ function Write-TaskContextBundle {
             ForEach-Object { ConvertTo-WorkerAgentContext -Agent $_ }
     )
 
-    $taskDataPath = Join-Path $taskDir 'taskData.json'
+    $taskDataPath = Join-Path $taskContextDir 'taskData.json'
     $taskData = [ordered]@{
         generated_at = (Get-Date).ToUniversalTime().ToString('o')
         board_id = $BoardId
@@ -363,7 +387,12 @@ function Write-TaskContextBundle {
     }
 
     $taskData | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $taskDataPath -Encoding UTF8
-    return $taskDataPath
+    return [pscustomobject]@{
+        task_data_path = $taskDataPath
+        task_directory = $taskDir
+        deliverables_directory = $taskDeliverablesDir
+        evidence_directory = $taskEvidenceDir
+    }
 }
 
 function Get-TaskSubagentUuid {
@@ -378,7 +407,7 @@ function Get-TaskSubagentUuid {
     # Try to get subagent_uuid from task custom fields first
     if ($Task.PSObject.Properties.Name -contains 'custom_field_values') {
         $cf = $Task.custom_field_values
-        if ($cf -and $cf.subagent_uuid) {
+        if ($cf -and $cf.PSObject.Properties.Name -contains 'subagent_uuid' -and $cf.subagent_uuid) {
             return $cf.subagent_uuid
         }
     }
@@ -414,6 +443,37 @@ function Get-IsTaskBacklog {
     return [bool]$isBacklog
 }
 
+function Get-BoardVerifierAgents {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BaseUri,
+        [Parameter(Mandatory = $true)]
+        [string]$BoardId,
+        [Parameter(Mandatory = $true)]
+        [string]$AuthToken
+    )
+
+    $rosterResponse = Invoke-LeadRosterApi -BaseUri $BaseUri -BoardId $BoardId -AuthToken $AuthToken
+    $agents = @(Get-ResponseItems -Response $rosterResponse)
+
+    return @(
+        $agents | Where-Object {
+            if ($null -eq $_ -or $_.is_board_lead -or $_.is_gateway_main) {
+                return $false
+            }
+
+            $role = $null
+            if ($_.identity_profile -and $_.identity_profile.PSObject.Properties.Name -contains 'role') {
+                $role = [string]$_.identity_profile.role
+            } elseif ($_.PSObject.Properties.Name -contains 'role') {
+                $role = [string]$_.role
+            }
+
+            return $role -and $role.Trim().Equals('verifier', [System.StringComparison]::OrdinalIgnoreCase)
+        }
+    )
+}
+
 try {
     $resolvedWorkspacePath = Resolve-WorkspacePath -ProvidedWorkspacePath $WorkspacePath -AgentIdValue $AgentId -BoardIdValue $BoardId
     $authToken = Read-AuthToken -WorkspacePathValue $resolvedWorkspacePath
@@ -423,9 +483,9 @@ try {
     $summary = [ordered]@{
         paused = $false
         inbox = $false
-        review = $false
         assignedInbox = $false
         assignedInProgress = $false
+        review = $false
     }
 
     $baseUri = $BaseUrl.TrimEnd('/')
@@ -460,66 +520,99 @@ try {
 
     switch ($resolvedAgentRole) {
         'lead' {
-            $inboxUri = "$baseUri/api/v1/agent/boards/$encodedBoardId/tasks?status=inbox"
             $reviewUri = "$baseUri/api/v1/agent/boards/$encodedBoardId/tasks?status=review"
+            $inboxUri = "$baseUri/api/v1/agent/boards/$encodedBoardId/tasks?status=inbox"
 
-            $inboxResponse = Invoke-BoardApi -Uri $inboxUri -AuthToken $authToken
             $reviewResponse = Invoke-BoardApi -Uri $reviewUri -AuthToken $authToken
+            $inboxResponse = Invoke-BoardApi -Uri $inboxUri -AuthToken $authToken
 
-            $inboxTasks = Get-ResponseItems -Response $inboxResponse
             $reviewTasks = Get-ResponseItems -Response $reviewResponse
+            $inboxTasks = Get-ResponseItems -Response $inboxResponse
 
             if ($inboxTasks) {
                 $inboxTasks = @($inboxTasks | Where-Object { -not (Get-IsTaskBacklog -Task $_) })
             }
 
             $inboxCount = if ($inboxTasks) { $inboxTasks.Count } else { 0 }
-            $reviewCount = if ($reviewTasks) { $reviewTasks.Count } else { 0 }
 
+            $summary.review = (@($reviewTasks).Count -gt 0)
             $summary.inbox = ($inboxCount -gt 0)
-            $summary.review = ($reviewCount -gt 0)
 
             $allTasks = @()
+            if ($summary.review) {
+                $verifierAgents = @(Get-BoardVerifierAgents -BaseUri $baseUri -BoardId $BoardId -AuthToken $authToken)
+                if ($verifierAgents.Count -eq 0) {
+                    $result = New-Result -Act $false -Reason 'review_tasks_no_verifier' -AgentRoleValue $resolvedAgentRole -BoardIdValue $BoardId -AgentIdValue $AgentId -Summary $summary
+                    $result | ConvertTo-Json -Depth 6 -Compress
+                    exit 0
+                }
+            }
+
             if ($summary.inbox) {
                 foreach ($task in $inboxTasks) {
-                    $taskDataPath = Write-TaskContextBundle -WorkspacePath $resolvedWorkspacePath -BoardId $BoardId -LeadAgentId $AgentId -InvocationAgentId $invocationAgentId -BaseUri $baseUri -AuthToken $authToken -TaskSummary $task
+                    $taskContext = Write-TaskContextBundle -WorkspacePath $resolvedWorkspacePath -BoardId $BoardId -LeadAgentId $AgentId -InvocationAgentId $invocationAgentId -BaseUri $baseUri -AuthToken $authToken -TaskSummary $task
                     $allTasks += @{
                         id = $task.id
                         status = 'inbox'
                         title = $task.title
                         subagent_uuid = (Get-TaskSubagentUuid -Task $task -AuthToken $authToken -BaseUri $baseUri -BoardId $BoardId -AgentId $AgentId)
-                        task_data_path = $taskDataPath
+                        task_data_path = $taskContext.task_data_path
+                        task_directory = $taskContext.task_directory
+                        deliverables_directory = $taskContext.deliverables_directory
+                        evidence_directory = $taskContext.evidence_directory
                     }
                 }
             }
 
-            if ($summary.review) {
-                foreach ($task in $reviewTasks) {
-                    $taskDataPath = Write-TaskContextBundle -WorkspacePath $resolvedWorkspacePath -BoardId $BoardId -LeadAgentId $AgentId -InvocationAgentId $invocationAgentId -BaseUri $baseUri -AuthToken $authToken -TaskSummary $task
-                    $allTasks += @{
-                        id = $task.id
-                        status = 'review'
-                        title = $task.title
-                        subagent_uuid = (Get-TaskSubagentUuid -Task $task -AuthToken $authToken -BaseUri $baseUri -BoardId $BoardId -AgentId $AgentId)
-                        task_data_path = $taskDataPath
-                    }
-                }
-            }
-
-            if ($summary.inbox -or $summary.review) {
-                $reason = if ($summary.inbox -and $summary.review) {
-                    'lead_inbox_and_review'
-                } elseif ($summary.inbox) {
-                    'lead_inbox'
-                } else {
-                    'lead_review'
-                }
+            if ($summary.inbox) {
+                $reason = 'lead_inbox'
                 $result = New-Result -Act $true -Reason $reason -AgentRoleValue $resolvedAgentRole -BoardIdValue $BoardId -AgentIdValue $AgentId -Summary $summary -Tasks $allTasks
                 $result | ConvertTo-Json -Depth 6 -Compress
                 exit 0
             }
 
             $result = New-Result -Act $false -Reason 'idle' -AgentRoleValue $resolvedAgentRole -BoardIdValue $BoardId -AgentIdValue $AgentId -Summary $summary
+            $result | ConvertTo-Json -Depth 6 -Compress
+            exit 0
+        }
+
+        'verifier' {
+            $reviewUri = "$baseUri/api/v1/agent/boards/$encodedBoardId/tasks?status=review"
+            $reviewResponse = Invoke-BoardApi -Uri $reviewUri -AuthToken $authToken
+            $reviewTasks = @(Get-ResponseItems -Response $reviewResponse)
+
+            $summary.review = ($reviewTasks.Count -gt 0)
+            if (-not $summary.review) {
+                $result = New-Result -Act $false -Reason 'idle' -AgentRoleValue $resolvedAgentRole -BoardIdValue $BoardId -AgentIdValue $AgentId -Summary $summary
+                $result | ConvertTo-Json -Depth 6 -Compress
+                exit 0
+            }
+
+            $leadWorkspacePath = Get-LeadWorkspacePath -BoardId $BoardId
+            $allTasks = @()
+            foreach ($task in $reviewTasks) {
+                $taskContext = Write-TaskContextBundle `
+                    -WorkspacePath $resolvedWorkspacePath `
+                    -BoardId $BoardId `
+                    -LeadAgentId $BoardId `
+                    -InvocationAgentId $invocationAgentId `
+                    -BaseUri $baseUri `
+                    -AuthToken $authToken `
+                    -TaskSummary $task `
+                    -TaskBundleWorkspacePath $leadWorkspacePath
+                $allTasks += @{
+                    id = $task.id
+                    status = 'review'
+                    title = $task.title
+                    subagent_uuid = (Get-TaskSubagentUuid -Task $task -AuthToken $authToken -BaseUri $baseUri -BoardId $BoardId -AgentId $AgentId)
+                    task_data_path = $taskContext.task_data_path
+                    task_directory = $taskContext.task_directory
+                    deliverables_directory = $taskContext.deliverables_directory
+                    evidence_directory = $taskContext.evidence_directory
+                }
+            }
+
+            $result = New-Result -Act $true -Reason 'verifier_review' -AgentRoleValue $resolvedAgentRole -BoardIdValue $BoardId -AgentIdValue $AgentId -Summary $summary -Tasks $allTasks
             $result | ConvertTo-Json -Depth 6 -Compress
             exit 0
         }
@@ -573,13 +666,16 @@ try {
             $allTasks = @()
             if ($summary.assignedInbox) {
                 foreach ($task in $assignedInboxTasks) {
-                    $taskDataPath = Write-TaskContextBundle -WorkspacePath $resolvedWorkspacePath -BoardId $BoardId -LeadAgentId $BoardId -InvocationAgentId $invocationAgentId -BaseUri $baseUri -AuthToken $authToken -TaskSummary $task
+                    $taskContext = Write-TaskContextBundle -WorkspacePath $resolvedWorkspacePath -BoardId $BoardId -LeadAgentId $BoardId -InvocationAgentId $invocationAgentId -BaseUri $baseUri -AuthToken $authToken -TaskSummary $task
                     $allTasks += @{
                         id = $task.id
                         status = 'inbox'
                         title = $task.title
                         subagent_uuid = (Get-TaskSubagentUuid -Task $task -AuthToken $authToken -BaseUri $baseUri -BoardId $BoardId -AgentId $AgentId)
-                        task_data_path = $taskDataPath
+                        task_data_path = $taskContext.task_data_path
+                        task_directory = $taskContext.task_directory
+                        deliverables_directory = $taskContext.deliverables_directory
+                        evidence_directory = $taskContext.evidence_directory
                     }
                 }
                 $result = New-Result -Act $true -Reason 'worker_inbox' -AgentRoleValue $resolvedAgentRole -BoardIdValue $BoardId -AgentIdValue $AgentId -Summary $summary -Tasks $allTasks
@@ -589,13 +685,16 @@ try {
 
             if ($summary.assignedInProgress) {
                 foreach ($task in $assignedInProgressTasks) {
-                    $taskDataPath = Write-TaskContextBundle -WorkspacePath $resolvedWorkspacePath -BoardId $BoardId -LeadAgentId $BoardId -InvocationAgentId $invocationAgentId -BaseUri $baseUri -AuthToken $authToken -TaskSummary $task
+                    $taskContext = Write-TaskContextBundle -WorkspacePath $resolvedWorkspacePath -BoardId $BoardId -LeadAgentId $BoardId -InvocationAgentId $invocationAgentId -BaseUri $baseUri -AuthToken $authToken -TaskSummary $task
                     $allTasks += @{
                         id = $task.id
                         status = 'in_progress'
                         title = $task.title
                         subagent_uuid = (Get-TaskSubagentUuid -Task $task -AuthToken $authToken -BaseUri $baseUri -BoardId $BoardId -AgentId $AgentId)
-                        task_data_path = $taskDataPath
+                        task_data_path = $taskContext.task_data_path
+                        task_directory = $taskContext.task_directory
+                        deliverables_directory = $taskContext.deliverables_directory
+                        evidence_directory = $taskContext.evidence_directory
                     }
                 }
                 $result = New-Result -Act $true -Reason 'worker_in_progress' -AgentRoleValue $resolvedAgentRole -BoardIdValue $BoardId -AgentIdValue $AgentId -Summary $summary -Tasks $allTasks

@@ -13,9 +13,15 @@ The goal is simple:
 - `BOARD_WORKER_AGENTS.md`
 - `BOARD_WORKER_TOOLS.md`
 - `BOARD_WORKER_GATED-HEARTBEAT.md`
+- `BOARD_WORKER_SOUL.md`
+- `BOARD_VERIFIER_AGENTS.md`
+- `BOARD_VERIFIER_TOOLS.md`
+- `BOARD_VERIFIER_GATED_HEARTBEAT.md`
+- `BOARD_VERIFIER_SOUL.md`
 - `BOARD_LEAD_AGENTS.md`
 - `BOARD_LEAD_TOOLS.md`
 - `BOARD_LEAD_GATED-HEARTBEAT.md`
+- `BOARD_LEAD_SOUL.md`
 - `scripts/extract-vars.ps1`
 - `scripts/fetch-agents.ps1`
 
@@ -39,9 +45,10 @@ It then fetches each agent detail record and stores a JSON snapshot at:
 
 ### 3. Render templates
 
-The script classifies each agent into one of two template families:
+The script classifies each agent into one of three template families:
 
 - worker agents -> `BOARD_WORKER_*.md`
+- verifier agents with role `verifier` -> `BOARD_VERIFIER_*.md`
 - lead agents -> `BOARD_LEAD_*.md`
 
 It renders the matching template set into the live workspace root:
@@ -49,6 +56,10 @@ It renders the matching template set into the live workspace root:
 - `/home/cronjev/.openclaw`
 
 Worker output paths:
+
+- `/home/cronjev/.openclaw/workspace-mc-<agent_id>/`
+
+Verifier output paths:
 
 - `/home/cronjev/.openclaw/workspace-mc-<agent_id>/`
 
@@ -91,4 +102,3 @@ The render script uses agent data plus derived values such as:
 - `backend/simplified-templates/scripts/extract-vars.ps1`
 - `backend/simplified-templates/scripts/fetch-agents.ps1`
 - `backend/simplified-templates/template-update.json`
-

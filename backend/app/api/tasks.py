@@ -43,6 +43,11 @@ from app.models.task_custom_fields import (
     TaskCustomFieldValue,
 )
 from app.models.task_dependencies import TaskDependency
+from app.models.task_evidence import (
+    TaskEvidenceArtifact,
+    TaskEvidenceCheck,
+    TaskEvidencePacket,
+)
 from app.models.task_fingerprints import TaskFingerprint
 from app.models.tasks import Task
 from app.models.users import User
@@ -2085,6 +2090,25 @@ async def delete_task_and_related_records(
         session,
         TaskFingerprint,
         col(TaskFingerprint.task_id) == task.id,
+        commit=False,
+    )
+
+    await crud.delete_where(
+        session,
+        TaskEvidenceArtifact,
+        col(TaskEvidenceArtifact.task_id) == task.id,
+        commit=False,
+    )
+    await crud.delete_where(
+        session,
+        TaskEvidenceCheck,
+        col(TaskEvidenceCheck.task_id) == task.id,
+        commit=False,
+    )
+    await crud.delete_where(
+        session,
+        TaskEvidencePacket,
+        col(TaskEvidencePacket.task_id) == task.id,
         commit=False,
     )
 

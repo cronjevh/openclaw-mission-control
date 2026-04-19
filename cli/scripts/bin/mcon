@@ -1,0 +1,23 @@
+#!/bin/bash
+# mcon - bash wrapper for PowerShell mcon CLI
+# Purpose: Invoke the PowerShell mcon.ps1 script from bash without 'pwsh -f' prefix
+
+# Determine the path to the PowerShell script
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+MCON_PS1="${SCRIPT_DIR}/../mcon.ps1"
+
+# Validate that the PowerShell script exists
+if [[ ! -f "$MCON_PS1" ]]; then
+    echo "Error: mcon.ps1 not found at $MCON_PS1" >&2
+    exit 1
+fi
+
+# Call PowerShell with the mcon.ps1 script, passing all arguments
+# -NoProfile: Skip loading profile for faster execution
+# -NoLogo: Suppress PowerShell startup banner
+# -NonInteractive: Run non-interactively (important for scripts)
+# -File: Execute the script file
+pwsh -NoProfile -NoLogo -NonInteractive -File "$MCON_PS1" "$@"
+
+# Preserve the exit code from PowerShell
+exit $?

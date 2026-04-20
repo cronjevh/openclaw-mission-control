@@ -15,6 +15,11 @@ from app.services.openclaw.lifecycle_queue import (
 )
 from app.services.openclaw.lifecycle_reconcile import process_lifecycle_queue_task
 from app.services.queue import QueuedTask, dequeue_task
+from app.services.board_cadence_crontab import (
+    decode_board_cadence_task,
+    process_board_cadence_crontab_task,
+    requeue_if_failed as requeue_board_cadence_if_failed,
+)
 from app.services.webhooks.dispatch import (
     process_webhook_queue_task,
     requeue_webhook_queue_task,
@@ -48,6 +53,14 @@ _TASK_HANDLERS: dict[str, _TaskHandler] = {
             settings.rq_dispatch_retry_max_seconds,
         ),
         requeue=lambda task, delay: requeue_webhook_queue_task(task, delay_seconds=delay),
+    ),
+    "board_cadence_crontab": _TaskHandler(
+        handler=process_board_cadence_crontab_task,
+        attempts_to_delay=lambda attempts: min(
+            settings.rq_dispatch_retry_base_seconds * (2 ** max(0, attempts)),
+            settings.rq_dispatch_retry_max_seconds,
+        ),
+        requeue=lambda task, delay: requeue_board_cadence_if_failed(task, delay_seconds=delay),
     ),
 }
 

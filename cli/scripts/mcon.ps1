@@ -15,6 +15,7 @@ $libDir = Join-Path $PSScriptRoot 'lib'
 Import-Module (Join-Path $libDir 'Config.psm1') -Force
 Import-Module (Join-Path $libDir 'Api.psm1') -Force
 Import-Module (Join-Path $libDir 'Output.psm1') -Force
+Import-Module (Join-Path $libDir 'TagSummary.psm1') -Force
 Import-Module (Join-Path $libDir 'Rbac.psm1') -Force
 Import-Module (Join-Path $libDir 'Crypto.psm1') -Force
 Import-Module (Join-Path $libDir 'Admin.psm1') -Force
@@ -26,6 +27,7 @@ Import-Module (Join-Path $libDir 'Escalate.psm1') -Force
 Import-Module (Join-Path $libDir 'SubmitReview.psm1') -Force
 Import-Module (Join-Path $libDir 'TemplateDist.psm1') -Force
 Import-Module (Join-Path $libDir 'Verify.psm1') -Force
+Import-Module (Join-Path $libDir 'Cron.psm1') -Force
 
 if ($args.Count -lt 1) {
     Write-MconError -Message 'Usage: mcon <subcommand> [options]. Run ''mcon help'' for details.' -Code 'usage'
@@ -41,12 +43,15 @@ mcon - Mission Control CLI
 
 Usage:
   mcon task show        --task <TASK_ID>
+  mcon task show        --tags <TAG_ID|SLUG|NAME,...>
   mcon task comment    --task <TASK_ID> --message <TEXT>
   mcon task move       --task <TASK_ID> --status <STATUS>
-  mcon task create     --title <TITLE> [--description <TEXT>] [--priority <LEVEL>] [--backlog <true|false>] [--tags <TAG_ID1,TAG_ID2,...>]
+  mcon task create     --title <TITLE> [--description <TEXT>] [--priority <LEVEL>] [--backlog <true|false>] [--tags <TAG_ID,...>] [--depends-on <TASK_ID,...>]
+  mcon task update     --task <TASK_ID> [--title <TITLE>] [--description <TEXT>] [--priority <LEVEL>] [--backlog <true|false>] [--tags <TAG_ID,...>] [--depends-on <TASK_ID,...>]
   mcon admin gettokens      # gateway-only: fetch agents, derive tokens, encrypt keybag
   mcon admin decrypt-keybag # gateway-only: decrypt .agent-tokens.json.enc → .agent-tokens.json
   mcon admin templatedist --templates-dir <DIR> [--output <FILE>] [--render-root <DIR>] [--reverse]  # distribute templates
+  mcon admin cron --board-id <BOARD_ID> --cadence-minutes <INT> [--dry-run] [--crontab-dir <DIR>]  # set board cadence and update crontab
   mcon workflow dispatch              # evaluate board state, enqueue heartbeat
   mcon workflow dispatch --process-queue  # process queued heartbeat items
   mcon workflow assign --task <TASK_ID> --worker <AGENT_ID>  # assign task to worker
@@ -68,9 +73,11 @@ Roles (derived from MCON_WSP):
 
 Permissions:
   task.move            → gateway only
+  task.update          → lead, gateway only
   admin.gettokens      → gateway only
   admin.decrypt-keybag → gateway only
   admin.templatedist   → gateway only
+  admin.cron           → gateway only
   workflow.dispatch    → lead, worker, verifier
   workflow.blocker     → worker, verifier
   workflow.escalate    → lead
@@ -137,7 +144,7 @@ Statuses: inbox, in_progress, review, done, blocked
         }
 
         if ($remaining.Count -lt 1) {
-            Write-MconError -Message 'Usage: mcon task <action> [options]. Actions: show, comment, move, create.' -Code 'usage'
+            Write-MconError -Message 'Usage: mcon task <action> [options]. Actions: show, comment, move, create, update.' -Code 'usage'
         }
 
         $action = $remaining[0]
@@ -151,6 +158,7 @@ Statuses: inbox, in_progress, review, done, blocked
         $priority = $null
         $backlog = $null
         $tags = $null
+        $dependsOn = $null
 
         $i = 0
         while ($i -lt $actionArgs.Count) {
@@ -163,12 +171,29 @@ Statuses: inbox, in_progress, review, done, blocked
                 '--priority' { $priority = $actionArgs[++$i]; break }
                 '--backlog' { $backlog = $actionArgs[++$i]; break }
                 '--tags' { $tags = $actionArgs[++$i]; break }
+                '--depends-on' { $dependsOn = $actionArgs[++$i]; break }
                 default { Write-MconError -Message "Unknown flag: $($actionArgs[$i])" -Code 'usage' }
             }
             $i++
         }
 
-        if ($action -ne 'create') {
+        if ($action -eq 'show') {
+            if ($task -and $tags) {
+                Write-MconError -Message 'Use either --task <TASK_ID> or --tags <TAG_ID|SLUG|NAME,...>, not both.' -Code 'usage'
+            }
+            if (-not $task -and -not $tags) {
+                Write-MconError -Message 'task show requires either --task <TASK_ID> or --tags <TAG_ID|SLUG|NAME,...>.' -Code 'usage'
+            }
+            if ($task -and $task -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                Write-MconError -Message "Invalid task ID format: $task" -Code 'validation'
+            }
+            if ($tags) {
+                $tags = @(Get-MconTagIdentifierList -Tags $tags)
+                if ($tags.Count -eq 0) {
+                    Write-MconError -Message '--tags requires at least one tag identifier.' -Code 'usage'
+                }
+            }
+        } elseif ($action -ne 'create') {
             if (-not $task) {
                 Write-MconError -Message '--task <TASK_ID> is required.' -Code 'usage'
             }
@@ -218,6 +243,45 @@ Statuses: inbox, in_progress, review, done, blocked
                     }
                     $tags = $tagList
                 }
+                if ($null -ne $dependsOn) {
+                    $depList = @($dependsOn -split ',' | Where-Object { $_.Trim() }) | ForEach-Object { $_.Trim() }
+                    foreach ($d in $depList) {
+                        if ($d -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                            Write-MconError -Message "Invalid depends-on task ID format: $d" -Code 'validation'
+                        }
+                    }
+                    $dependsOn = $depList
+                }
+            }
+            'update' {
+                if ($null -eq $title -and $null -eq $description -and $null -eq $priority -and $null -eq $backlog -and $null -eq $tags -and $null -eq $dependsOn) {
+                    Write-MconError -Message 'At least one update field is required (--title, --description, --priority, --backlog, --tags, --depends-on).' -Code 'usage'
+                }
+                if ($null -ne $backlog) {
+                    switch (($backlog.ToString()).ToLowerInvariant()) {
+                        'true' { $backlog = $true; break }
+                        'false' { $backlog = $false; break }
+                        default { Write-MconError -Message "--backlog must be 'true' or 'false'." -Code 'validation' }
+                    }
+                }
+                if ($null -ne $tags) {
+                    $tagList = @($tags -split ',' | Where-Object { $_.Trim() }) | ForEach-Object { $_.Trim() }
+                    foreach ($t in $tagList) {
+                        if ($t -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                            Write-MconError -Message "Invalid tag ID format: $t" -Code 'validation'
+                        }
+                    }
+                    $tags = $tagList
+                }
+                if ($null -ne $dependsOn) {
+                    $depList = @($dependsOn -split ',' | Where-Object { $_.Trim() }) | ForEach-Object { $_.Trim() }
+                    foreach ($d in $depList) {
+                        if ($d -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                            Write-MconError -Message "Invalid depends-on task ID format: $d" -Code 'validation'
+                        }
+                    }
+                    $dependsOn = $depList
+                }
             }
         }
 
@@ -239,8 +303,23 @@ Statuses: inbox, in_progress, review, done, blocked
         switch ($action) {
             'show' {
                 try {
-                    $result = Get-MconTask -BaseUrl $config.base_url -Token $config.auth_token -BoardId $config.board_id -TaskId $task
-                    Write-MconResult -Data ([ordered]@{ ok = $true; task = $result })
+                    if ($task) {
+                        $result = Get-MconTask -BaseUrl $config.base_url -Token $config.auth_token -BoardId $config.board_id -TaskId $task
+                        $comments = Get-MconTaskComments -BaseUrl $config.base_url -Token $config.auth_token -BoardId $config.board_id -TaskId $task
+                        Write-MconResult -Data ([ordered]@{ ok = $true; task = $result; comments = $comments })
+                    } else {
+                        $result = Get-MconProjectTagSummaries `
+                            -BaseUrl $config.base_url `
+                            -Token $config.auth_token `
+                            -BoardId $config.board_id `
+                            -TagIdentifiers ([string[]]$tags)
+                        Write-MconResult -Data ([ordered]@{
+                            ok             = $true
+                            generated_at   = $result.generated_at
+                            requested_tags = $result.requested_tags
+                            summaries      = $result.summaries
+                        })
+                    }
                 }
                 catch {
                     Write-MconError -Message $_.Exception.Message -Code 'api_error'
@@ -280,6 +359,9 @@ Statuses: inbox, in_progress, review, done, blocked
                     if ($null -ne $tags) {
                         $createParams.TagIds = [string[]]$tags
                     }
+                    if ($null -ne $dependsOn) {
+                        $createParams.DependsOnTaskIds = [string[]]$dependsOn
+                    }
                     $result = New-MconTask @createParams
                     Write-MconResult -Data ([ordered]@{ ok = $true; task = $result })
                 }
@@ -287,8 +369,41 @@ Statuses: inbox, in_progress, review, done, blocked
                     Write-MconError -Message $_.Exception.Message -Code 'api_error'
                 }
             }
+            'update' {
+                try {
+                    $updateParams = @{
+                        BaseUrl = $config.base_url
+                        Token = $config.auth_token
+                        BoardId = $config.board_id
+                        TaskId = $task
+                    }
+                    if ($null -ne $title) {
+                        $updateParams.Title = $title
+                    }
+                    if ($null -ne $description) {
+                        $updateParams.Description = $description
+                    }
+                    if ($null -ne $priority) {
+                        $updateParams.Priority = $priority
+                    }
+                    if ($null -ne $backlog) {
+                        $updateParams.Backlog = [bool]$backlog
+                    }
+                    if ($null -ne $tags) {
+                        $updateParams.TagIds = [string[]]$tags
+                    }
+                    if ($null -ne $dependsOn) {
+                        $updateParams.DependsOnTaskIds = [string[]]$dependsOn
+                    }
+                    $result = Set-MconTask @updateParams
+                    Write-MconResult -Data ([ordered]@{ ok = $true; task = $result })
+                }
+                catch {
+                    Write-MconError -Message $_.Exception.Message -Code 'api_error'
+                }
+            }
             default {
-                Write-MconError -Message "Unknown task action: $action. Valid: show, comment, move, create." -Code 'usage'
+                Write-MconError -Message "Unknown task action: $action. Valid: show, comment, move, create, update." -Code 'usage'
             }
         }
     }
@@ -714,7 +829,7 @@ Statuses: inbox, in_progress, review, done, blocked
 
     'admin' {
         if ($remaining.Count -lt 1) {
-            Write-MconError -Message 'Usage: mcon admin <action>. Actions: gettokens, decrypt-keybag, templatedist.' -Code 'usage'
+            Write-MconError -Message 'Usage: mcon admin <action>. Actions: gettokens, decrypt-keybag, templatedist, cron.' -Code 'usage'
         }
         $adminAction = $remaining[0]
         $adminArgs = @($remaining | Select-Object -Skip 1)
@@ -839,8 +954,81 @@ Statuses: inbox, in_progress, review, done, blocked
                     Write-MconError -Message $_.Exception.Message -Code 'templatedist_error'
                 }
             }
+            'cron' {
+                $cronBoardId = $null
+                $cronCadence = $null
+                $cronDryRun = $false
+                $cronCrontabDir = '/etc/cron.d'
+
+                $i = 0
+                while ($i -lt $adminArgs.Count) {
+                    switch ($adminArgs[$i]) {
+                        '--board-id' { $cronBoardId = $adminArgs[++$i]; break }
+                        '--cadence-minutes' { $cronCadence = $adminArgs[++$i]; break }
+                        '--dry-run' { $cronDryRun = $true; break }
+                        '--crontab-dir' { $cronCrontabDir = $adminArgs[++$i]; break }
+                        default { Write-MconError -Message "Unknown flag: $($adminArgs[$i])" -Code 'usage' }
+                    }
+                    $i++
+                }
+
+                if (-not $cronBoardId) {
+                    Write-MconError -Message '--board-id <BOARD_ID> is required.' -Code 'usage'
+                }
+                if ($cronBoardId -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                    Write-MconError -Message "Invalid board ID format: $cronBoardId" -Code 'validation'
+                }
+                if ($null -eq $cronCadence) {
+                    Write-MconError -Message '--cadence-minutes <INT> is required.' -Code 'usage'
+                }
+                try {
+                    $cronCadence = [int]$cronCadence
+                } catch {
+                    Write-MconError -Message "--cadence-minutes must be an integer. Got: $cronCadence" -Code 'validation'
+                }
+
+                $gatewayWorkspace = $adminConfig.workspace_path
+                $toolsPath = Join-Path $gatewayWorkspace 'TOOLS.md'
+                $localAuthToken = $null
+                if (Test-Path -LiteralPath $toolsPath) {
+                    $toolsMap = Read-MconToolsMd -Path $toolsPath
+                    if ($toolsMap.ContainsKey('LOCAL_AUTH_TOKEN')) {
+                        $localAuthToken = $toolsMap['LOCAL_AUTH_TOKEN']
+                    }
+                }
+
+                if (-not $localAuthToken) {
+                    $backendEnvPath = '/home/cronjev/mission-control-tfsmrt/.env'
+                    if (Test-Path -LiteralPath $backendEnvPath) {
+                        $envMap = Read-MconToolsMd -Path $backendEnvPath
+                        if ($envMap.ContainsKey('LOCAL_AUTH_TOKEN')) {
+                            $localAuthToken = $envMap['LOCAL_AUTH_TOKEN']
+                        }
+                    }
+                }
+
+                if (-not $localAuthToken) {
+                    Write-MconError -Message 'LOCAL_AUTH_TOKEN not found. Set it in gateway TOOLS.md or backend .env.' -Code 'config_error'
+                }
+
+                try {
+                    $cronParams = @{
+                        BaseUrl        = 'http://localhost:8002'
+                        AuthToken      = $localAuthToken
+                        BoardId        = $cronBoardId
+                        CadenceMinutes = $cronCadence
+                        CrontabDir     = $cronCrontabDir
+                    }
+                    if ($cronDryRun) { $cronParams.DryRun = $true }
+
+                    $result = Invoke-MconAdminCron @cronParams
+                    Write-MconResult -Data $result
+                } catch {
+                    Write-MconError -Message $_.Exception.Message -Code 'cron_error'
+                }
+            }
             default {
-                Write-MconError -Message "Unknown admin action: $adminAction. Valid: gettokens, decrypt-keybag, templatedist." -Code 'usage'
+                Write-MconError -Message "Unknown admin action: $adminAction. Valid: gettokens, decrypt-keybag, templatedist, cron." -Code 'usage'
             }
         }
     }

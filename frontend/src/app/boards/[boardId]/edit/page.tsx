@@ -328,6 +328,7 @@ export default function EditBoardPage() {
     boolean | undefined
   >(undefined);
   const [maxAgents, setMaxAgents] = useState<number | undefined>(undefined);
+  const [cadenceMinutes, setCadenceMinutes] = useState<number | undefined>(undefined);
   const [hideDoneAfterDays, setHideDoneAfterDays] = useState<number | undefined>(undefined);
   const [successMetrics, setSuccessMetrics] = useState<string | undefined>(
     undefined,
@@ -669,6 +670,7 @@ export default function EditBoardPage() {
   const resolvedOnlyLeadCanChangeStatus =
     onlyLeadCanChangeStatus ?? baseBoard?.only_lead_can_change_status ?? false;
   const resolvedMaxAgents = maxAgents ?? baseBoard?.max_agents ?? 1;
+  const resolvedCadenceMinutes = cadenceMinutes ?? baseBoard?.cadence_minutes ?? null;
   const resolvedHideDoneAfterDays =
     hideDoneAfterDays ?? baseBoard?.hide_done_after_days ?? null;
   const resolvedSuccessMetrics =
@@ -754,6 +756,7 @@ export default function EditBoardPage() {
     );
     setOnlyLeadCanChangeStatus(updated.only_lead_can_change_status ?? false);
     setMaxAgents(updated.max_agents ?? 1);
+    setCadenceMinutes(updated.cadence_minutes);
     setHideDoneAfterDays(updated.hide_done_after_days);
     setSuccessMetrics(
       updated.success_metrics
@@ -785,6 +788,13 @@ export default function EditBoardPage() {
     }
     if (!Number.isInteger(resolvedMaxAgents) || resolvedMaxAgents < 0) {
       setError("Max worker agents must be a non-negative integer.");
+      return;
+    }
+    if (
+      resolvedCadenceMinutes !== null &&
+      (!Number.isInteger(resolvedCadenceMinutes) || resolvedCadenceMinutes < 1)
+    ) {
+      setError("Board cadence (minutes) must be a positive integer or blank.");
       return;
     }
     if (
@@ -830,6 +840,7 @@ export default function EditBoardPage() {
         resolvedBlockStatusChangesWithPendingApproval,
       only_lead_can_change_status: resolvedOnlyLeadCanChangeStatus,
       max_agents: resolvedMaxAgents,
+      cadence_minutes: resolvedCadenceMinutes,
       hide_done_after_days: resolvedHideDoneAfterDays,
       success_metrics: resolvedBoardType === "general" ? null : parsedMetrics,
       target_date:
@@ -1047,6 +1058,36 @@ export default function EditBoardPage() {
                     disabled={isLoading}
                     placeholder="Leave empty to disable"
                   />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-strong">
+                    Board cadence (minutes)
+                  </label>
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={resolvedCadenceMinutes ?? ""}
+                    onChange={(event) => {
+                      const val = event.target.value;
+                      if (val === "") {
+                        setCadenceMinutes(undefined);
+                        return;
+                      }
+                      const next = Number.parseInt(val, 10);
+                      if (Number.isNaN(next)) {
+                        setCadenceMinutes(1);
+                        return;
+                      }
+                      setCadenceMinutes(Math.max(1, next));
+                    }}
+                    disabled={isLoading}
+                    placeholder="Leave empty for no cadence"
+                  />
+                  <p className="text-xs text-quiet">
+                    Optional: set a default cron cadence for workers (in minutes).
+                    Leave empty to use board group heartbeat settings.
+                  </p>
                 </div>
               </div>
               <div className="space-y-2">

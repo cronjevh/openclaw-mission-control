@@ -33,7 +33,7 @@ from app.schemas.pagination import DefaultLimitOffsetPage
 from app.schemas.view_models import BoardGroupSnapshot, BoardSnapshot
 from app.services.activity_log import record_activity
 from app.services.board_group_snapshot import build_board_group_snapshot
-from app.services.board_lifecycle import delete_board as delete_board_service
+from app.services.board_cadence_crontab import enqueue_board_cadence_crontab
 from app.services.board_snapshot import build_board_snapshot
 from app.services.openclaw.gateway_dispatch import GatewayDispatchService
 from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
@@ -774,6 +774,17 @@ async def update_board(
         for field_name, previous_value in previous_values.items()
         if previous_value != getattr(updated, field_name)
     }
+
+    # If cadence_minutes changed, enqueue crontab regeneration
+    if "cadence_minutes" in changed_fields:
+        try:
+            await enqueue_board_cadence_crontab(updated.id)
+        except Exception:
+            logger.exception(
+                "board.cadence_crontab.enqueue_failed",
+                extra={"board_id": str(updated.id), "changed_fields": sorted(changed_fields.keys())},
+            )
+
     new_group_id = updated.board_group_id
     if previous_group_id is not None and previous_group_id != new_group_id:
         previous_group = await crud.get_by_id(session, BoardGroup, previous_group_id)

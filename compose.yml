@@ -133,6 +133,7 @@ services:
     volumes:
       - /home/cronjev/.openclaw/identity:/app/identity:rw
       - /home/cronjev/.openclaw:/app/openclaw:ro
+      - /etc/cron.d:/etc/cron.d:rw
     restart: unless-stopped
 
 volumes:

@@ -65,6 +65,7 @@ class ActorContext:
     actor_type: Literal["user", "agent"]
     user: User | None = None
     agent: Agent | None = None
+    local_auth_bypass: bool = False
 
 
 async def require_user_or_agent(
@@ -83,7 +84,11 @@ async def require_user_or_agent(
     )
     if auth is not None:
         require_user_actor(auth)
-        return ActorContext(actor_type="user", user=auth.user)
+        return ActorContext(
+            actor_type="user",
+            user=auth.user,
+            local_auth_bypass=auth.local_auth_bypass,
+        )
     agent_auth = await get_agent_auth_context_optional(
         request=request,
         agent_token=request.headers.get("X-Agent-Token"),

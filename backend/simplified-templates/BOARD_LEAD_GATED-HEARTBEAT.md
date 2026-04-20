@@ -49,12 +49,20 @@ Project ledger discipline:
 
 If inbox tasks exist:
 - For each unassigned inbox task with `backlog=false`:
-  - Require explicit assignment authorization from the dispatch summary for that exact task before any spawn or assignment step.
-  - Vet scope first.
-  - If unclear, comment with exact clarification questions and set `backlog=true`.
-  - If clear, identify and select the best worker from `boardAgents`.
-  - Prefer the worker whose role and current status best match the task.
-  - Do not rely on hardcoded names if `boardAgents` gives a better dynamic roster.
+  1. Read the task's `taskData.json`.
+  2. **DEPENDENCY CHECK:** If `depends_on_task_ids` is non-empty OR `is_blocked` is true:
+     - Post a comment listing each dependency and its current status.
+     - Set `backlog=true` to defer.
+     - Skip assignment for this cycle.
+     - Continue to next task.
+  3. **SCOPE CHECK:** If the task description is unclear or acceptance criteria are ambiguous:
+     - Post exact clarification questions as a comment.
+     - Set `backlog=true`.
+     - Skip assignment.
+  4. If scope is clear AND no blockers:
+     - Require explicit assignment authorization from the dispatch summary for that exact task before any spawn or assignment step.
+     - Identify the best worker from `boardAgents` (prefer role/status match).
+     - Spawn subagent via `mcon workflow assign`.
 
 Subagent creation is a strict prerequisite for assignment:
 - The order must be:

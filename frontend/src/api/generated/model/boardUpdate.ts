@@ -13,6 +13,7 @@ export interface BoardUpdate {
   block_status_changes_with_pending_approval?: boolean | null;
   board_group_id?: string | null;
   board_type?: string | null;
+  cadence_minutes?: number | null;
   comment_required_for_review?: boolean | null;
   description?: string | null;
   gateway_id?: string | null;

@@ -379,6 +379,45 @@ function Invoke-MconAssign {
         $LeadAgentId = "lead-$boardId"
     }
 
+    $encodedBoardId = [uri]::EscapeDataString($boardId)
+    $encodedTaskId = [uri]::EscapeDataString($TaskId)
+    $taskUri = "$baseUrl/api/v1/agent/boards/$encodedBoardId/tasks/$encodedTaskId"
+    $commentsUri = "$taskUri/comments"
+
+    try {
+        $task = Invoke-MconApi -Method Get -Uri $taskUri -Token $authToken
+        $commentsResponse = Invoke-MconApi -Method Get -Uri $commentsUri -Token $authToken
+    } catch {
+        return [ordered]@{
+            ok     = $false
+            phase  = 'task_fetch'
+            error  = $_.Exception.Message
+            taskId = $TaskId
+            workerAgentId = $WorkerAgentId
+            boardId = $boardId
+        }
+    }
+
+    $isBlocked = $false
+    $blockedByTaskIds = @()
+    if ($task.PSObject.Properties.Name -contains 'is_blocked' -and $task.is_blocked) {
+        $isBlocked = $true
+    }
+    if ($task.PSObject.Properties.Name -contains 'blocked_by_task_ids' -and $task.blocked_by_task_ids) {
+        $blockedByTaskIds = @($task.blocked_by_task_ids | Where-Object { $_ })
+    }
+    if ($isBlocked -or $blockedByTaskIds.Count -gt 0) {
+        $depList = ($blockedByTaskIds -join ', ')
+        return [ordered]@{
+            ok            = $false
+            phase         = 'precondition'
+            error         = "Task has unmet dependencies and is blocked. Blocked by task(s): $depList. Resolve dependencies before assigning."
+            taskId        = $TaskId
+            workerAgentId = $WorkerAgentId
+            task          = Get-MconAssignTaskProjection -TaskData $task
+        }
+    }
+
     if (-not $WorkerWorkspacePath) {
         $openClawRoot = Split-Path -Parent $workspacePath
         $WorkerWorkspacePath = Join-Path $openClawRoot "workspace-mc-$WorkerAgentId"
@@ -402,25 +441,6 @@ function Invoke-MconAssign {
     $workerName = Get-MconIdentityValue -Path (Join-Path $resolvedWorkerWorkspace 'IDENTITY.md') -Key 'Name'
     $workerLegacyAgentName = $workerName.ToLowerInvariant()
     $workerSpawnAgentId = if ($WorkerAgentId -like 'mc-*') { $WorkerAgentId } else { "mc-$WorkerAgentId" }
-
-    $encodedBoardId = [uri]::EscapeDataString($boardId)
-    $encodedTaskId = [uri]::EscapeDataString($TaskId)
-    $taskUri = "$baseUrl/api/v1/agent/boards/$encodedBoardId/tasks/$encodedTaskId"
-    $commentsUri = "$taskUri/comments"
-
-    try {
-        $task = Invoke-MconApi -Method Get -Uri $taskUri -Token $authToken
-        $commentsResponse = Invoke-MconApi -Method Get -Uri $commentsUri -Token $authToken
-    } catch {
-        return [ordered]@{
-            ok     = $false
-            phase  = 'task_fetch'
-            error  = $_.Exception.Message
-            taskId = $TaskId
-            workerAgentId = $WorkerAgentId
-            boardId = $boardId
-        }
-    }
 
     $comments = @()
     if ($commentsResponse) {

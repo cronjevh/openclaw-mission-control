@@ -26,25 +26,186 @@ function Get-MconVerifyTaskBundlePaths {
     }
 }
 
+function Get-MconVerificationCandidateDeliverables {
+    param(
+        [Parameter(Mandatory)][string]$DeliverablesDirectory,
+        [Parameter(Mandatory)][string]$TaskId
+    )
+
+    if (-not (Test-Path -LiteralPath $DeliverablesDirectory)) {
+        return @()
+    }
+
+    return @(
+        Get-ChildItem -LiteralPath $DeliverablesDirectory -File -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Name -ne "verify-$TaskId.ps1" -and
+                $_.Name -ne "evaluate-$TaskId.json"
+            }
+    )
+}
+
+function Test-MconDeliverableLooksLikeImplementation {
+    param(
+        [Parameter(Mandatory)]$File
+    )
+
+    $name = $File.Name.ToLowerInvariant()
+    if (
+        $name -match '(^|[-_])(readme|deployment|handoff|notes?|summary|report|plan|analysis)($|[-_.])' -or
+        $name -like '*.md' -or
+        $name -like '*.patch' -or
+        $name -like '*.diff' -or
+        $name -match '(^|[-_])(smoke|demo|sample|example|fixture|mock|test)($|[-_.])'
+    ) {
+        return $false
+    }
+
+    return $true
+}
+
 function Get-MconPrimaryDeliverablePath {
     param(
         [Parameter(Mandatory)][string]$DeliverablesDirectory,
         [Parameter(Mandatory)][string]$TaskId
     )
 
-    $files = @(
-        Get-ChildItem -LiteralPath $DeliverablesDirectory -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -ne "verify-$TaskId.ps1" -and $_.Name -ne "evaluate-$TaskId.json" }
-    )
+    $files = @(Get-MconVerificationCandidateDeliverables -DeliverablesDirectory $DeliverablesDirectory -TaskId $TaskId)
 
     if ($files.Count -eq 0) {
         throw "Primary deliverable not found in $DeliverablesDirectory"
     }
-    if ($files.Count -gt 1) {
-        throw "Expected exactly one primary deliverable in $DeliverablesDirectory, found $($files.Count)"
+
+    $ranked = @(
+        $files |
+            Sort-Object `
+                @{ Expression = { if (Test-MconDeliverableLooksLikeImplementation -File $_) { 1 } else { 0 } }; Descending = $true }, `
+                @{ Expression = { $_.Length }; Descending = $true }, `
+                @{ Expression = { $_.Name.Length }; Descending = $false }, `
+                @{ Expression = { $_.Name }; Descending = $false }
+    )
+
+    return $ranked[0].FullName
+}
+
+function Test-MconVerificationTaskLooksLikeIntegration {
+    param(
+        [Parameter(Mandatory)]$Task,
+        [Parameter(Mandatory)]$ImplementationFiles
+    )
+
+    $title = if ($Task.PSObject.Properties.Name -contains 'title') { [string]$Task.title } else { '' }
+    $description = if ($Task.PSObject.Properties.Name -contains 'description') { [string]$Task.description } else { '' }
+    $text = "$title`n$description"
+
+    if ($ImplementationFiles.Count -gt 1) {
+        return $true
     }
 
-    return $files[0].FullName
+    return $text -match '(?i)\b(api|queue|worker|webhook|cron|crontab|scheduler|cadence|dispatch|automation|integration|service|daemon|watcher)\b'
+}
+
+function Test-MconVerificationPreflight {
+    param(
+        [Parameter(Mandatory)]$Task,
+        [Parameter(Mandatory)]$VerificationPaths,
+        [Parameter(Mandatory)]$TaskBundlePaths
+    )
+
+    $verificationArtifactPath = $VerificationPaths.verification_artifact_path
+    $deliverables = @(Get-MconVerificationCandidateDeliverables -DeliverablesDirectory $TaskBundlePaths.deliverables_directory -TaskId $Task.id)
+    $implementationFiles = @($deliverables | Where-Object { Test-MconDeliverableLooksLikeImplementation -File $_ })
+    $scriptContent = Get-Content -LiteralPath $verificationArtifactPath -Raw
+    $reasons = @()
+    $notes = @()
+
+    $mentionedDeliverables = @(
+        $deliverables |
+            Where-Object { $scriptContent -match [regex]::Escape($_.Name) } |
+            Select-Object -ExpandProperty Name -Unique
+    )
+    $mentionedImplementationFiles = @(
+        $implementationFiles |
+            Where-Object { $scriptContent -match [regex]::Escape($_.Name) } |
+            Select-Object -ExpandProperty Name -Unique
+    )
+
+    if ($mentionedDeliverables.Count -eq 0) {
+        $reasons += 'Verification script does not reference any non-verification deliverable by filename.'
+    }
+
+    if ($implementationFiles.Count -gt 0 -and $mentionedImplementationFiles.Count -eq 0) {
+        $implNames = @($implementationFiles | Select-Object -ExpandProperty Name)
+        $reasons += "Verification script does not target implementation deliverables directly: $($implNames -join ', ')"
+    }
+
+    $hasSuccessExit = $scriptContent -match '(?mi)^\s*exit\s+0\s*$' -or $scriptContent -match '(?mi)^\s*return\s+0\s*$'
+    $hasFailureExit = $scriptContent -match '(?mi)^\s*exit\s+1\s*$' -or
+        $scriptContent -match '(?mi)^\s*exit\s+\$[A-Za-z_][A-Za-z0-9_]*\s*$' -or
+        $scriptContent -match '(?mi)^\s*return\s+1\s*$'
+    if ($hasSuccessExit -and -not $hasFailureExit) {
+        $reasons += 'Verification script contains a success-only exit path.'
+    }
+
+    $runtimeSignals = @(
+        '(?i)\bpytest\b',
+        '(?i)\bpython(\d+(\.\d+)*)?\b',
+        '(?i)\buv\s+run\b',
+        '(?i)\bnode\b',
+        '(?i)\bnpm\b',
+        '(?i)\bpnpm\b',
+        '(?i)\byarn\b',
+        '(?i)\bdotnet\b',
+        '(?i)\bgo\s+test\b',
+        '(?i)\bcargo\s+test\b',
+        '(?i)\binvoke-restmethod\b',
+        '(?i)\bcurl\b',
+        '(?i)\bdocker\b',
+        '(?i)&\s*\$[A-Za-z_][A-Za-z0-9_]*',
+        '(?i)&\s*["''][^"'']+\.(ps1|py|sh|bash|js|ts)'
+    )
+    $runtimeSignalCount = 0
+    foreach ($pattern in $runtimeSignals) {
+        if ($scriptContent -match $pattern) {
+            $runtimeSignalCount++
+        }
+    }
+
+    $staticOnlyPatternCount = 0
+    foreach ($pattern in @('(?i)\bTest-Path\b', '(?i)\bGet-Content\b', '(?i)\s-match\s', '(?i)\[System\.Management\.Automation\.Language\.Parser\]::ParseInput', '(?i)\[guid\]::Parse')) {
+        if ($scriptContent -match $pattern) {
+            $staticOnlyPatternCount++
+        }
+    }
+
+    $integrationLike = Test-MconVerificationTaskLooksLikeIntegration -Task $Task -ImplementationFiles $implementationFiles
+    if ($integrationLike -and $runtimeSignalCount -eq 0) {
+        $reasons += 'Integration-like task has no runtime or behavior-exercising checks; verification is static-only.'
+    }
+
+    if ($integrationLike -and $staticOnlyPatternCount -gt 0 -and $runtimeSignalCount -eq 0) {
+        $reasons += 'Verification relies on file presence/content checks only for a multi-file implementation task.'
+    }
+
+    if ($runtimeSignalCount -gt 0) {
+        $notes += "Detected runtime signals: $runtimeSignalCount"
+    }
+    if ($mentionedImplementationFiles.Count -gt 0) {
+        $notes += "Targets implementation files: $($mentionedImplementationFiles -join ', ')"
+    }
+
+    return [ordered]@{
+        passed = ($reasons.Count -eq 0)
+        related_deliverable_count = $deliverables.Count
+        implementation_deliverable_count = $implementationFiles.Count
+        mentioned_deliverables = $mentionedDeliverables
+        mentioned_implementation_deliverables = $mentionedImplementationFiles
+        integration_like = $integrationLike
+        runtime_signal_count = $runtimeSignalCount
+        static_only_pattern_count = $staticOnlyPatternCount
+        reasons = $reasons
+        notes = $notes
+    }
 }
 
 function Get-MconVerificationPaths {
@@ -56,28 +217,29 @@ function Get-MconVerificationPaths {
 
     $deliverablesDir = $TaskBundlePaths.deliverables_directory
     $primaryDeliverablePath = Get-MconPrimaryDeliverablePath -DeliverablesDirectory $deliverablesDir -TaskId $TaskId
+    $relatedDeliverables = @(Get-MconVerificationCandidateDeliverables -DeliverablesDirectory $deliverablesDir -TaskId $TaskId)
 
     if (Test-MconVerificationTaskLooksLikeDocs -Task $Task) {
         $verificationKind = 'documentation'
         $judgeSpecPath = Join-Path $deliverablesDir "evaluate-$TaskId.json"
         $verificationArtifactPath = Join-Path $deliverablesDir "verify-$TaskId.ps1"
 
-        if (-not (Test-Path -LiteralPath $judgeSpecPath)) {
-            throw "Judge spec not found: $judgeSpecPath"
-        }
-        if (-not (Test-Path -LiteralPath $verificationArtifactPath)) {
-            $templatePath = '/home/cronjev/mission-control-tfsmrt/scripts/verify-docs-template.ps1'
-            if (-not (Test-Path -LiteralPath $templatePath)) {
-                throw "Docs verification wrapper template not found: $templatePath"
+        if (Test-Path -LiteralPath $judgeSpecPath) {
+            if (-not (Test-Path -LiteralPath $verificationArtifactPath)) {
+                $templatePath = '/home/cronjev/mission-control-tfsmrt/scripts/verify-docs-template.ps1'
+                if (-not (Test-Path -LiteralPath $templatePath)) {
+                    throw "Docs verification wrapper template not found: $templatePath"
+                }
+                Copy-Item -LiteralPath $templatePath -Destination $verificationArtifactPath -Force
             }
-            Copy-Item -LiteralPath $templatePath -Destination $verificationArtifactPath -Force
-        }
 
-        return [ordered]@{
-            verification_kind = $verificationKind
-            primary_deliverable_path = $primaryDeliverablePath
-            verification_artifact_path = $verificationArtifactPath
-            judge_spec_path = $judgeSpecPath
+            return [ordered]@{
+                verification_kind = $verificationKind
+                primary_deliverable_path = $primaryDeliverablePath
+                related_deliverable_paths = @($relatedDeliverables | ForEach-Object { $_.FullName })
+                verification_artifact_path = $verificationArtifactPath
+                judge_spec_path = $judgeSpecPath
+            }
         }
     }
 
@@ -89,6 +251,7 @@ function Get-MconVerificationPaths {
     return [ordered]@{
         verification_kind = 'deterministic'
         primary_deliverable_path = $primaryDeliverablePath
+        related_deliverable_paths = @($relatedDeliverables | ForEach-Object { $_.FullName })
         verification_artifact_path = $verificationArtifactPath
         judge_spec_path = $null
     }
@@ -267,13 +430,23 @@ function New-MconVerificationComment {
         [Parameter(Mandatory)]$VerificationPaths,
         [Parameter(Mandatory)]$ExecutionResult,
         [Parameter(Mandatory)][string]$ResultingTaskStatus,
-        $EvidencePacket
+        $EvidencePacket,
+        $Preflight = $null
     )
 
     $decision = if ($ExecutionResult.passed) { 'PASS' } else { 'FAIL' }
     $actionTaken = if ($ExecutionResult.passed) { 'moved to done' } else { 'returned to inbox for rework' }
     $resultPath = if ($ExecutionResult.validation_result_path) { $ExecutionResult.validation_result_path } else { 'none' }
     $stdoutSummary = if ([string]::IsNullOrWhiteSpace($ExecutionResult.stdout)) { 'none' } else { $ExecutionResult.stdout }
+    $preflightSummary = if ($null -ne $Preflight) {
+        if ($Preflight.passed) {
+            'passed'
+        } else {
+            [string](@($Preflight.reasons) -join ' | ')
+        }
+    } else {
+        'not_run'
+    }
     $evidencePacketId = if (
         $null -ne $EvidencePacket -and
         $EvidencePacket.PSObject.Properties.Name -contains 'id'
@@ -291,6 +464,7 @@ Verification artifact: $($VerificationPaths.verification_artifact_path)
 Validation result: $resultPath
 Evidence packet: $evidencePacketId
 Exit code: $($ExecutionResult.exit_code)
+Preflight: $preflightSummary
 Action: $actionTaken
 Resulting task status: $ResultingTaskStatus
 Output: $stdoutSummary
@@ -326,7 +500,17 @@ function Invoke-MconVerifyRun {
     }
 
     $verificationPaths = Get-MconVerificationPaths -Task $task -TaskId $TaskId -TaskBundlePaths $taskBundlePaths
-    $executionResult = Invoke-MconVerificationProcess -TaskId $TaskId -VerificationPaths $verificationPaths -TaskBundlePaths $taskBundlePaths
+    $preflight = Test-MconVerificationPreflight -Task $task -VerificationPaths $verificationPaths -TaskBundlePaths $taskBundlePaths
+    if (-not $preflight.passed) {
+        $executionResult = [ordered]@{
+            exit_code = 1
+            stdout = "Verification preflight failed: $(@($preflight.reasons) -join '; ')"
+            validation_result_path = $null
+            passed = $false
+        }
+    } else {
+        $executionResult = Invoke-MconVerificationProcess -TaskId $TaskId -VerificationPaths $verificationPaths -TaskBundlePaths $taskBundlePaths
+    }
 
     $resultingTaskStatus = if ($executionResult.passed) { 'done' } else { 'inbox' }
     $actionTaken = if ($executionResult.passed) { 'mark_done' } else { 'return_to_sender' }
@@ -347,7 +531,8 @@ function Invoke-MconVerifyRun {
         -VerificationPaths $verificationPaths `
         -ExecutionResult $executionResult `
         -ResultingTaskStatus $resultingTaskStatus `
-        -EvidencePacket $evidencePacket
+        -EvidencePacket $evidencePacket `
+        -Preflight $preflight
 
     $comment = Send-MconComment -BaseUrl $baseUrl -Token $authToken -BoardId $boardId -TaskId $TaskId -Message $commentMessage
     $updatedTask = Set-MconTaskStatus -BaseUrl $leadConfig.base_url -Token $leadConfig.auth_token -BoardId $boardId -TaskId $TaskId -Status $resultingTaskStatus

@@ -36,6 +36,7 @@ class BoardBase(SQLModel):
     only_lead_can_change_status: bool = False
     max_agents: int = Field(default=1, ge=0)
     hide_done_after_days: int | None = None
+    cadence_minutes: int | None = Field(default=None, ge=1)
 
 
 class BoardCreate(BoardBase):
@@ -82,6 +83,7 @@ class BoardUpdate(SQLModel):
     only_lead_can_change_status: bool | None = None
     max_agents: int | None = Field(default=None, ge=0)
     hide_done_after_days: int | None = None
+    cadence_minutes: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def validate_gateway_id(self) -> Self:

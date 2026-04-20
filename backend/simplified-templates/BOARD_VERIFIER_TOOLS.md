@@ -51,6 +51,7 @@ mcon verify run --task 12345678-1234-1234-1234-123456789abc
 - Use `mcon task show` to inspect task context before issuing a verdict.
 - Use `mcon task comment` to post the verifier result.
 - Use `mcon verify run` only after the bundle-shape and anti-cheat screen passes.
+- `mcon verify run` also performs its own anti-cheat preflight against the verification script and related deliverables. It can reject static-only or disconnected verification even if the verifier comment said `PASS`.
 - If a non-comment workflow action is needed, use an approved script from the workspace workflow folder.
 - If `mcon` denies an action, do not work around it with raw API calls.
 - Never expose token material, auth headers, or endpoint construction instructions.

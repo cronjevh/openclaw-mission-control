@@ -72,15 +72,25 @@ $out = pwsh -NoProfile -File $mconScript task 2>&1
 Assert-ExitCode -Label 'task-no-action-exit1' -Expected 1 -Actual $LASTEXITCODE
 Assert-OutputContains -Label 'task-no-action-error' -Output ($out -join '') -Expected 'task <action>'
 
-# Test: task show without --task
+# Test: task show without selector
 $out = pwsh -NoProfile -File $mconScript task show 2>&1
 Assert-ExitCode -Label 'show-no-task-exit1' -Expected 1 -Actual $LASTEXITCODE
-Assert-OutputContains -Label 'show-no-task-error' -Output ($out -join '') -Expected 'required'
+Assert-OutputContains -Label 'show-no-task-error' -Output ($out -join '') -Expected 'requires either'
 
 # Test: task show with invalid UUID
 $out = pwsh -NoProfile -File $mconScript task show --task not-a-uuid 2>&1
 Assert-ExitCode -Label 'show-bad-uuid-exit1' -Expected 1 -Actual $LASTEXITCODE
 Assert-OutputContains -Label 'show-bad-uuid-error' -Output ($out -join '') -Expected 'Invalid task ID'
+
+# Test: task show with both --task and --tags
+$out = pwsh -NoProfile -File $mconScript task show --task 00000000-0000-0000-0000-000000000001 --tags project-mission-control-mechanics 2>&1
+Assert-ExitCode -Label 'show-task-and-tags-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'show-task-and-tags-error' -Output ($out -join '') -Expected 'either --task'
+
+# Test: task show with tags reaches API layer
+$out = pwsh -NoProfile -File $mconScript task show --tags project-mission-control-mechanics 2>&1
+Assert-ExitCode -Label 'show-tags-api-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'show-tags-api-error' -Output ($out -join '') -Expected 'api_error'
 
 # Test: task comment without --message
 $out = pwsh -NoProfile -File $mconScript task comment --task 00000000-0000-0000-0000-000000000001 2>&1
@@ -137,6 +147,71 @@ $out = pwsh -NoProfile -File $mconScript workflow escalate --message blocked --s
 Assert-ExitCode -Label 'escalate-secret-with-channel-exit1' -Expected 1 -Actual $LASTEXITCODE
 Assert-OutputContains -Label 'escalate-secret-with-channel-error' -Output ($out -join '') -Expected 'only valid'
 
+# Test: task create with invalid tag ID
+$out = pwsh -NoProfile -File $mconScript task create --title 'test' --tags not-a-uuid 2>&1
+Assert-ExitCode -Label 'create-bad-tag-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'create-bad-tag-error' -Output ($out -join '') -Expected 'Invalid tag ID'
+
+# Test: task create with invalid depends-on ID
+$out = pwsh -NoProfile -File $mconScript task create --title 'test' --depends-on not-a-uuid 2>&1
+Assert-ExitCode -Label 'create-bad-dep-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'create-bad-dep-error' -Output ($out -join '') -Expected 'Invalid depends-on task ID'
+
+# Test: task create with valid tags and depends-on (passes validation, fails at API)
+$out = pwsh -NoProfile -File $mconScript task create --title 'test' --tags 11111111-1111-1111-1111-111111111111,22222222-2222-2222-2222-222222222222 --depends-on 33333333-3333-3333-3333-333333333333 2>&1
+Assert-ExitCode -Label 'create-valid-tags-deps-api-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'create-valid-tags-deps-api-error' -Output ($out -join '') -Expected 'api_error'
+
+# Test: task update without --task
+$out = pwsh -NoProfile -File $mconScript task update --title 'new' 2>&1
+Assert-ExitCode -Label 'update-no-task-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'update-no-task-error' -Output ($out -join '') -Expected 'required'
+
+# Test: task update without any update fields
+$out = pwsh -NoProfile -File $mconScript task update --task 00000000-0000-0000-0000-000000000001 2>&1
+Assert-ExitCode -Label 'update-no-fields-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'update-no-fields-error' -Output ($out -join '') -Expected 'At least one update field'
+
+# Test: task update with invalid tag ID
+$out = pwsh -NoProfile -File $mconScript task update --task 00000000-0000-0000-0000-000000000001 --tags bad-uuid 2>&1
+Assert-ExitCode -Label 'update-bad-tag-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'update-bad-tag-error' -Output ($out -join '') -Expected 'Invalid tag ID'
+
+# Test: task update with invalid depends-on ID
+$out = pwsh -NoProfile -File $mconScript task update --task 00000000-0000-0000-0000-000000000001 --depends-on bad-uuid 2>&1
+Assert-ExitCode -Label 'update-bad-dep-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'update-bad-dep-error' -Output ($out -join '') -Expected 'Invalid depends-on task ID'
+
+# Test: task update with valid fields (passes validation, fails at API)
+$out = pwsh -NoProfile -File $mconScript task update --task 00000000-0000-0000-0000-000000000001 --title 'new' --priority high 2>&1
+Assert-ExitCode -Label 'update-valid-api-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'update-valid-api-error' -Output ($out -join '') -Expected 'api_error'
+
+# Test: task update with --backlog invalid value
+$out = pwsh -NoProfile -File $mconScript task update --task 00000000-0000-0000-0000-000000000001 --backlog maybe 2>&1
+Assert-ExitCode -Label 'update-bad-backlog-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'update-bad-backlog-error' -Output ($out -join '') -Expected "must be 'true' or 'false'"
+
+# Test: admin cron without --board-id
+$out = pwsh -NoProfile -File $mconScript admin cron --cadence-minutes 10 2>&1
+Assert-ExitCode -Label 'cron-no-board-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'cron-no-board-error' -Output ($out -join '') -Expected '--board-id'
+
+# Test: admin cron without --cadence-minutes
+$out = pwsh -NoProfile -File $mconScript admin cron --board-id 00000000-0000-0000-0000-000000000000 2>&1
+Assert-ExitCode -Label 'cron-no-cadence-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'cron-no-cadence-error' -Output ($out -join '') -Expected '--cadence-minutes'
+
+# Test: admin cron with invalid board-id
+$out = pwsh -NoProfile -File $mconScript admin cron --board-id not-a-uuid --cadence-minutes 10 2>&1
+Assert-ExitCode -Label 'cron-bad-board-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'cron-bad-board-error' -Output ($out -join '') -Expected 'Invalid board ID'
+
+# Test: admin cron with non-integer cadence
+$out = pwsh -NoProfile -File $mconScript admin cron --board-id 00000000-0000-0000-0000-000000000000 --cadence-minutes abc 2>&1
+Assert-ExitCode -Label 'cron-bad-cadence-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'cron-bad-cadence-error' -Output ($out -join '') -Expected 'must be an integer'
+
 Write-Host ''
 Write-Host "Results: $passCount passed, $failCount failed"
 
@@ -157,7 +232,7 @@ function Invoke-MconProcess {
         [string]$Wsp = 'workspace-gateway-testgw'
     )
     $argString = $Arguments -join ' '
-    $cmd = "`$env:MCON_BASE_URL='http://localhost:9999'; `$env:MCON_AUTH_TOKEN='test-token-placeholder'; `$env:MCON_BOARD_ID='00000000-0000-0000-0000-000000000000'; `$env:MCON_WSP='$Wsp'; & '/home/cronjev/mcon-cli/scripts/mcon.ps1' $argString"
+    $cmd = "`$env:MCON_BASE_URL='http://localhost:9999'; `$env:MCON_AUTH_TOKEN='test-token-placeholder'; `$env:MCON_BOARD_ID='00000000-0000-0000-0000-000000000000'; `$env:MCON_WSP='$Wsp'; & '$mconScript' $argString"
     $out = pwsh -NoProfile -Command $cmd 2>&1
     return $out
 }
@@ -210,6 +285,24 @@ $out = Invoke-MconProcess -Arguments @('workflow','escalate','--message','needhe
 Assert-ExitCode -Label 'lead-escalate-api-error-exit1' -Expected 1 -Actual $LASTEXITCODE
 Assert-OutputContains -Label 'lead-escalate-passes-perm' -Output $out -Expected 'Connection refused'
 
+# Test: worker denied task update
+Write-Host '--- worker denied task update ---'
+$out = Invoke-MconProcess -Arguments @('task','update','--task','00000000-0000-0000-0000-000000000001','--title','new') -Wsp 'workspace-mc-testagent'
+Assert-ExitCode -Label 'worker-update-denied-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'worker-update-denied-msg' -Output $out -Expected 'Permission denied'
+
+# Test: lead allowed task update (API fails after permission)
+Write-Host '--- lead passes task update permission check (API fails) ---'
+$out = Invoke-MconProcess -Arguments @('task','update','--task','00000000-0000-0000-0000-000000000001','--title','new') -Wsp 'workspace-lead-testboard'
+Assert-ExitCode -Label 'lead-update-api-error-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'lead-update-passes-perm' -Output $out -Expected 'Connection refused'
+
+# Test: gateway allowed task update (API fails after permission)
+Write-Host '--- gateway passes task update permission check (API fails) ---'
+$out = Invoke-MconProcess -Arguments @('task','update','--task','00000000-0000-0000-0000-000000000001','--title','new') -Wsp 'workspace-gateway-testgw'
+Assert-ExitCode -Label 'gateway-update-api-error-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'gateway-update-passes-perm' -Output $out -Expected 'Connection refused'
+
 # Test: missing MCON_WSP
 Write-Host '--- missing MCON_WSP error ---'
 $out = pwsh -NoProfile -Command "`$env:MCON_BASE_URL='http://localhost:9999'; `$env:MCON_AUTH_TOKEN='test-token-placeholder'; `$env:MCON_BOARD_ID='00000000-0000-0000-0000-000000000000'; remove-item env:MCON_WSP -ErrorAction SilentlyContinue; & '/home/cronjev/mcon-cli/scripts/mcon.ps1' task show --task 00000000-0000-0000-0000-000000000001" 2>&1
@@ -243,6 +336,22 @@ Write-Host '--- gateway admin.gettokens allowed (API connection refused) ---'
 $out = Invoke-MconProcess -Arguments @('admin','gettokens') -Wsp 'workspace-gateway-testgw'
 Assert-ExitCode -Label 'gateway-admin-api-fail' -Expected 1 -Actual $LASTEXITCODE
 Assert-OutputContains -Label 'gateway-admin-api-fail-msg' -Output $out -Expected 'Connection refused'
+
+# --- admin.cron permission tests ---
+Write-Host ''
+Write-Host '--- admin.cron permission tests ---'
+
+# Test: worker denied admin.cron
+Write-Host '--- worker denied admin.cron ---'
+$out = Invoke-MconProcess -Arguments @('admin','cron','--board-id','00000000-0000-0000-0000-000000000000','--cadence-minutes','10') -Wsp 'workspace-mc-testagent'
+Assert-ExitCode -Label 'worker-cron-deny' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'worker-cron-msg' -Output $out -Expected 'Permission denied'
+
+# Test: lead denied admin.cron
+Write-Host '--- lead denied admin.cron ---'
+$out = Invoke-MconProcess -Arguments @('admin','cron','--board-id','00000000-0000-0000-0000-000000000000','--cadence-minutes','10') -Wsp 'workspace-lead-testboard'
+Assert-ExitCode -Label 'lead-cron-deny' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'lead-cron-msg' -Output $out -Expected 'Permission denied'
 
 Write-Host ''
 Write-Host "Permission smoke results: $passCount passed, $failCount failed (total)"

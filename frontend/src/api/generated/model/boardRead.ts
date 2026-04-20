@@ -13,6 +13,7 @@ export interface BoardRead {
   block_status_changes_with_pending_approval?: boolean;
   board_group_id?: string | null;
   board_type?: string;
+  cadence_minutes?: number;
   comment_required_for_review?: boolean;
   created_at: string;
   description: string;

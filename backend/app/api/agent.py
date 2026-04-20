@@ -25,6 +25,7 @@ from app.models.board_webhook_payloads import BoardWebhookPayload
 from app.models.boards import Board
 from app.models.gateways import Gateway
 from app.models.tags import Tag
+from app.models.tag_assignments import TagAssignment
 from app.models.task_dependencies import TaskDependency
 from app.models.tasks import Task
 from app.models.task_evidence import TaskEvidenceArtifact, TaskEvidenceCheck, TaskEvidencePacket
@@ -57,7 +58,7 @@ from app.schemas.gateway_coordination import (
 )
 from app.schemas.health import AgentHealthStatusResponse
 from app.schemas.pagination import DefaultLimitOffsetPage
-from app.schemas.tags import TagRef
+from app.schemas.tags import TagRead, TagRef
 from app.schemas.tasks import TaskCommentCreate, TaskCommentRead, TaskCreate, TaskRead, TaskUpdate
 from app.api.tasks import apply_default_evidence_closure_for_okr_tasks
 from app.services.task_evidence import list_task_evidence_packets
@@ -92,6 +93,8 @@ AGENT_CTX_DEP = Depends(get_agent_auth_context)
 BOARD_DEP = Depends(get_board_or_404)
 BOARD_ID_QUERY = Query(default=None)
 TASK_STATUS_QUERY = Query(default=None, alias="status")
+TAG_QUERY = Query(default=None, alias="tag")
+INCLUDE_HIDDEN_DONE_QUERY = Query(default=False)
 IS_CHAT_QUERY = Query(default=None)
 APPROVAL_STATUS_QUERY = Query(default=None, alias="status")
 
@@ -125,17 +128,23 @@ class AgentTaskListFilters(SQLModel):
     status_filter: str | None = None
     assigned_agent_id: UUID | None = None
     unassigned: bool | None = None
+    tag_filter: str | None = None
+    include_hidden_done: bool = False
 
 
 def _task_list_filters(
     status_filter: str | None = TASK_STATUS_QUERY,
     assigned_agent_id: UUID | None = None,
     unassigned: bool | None = None,
+    tag_filter: str | None = TAG_QUERY,
+    include_hidden_done: bool = INCLUDE_HIDDEN_DONE_QUERY,
 ) -> AgentTaskListFilters:
     return AgentTaskListFilters(
         status_filter=status_filter,
         assigned_agent_id=assigned_agent_id,
         unassigned=unassigned,
+        tag_filter=tag_filter,
+        include_hidden_done=include_hidden_done,
     )
 
 
@@ -608,6 +617,8 @@ async def list_tasks(
         status_filter=filters.status_filter,
         assigned_agent_id=filters.assigned_agent_id,
         unassigned=filters.unassigned,
+        tag_filter=filters.tag_filter,
+        include_hidden_done=filters.include_hidden_done,
         board=board,
         session=session,
         _actor=_actor(agent_ctx),
@@ -691,6 +702,52 @@ async def list_tags(
         )
         for tag in tags
     ]
+
+
+@router.get(
+    "/boards/{board_id}/tags/{tag_id}",
+    response_model=TagRead,
+    tags=AGENT_BOARD_TAGS,
+    openapi_extra=_agent_board_openapi_hints(
+        intent="agent_board_tag_detail",
+        when_to_use=[
+            "Agent needs the full tag record, including description metadata, for project-scoped summaries.",
+        ],
+        routing_examples=[
+            {
+                "input": {
+                    "intent": "read tag metadata for project summary generation",
+                    "required_privilege": "any_agent",
+                },
+                "decision": "agent_board_tag_detail",
+            }
+        ],
+    ),
+)
+async def get_tag(
+    tag_id: UUID,
+    board: Board = BOARD_DEP,
+    session: AsyncSession = SESSION_DEP,
+    agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
+) -> TagRead:
+    """Fetch one organization tag visible to the board agent."""
+    _guard_board_access(agent_ctx, board)
+    tag = (
+        await session.exec(
+            select(Tag).where(col(Tag.id) == tag_id).where(col(Tag.organization_id) == board.organization_id),
+        )
+    ).first()
+    if tag is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    count = (
+        await session.exec(
+            select(func.count(col(TagAssignment.task_id))).where(col(TagAssignment.tag_id) == tag.id),
+        )
+    ).one()
+    return TagRead.model_validate(tag, from_attributes=True).model_copy(
+        update={"task_count": int(count or 0)},
+    )
 
 
 @router.get(

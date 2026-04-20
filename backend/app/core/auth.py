@@ -63,6 +63,7 @@ class AuthContext:
 
     actor_type: Literal["user"]
     user: User | None = None
+    local_auth_bypass: bool = False
 
 
 def _extract_bearer_token(authorization: str | None) -> str | None:
@@ -444,7 +445,7 @@ async def _resolve_local_auth_context(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
         return None
     user = await _get_or_create_local_user(session)
-    return AuthContext(actor_type="user", user=user)
+    return AuthContext(actor_type="user", user=user, local_auth_bypass=True)
 
 
 def _parse_subject(claims: dict[str, object]) -> str | None:

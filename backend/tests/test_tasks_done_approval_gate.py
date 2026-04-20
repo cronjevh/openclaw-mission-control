@@ -115,6 +115,20 @@ async def _update_task_status(
     )
 
 
+async def _update_task_status_as_local_auth(
+    session: AsyncSession,
+    *,
+    task: Task,
+    status: Literal["inbox", "in_progress", "review", "done"],
+) -> TaskRead:
+    return await tasks_api.update_task(
+        payload=TaskUpdate(status=status),
+        task=task,
+        session=session,
+        actor=ActorContext(actor_type="user", local_auth_bypass=True),
+    )
+
+
 @pytest.mark.asyncio
 async def test_update_task_rejects_done_without_approved_linked_approval() -> None:
     engine = await _make_engine()
@@ -232,6 +246,116 @@ async def test_update_task_allows_done_without_approval_when_board_toggle_disabl
             )
 
             assert updated.status == "done"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_local_auth_bypass_allows_done_without_evidence_packet() -> None:
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            _board, task, _agent = await _seed_board_task_and_agent(
+                session,
+                require_approval_for_done=False,
+            )
+            task.closure_mode = "evidence_packet"
+            session.add(task)
+            await session.commit()
+
+            updated = await _update_task_status_as_local_auth(
+                session,
+                task=task,
+                status="done",
+            )
+
+            assert updated.status == "done"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_local_auth_bypass_allows_done_without_approved_linked_approval() -> None:
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            board, task, _agent = await _seed_board_task_and_agent(session)
+            session.add(
+                Approval(
+                    id=uuid4(),
+                    board_id=board.id,
+                    task_id=task.id,
+                    action_type="task.review",
+                    confidence=65,
+                    status="pending",
+                ),
+            )
+            await session.commit()
+
+            updated = await _update_task_status_as_local_auth(
+                session,
+                task=task,
+                status="done",
+            )
+
+            assert updated.status == "done"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_local_auth_bypass_allows_done_without_review_stage() -> None:
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            _board, task, _agent = await _seed_board_task_and_agent(
+                session,
+                task_status="in_progress",
+                require_approval_for_done=False,
+                require_review_before_done=True,
+            )
+
+            updated = await _update_task_status_as_local_auth(
+                session,
+                task=task,
+                status="done",
+            )
+
+            assert updated.status == "done"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_local_auth_bypass_allows_status_change_with_pending_approval() -> None:
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            board, task, _agent = await _seed_board_task_and_agent(
+                session,
+                task_status="inbox",
+                require_approval_for_done=False,
+                block_status_changes_with_pending_approval=True,
+            )
+            session.add(
+                Approval(
+                    id=uuid4(),
+                    board_id=board.id,
+                    task_id=task.id,
+                    action_type="task.execute",
+                    confidence=70,
+                    status="pending",
+                ),
+            )
+            await session.commit()
+
+            updated = await _update_task_status_as_local_auth(
+                session,
+                task=task,
+                status="in_progress",
+            )
+
+            assert updated.status == "in_progress"
     finally:
         await engine.dispose()
 

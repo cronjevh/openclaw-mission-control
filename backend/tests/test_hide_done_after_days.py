@@ -13,6 +13,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.tasks import _task_list_statement
 from app.models.boards import Board
+from app.models.tag_assignments import TagAssignment
+from app.models.tags import Tag
 from app.models.tasks import Task
 from app.schemas.boards import BoardUpdate
 
@@ -136,6 +138,116 @@ async def test_task_list_statement_no_filter_when_null_or_zero() -> None:
             rows_zero = (await session.exec(stmt_zero)).all()
             titles_zero = {t.title for t in rows_zero}
             assert "Old Done" in titles_zero
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_task_list_statement_can_include_hidden_done_when_requested() -> None:
+    """Explicit include_hidden_done bypasses the UI-oriented hide filter."""
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            board_id = uuid4()
+            board = Board(
+                id=board_id,
+                organization_id=uuid4(),
+                name="Test Board",
+                slug="test-board",
+                hide_done_after_days=7,
+            )
+            session.add(board)
+            now = datetime.now(timezone.utc)
+            session.add(
+                Task(
+                    board_id=board_id,
+                    title="Old Done",
+                    status="done",
+                    updated_at=now - timedelta(days=30),
+                ),
+            )
+            await session.commit()
+
+            stmt = _task_list_statement(
+                board_id=board_id,
+                status_filter=None,
+                assigned_agent_id=None,
+                unassigned=None,
+                hide_done_after_days=board.hide_done_after_days,
+                include_hidden_done=True,
+            )
+
+            rows = (await session.exec(stmt)).all()
+            assert {task.title for task in rows} == {"Old Done"}
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_task_list_statement_filters_by_tag_slug_name_or_id() -> None:
+    """Tag filters should match board tasks by slug, name, or UUID."""
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            board_id = uuid4()
+            organization_id = uuid4()
+            board = Board(
+                id=board_id,
+                organization_id=organization_id,
+                name="Test Board",
+                slug="test-board",
+            )
+            release_tag = Tag(
+                id=uuid4(),
+                organization_id=organization_id,
+                name="Release QA",
+                slug="release-qa",
+                color="111111",
+            )
+            backend_tag = Tag(
+                id=uuid4(),
+                organization_id=organization_id,
+                name="Backend",
+                slug="backend",
+                color="222222",
+            )
+            release_task = Task(board_id=board_id, title="Release task", status="in_progress")
+            backend_task = Task(board_id=board_id, title="Backend task", status="inbox")
+            session.add_all([board, release_tag, backend_tag, release_task, backend_task])
+            await session.flush()
+            session.add_all(
+                [
+                    TagAssignment(task_id=release_task.id, tag_id=release_tag.id),
+                    TagAssignment(task_id=backend_task.id, tag_id=backend_tag.id),
+                ],
+            )
+            await session.commit()
+
+            stmt_by_slug = _task_list_statement(
+                board_id=board_id,
+                status_filter=None,
+                assigned_agent_id=None,
+                unassigned=None,
+                tag_filter="release-qa",
+            )
+            stmt_by_name = _task_list_statement(
+                board_id=board_id,
+                status_filter=None,
+                assigned_agent_id=None,
+                unassigned=None,
+                tag_filter="Release QA",
+            )
+            stmt_by_id = _task_list_statement(
+                board_id=board_id,
+                status_filter=None,
+                assigned_agent_id=None,
+                unassigned=None,
+                tag_filter=str(release_tag.id),
+            )
+
+            assert [(await session.exec(stmt_by_slug)).one().title] == ["Release task"]
+            assert [(await session.exec(stmt_by_name)).one().title] == ["Release task"]
+            assert [(await session.exec(stmt_by_id)).one().title] == ["Release task"]
     finally:
         await engine.dispose()
 

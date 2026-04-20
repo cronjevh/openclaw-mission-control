@@ -6,9 +6,11 @@ $script:RoleMap = @{
 
 $script:Permissions = @{
     'task.move'            = @('gateway')
+    'task.update'          = @('lead', 'gateway')
     'admin.gettokens'      = @('gateway')
     'admin.decrypt-keybag' = @('gateway')
     'admin.templatedist'   = @('gateway')
+    'admin.cron'           = @('gateway')
     'workflow.assign'      = @('lead')
     'workflow.dispatch'    = @('lead', 'worker', 'verifier')
     'workflow.blocker'     = @('worker', 'verifier')

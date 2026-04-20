@@ -126,6 +126,7 @@ async def test_get_auth_context_local_mode_requires_valid_bearer_token(
     assert ctx.actor_type == "user"
     assert ctx.user is not None
     assert ctx.user.clerk_user_id == "local-auth-user"
+    assert ctx.local_auth_bypass is True
 
 
 @pytest.mark.asyncio

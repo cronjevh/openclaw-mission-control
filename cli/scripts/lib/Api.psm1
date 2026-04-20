@@ -70,6 +70,28 @@ function Get-MconTask {
     return Invoke-MconApi -Method Get -Uri $uri -Token $Token
 }
 
+function Get-MconTaskComments {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [Parameter(Mandatory)][string]$Token,
+        [Parameter(Mandatory)][string]$BoardId,
+        [Parameter(Mandatory)][string]$TaskId
+    )
+
+    $encodedBoard = [uri]::EscapeDataString($BoardId)
+    $encodedTask = [uri]::EscapeDataString($TaskId)
+    $uri = "$BaseUrl/api/v1/agent/boards/$encodedBoard/tasks/$encodedTask/comments"
+    $response = Invoke-MconApi -Method Get -Uri $uri -Token $Token
+    if ($response.PSObject.Properties.Name -contains 'items') {
+        return @($response.items | Where-Object { $null -ne $_ })
+    }
+    if ($response -is [array]) {
+        return @($response)
+    }
+    return @($response)
+}
+
 function Send-MconComment {
     [CmdletBinding()]
     param(
@@ -114,7 +136,8 @@ function New-MconTask {
         [string]$Description,
         [string]$Priority,
         [Nullable[bool]]$Backlog,
-        [string[]]$TagIds
+        [string[]]$TagIds,
+        [string[]]$DependsOnTaskIds
     )
 
     $encodedBoard = [uri]::EscapeDataString($BoardId)
@@ -143,7 +166,56 @@ function New-MconTask {
         $body.tag_ids = @($TagIds)
     }
 
+    if ($DependsOnTaskIds -and $DependsOnTaskIds.Count -gt 0) {
+        $body.depends_on_task_ids = @($DependsOnTaskIds)
+    }
+
     return Invoke-MconApi -Method Post -Uri $uri -Token $Token -Body $body
 }
 
-Export-ModuleMember -Function Invoke-MconApi, Get-MconTask, Send-MconComment, Set-MconTaskStatus, New-MconTask
+function Set-MconTask {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [Parameter(Mandatory)][string]$Token,
+        [Parameter(Mandatory)][string]$BoardId,
+        [Parameter(Mandatory)][string]$TaskId,
+        [string]$Title,
+        [string]$Description,
+        [string]$Priority,
+        [Nullable[bool]]$Backlog,
+        [string[]]$TagIds,
+        [string[]]$DependsOnTaskIds
+    )
+
+    $encodedBoard = [uri]::EscapeDataString($BoardId)
+    $encodedTask = [uri]::EscapeDataString($TaskId)
+    $uri = "$BaseUrl/api/v1/agent/boards/$encodedBoard/tasks/$encodedTask"
+
+    $body = @{}
+
+    if ($Title) {
+        $body.title = $Title
+    }
+    if ($Description) {
+        $body.description = $Description
+    }
+    if ($Priority) {
+        $body.priority = $Priority
+    }
+    if ($null -ne $Backlog) {
+        $body.custom_field_values = @{
+            backlog = [bool]$Backlog
+        }
+    }
+    if ($TagIds -and $TagIds.Count -gt 0) {
+        $body.tag_ids = @($TagIds)
+    }
+    if ($DependsOnTaskIds -and $DependsOnTaskIds.Count -gt 0) {
+        $body.depends_on_task_ids = @($DependsOnTaskIds)
+    }
+
+    return Invoke-MconApi -Method Patch -Uri $uri -Token $Token -Body $body
+}
+
+Export-ModuleMember -Function Invoke-MconApi, Get-MconTask, Get-MconTaskComments, Get-MconBoardTags, Get-MconBoardTag, Get-MconBoardTasks, Send-MconComment, Set-MconTaskStatus, New-MconTask, Set-MconTask

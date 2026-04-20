@@ -35,7 +35,10 @@ export PATH="$HOME/bin:$PATH"
 ```bash
 mcon help                              # Show all commands
 mcon task show --task <UUID>           # View task details
-mcon task create --title "New task" [--backlog false]   # Create a new task
+mcon task show --tags project-mission-control-mechanics   # Summarize tagged project work from live board state
+mcon task show --tags d820c92f-c5ac-46ac-9da9-f32a8aa39c83,project-mission-control-mechanics
+mcon task create --title "New task" [--backlog false] [--tags <ID,...>]   # Create a new task
+mcon task update --task <UUID> --title "Renamed"       # Update task fields (lead/gateway only)
 mcon workflow dispatch                  # Evaluate board state, enqueue heartbeat
 mcon workflow submitreview --task <UUID>  # Submit completed task for review
 mcon admin gettokens                   # Fetch and encrypt agent credentials
@@ -48,9 +51,11 @@ The CLI auto-detects the workspace from `$PWD`, decrypts the keybag, and execute
 | Command | Description | Roles |
 |---------|-------------|-------|
 | `mcon task show --task <ID>` | View task details | all |
+| `mcon task show --tags <TAG_ID\|SLUG\|NAME,...>` | Summarize board work for one or more tags, including objective/KRs from tag description markdown | all |
 | `mcon task comment --task <ID> --message <TEXT>` | Add comment to task | all |
 | `mcon task move --task <ID> --status <STATUS>` | Change task status | gateway |
-| `mcon task create --title <TITLE> [--backlog <true\|false>]` | Create a new task | all |
+| `mcon task create --title <TITLE> [--description <TEXT>] [--priority <LEVEL>] [--backlog <true\|false>] [--tags <TAG_ID,...>] [--depends-on <TASK_ID,...>]` | Create a new task | all |
+| `mcon task update --task <ID> [--title <TITLE>] [--description <TEXT>] [--priority <LEVEL>] [--backlog <true\|false>] [--tags <TAG_ID,...>] [--depends-on <TASK_ID,...>]` | Update task fields | lead, gateway |
 | `mcon admin gettokens` | Fetch agents, derive tokens, encrypt keybag | gateway |
 | `mcon admin decrypt-keybag` | Decrypt `.agent-tokens.json.enc` | gateway |
 | `mcon admin templatedist --templates-dir <DIR>` | Render and distribute workspace templates | gateway |
@@ -76,6 +81,7 @@ The CLI auto-detects the workspace from `$PWD`, decrypts the keybag, and execute
 | `Config.psm1` | Configuration resolution from env, files, and encrypted keybag |
 | `Api.psm1` | HTTP helpers for Mission Control board API calls |
 | `Output.psm1` | JSON response formatting and structured error output |
+| `TagSummary.psm1` | Board-derived project summaries for `task show --tags` |
 | `Rbac.psm1` | Role derivation and permission checks |
 | `Crypto.psm1` | AES-256 encryption/decryption for keybag |
 | `Admin.psm1` | Token management and keybag generation |
@@ -105,6 +111,8 @@ Permissions matrix:
 | `task.show` | yes | yes | yes | yes |
 | `task.comment` | yes | yes | yes | yes |
 | `task.move` | | yes | | |
+| `task.create` | yes | yes | yes | yes |
+| `task.update` | yes | yes | | |
 | `admin.gettokens` | | yes | | |
 | `admin.decrypt-keybag` | | yes | | |
 | `admin.templatedist` | | yes | | |
@@ -134,6 +142,59 @@ Environment variables (or `.mcon.env`):
 | `MCON_AGENT_ID` | Agent UUID |
 | `MCON_WSP` | Workspace name |
 
+## Tag Project Summaries
+
+`mcon task show --tags ...` returns a board-derived project summary shaped similarly to the old ledger output, but computed from live board data. It always includes hidden historical `done` tasks so project summaries are not constrained by the UI-focused `hide_done_after_days` setting.
+
+Rules:
+
+- Use either `--task` or `--tags`, never both.
+- `--tags` accepts a comma-separated list of tag IDs, exact slugs, or exact names.
+- Each requested tag becomes one summary entry in the response.
+
+For project metadata, the command reads the tag description markdown and recognizes these sections when present:
+
+- `## Objective`, `## Goal`, or `## Goals`
+- `## Phase`
+- `## Key Results` or `## KRs`
+- `## Blockers`
+- `## Next Recommended Task Or Decision` or `## Next Step`
+
+Checklist items in the KR section such as `- [ ] ...` and `- [x] ...` are converted into KR entries with `active` or `done` status.
+
+Suggested tag description pattern:
+
+```md
+## Objective
+Make project state visible in the board and CLI.
+
+## Phase
+Validation
+
+## Key Results
+- [ ] Add board-backed tag summary reads
+- [ ] Expose project metadata through visible tag descriptions
+- [x] Remove reliance on hidden local ledgers
+
+## Blockers
+- Waiting on UI review of the summary shape
+
+## Next Recommended Task Or Decision
+Wire the same summary into the board UI.
+```
+
+The returned summary shape includes:
+
+- `objective`
+- `phase`
+- `active_krs`
+- `open_blockers`
+- `active_related_tasks`
+- `active_task_ids`
+- `last_reviewed_artifacts`
+- `next_recommended_task_or_decision`
+- tag metadata and the raw `tag_description_markdown`
+
 ## Development
 
 See [docs/development.md](docs/development.md) for guides on adding commands, testing, and extending the CLI.
@@ -149,6 +210,7 @@ mcon-cli/
       Config.psm1
       Api.psm1
       Output.psm1
+      TagSummary.psm1
       Rbac.psm1
       Crypto.psm1
       Admin.psm1

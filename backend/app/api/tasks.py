@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import asc, desc, or_
+from sqlalchemy import asc, desc, func, or_
 from sqlmodel import col, select
 from sse_starlette.sse import EventSourceResponse
 
@@ -37,6 +37,7 @@ from app.models.approvals import Approval
 from app.models.boards import Board
 from app.models.organization_members import OrganizationMember
 from app.models.tag_assignments import TagAssignment
+from app.models.tags import Tag
 from app.models.task_custom_fields import (
     BoardTaskCustomField,
     TaskCustomFieldDefinition,
@@ -125,6 +126,8 @@ BOARD_READ_DEP = Depends(get_board_for_actor_read)
 ACTOR_DEP = Depends(require_user_or_agent)
 SINCE_QUERY = Query(default=None)
 STATUS_QUERY = Query(default=None, alias="status")
+TAG_QUERY = Query(default=None, alias="tag")
+INCLUDE_HIDDEN_DONE_QUERY = Query(default=False)
 BOARD_WRITE_DEP = Depends(get_board_for_user_write)
 SESSION_DEP = Depends(get_session)
 USER_AUTH_DEP = Depends(require_user_auth)
@@ -1585,7 +1588,9 @@ def _task_list_statement(
     status_filter: str | None,
     assigned_agent_id: UUID | None,
     unassigned: bool | None,
+    tag_filter: str | None = None,
     hide_done_after_days: int | None = None,
+    include_hidden_done: bool = False,
 ) -> SelectOfScalar[Task]:
     statement = select(Task).where(Task.board_id == board_id)
     statuses = _status_values(status_filter)
@@ -1595,8 +1600,28 @@ def _task_list_statement(
         statement = statement.where(col(Task.assigned_agent_id) == assigned_agent_id)
     if unassigned:
         statement = statement.where(col(Task.assigned_agent_id).is_(None))
+    normalized_tags = [item.strip() for item in (tag_filter or "").split(",") if item.strip()]
+    if normalized_tags:
+        tag_conditions: list[object] = []
+        for value in normalized_tags:
+            lowered = value.lower()
+            matchers: list[object] = [
+                func.lower(col(Tag.slug)) == lowered,
+                func.lower(col(Tag.name)) == lowered,
+            ]
+            try:
+                matchers.append(col(Tag.id) == UUID(value))
+            except ValueError:
+                pass
+            tag_conditions.append(or_(*matchers))
+        statement = (
+            statement.join(TagAssignment, col(TagAssignment.task_id) == col(Task.id))
+            .join(Tag, col(Tag.id) == col(TagAssignment.tag_id))
+            .where(or_(*tag_conditions))
+            .distinct()
+        )
     # Filter out old done tasks if board has hide_done_after_days set
-    if hide_done_after_days and hide_done_after_days > 0:
+    if (not include_hidden_done) and hide_done_after_days and hide_done_after_days > 0:
         from datetime import datetime, timedelta, timezone
         cutoff = datetime.now(timezone.utc) - timedelta(days=hide_done_after_days)
         # Exclude tasks that are done AND updated_at before cutoff
@@ -1886,6 +1911,8 @@ async def stream_tasks(
 @router.get("", response_model=DefaultLimitOffsetPage[TaskRead])
 async def list_tasks(
     status_filter: str | None = STATUS_QUERY,
+    tag_filter: str | None = TAG_QUERY,
+    include_hidden_done: bool = INCLUDE_HIDDEN_DONE_QUERY,
     assigned_agent_id: UUID | None = None,
     unassigned: bool | None = None,
     board: Board = BOARD_READ_DEP,
@@ -1898,7 +1925,9 @@ async def list_tasks(
         status_filter=status_filter,
         assigned_agent_id=assigned_agent_id,
         unassigned=unassigned,
+        tag_filter=tag_filter,
         hide_done_after_days=board.hide_done_after_days,
+        include_hidden_done=include_hidden_done,
     )
 
     async def _transform(items: Sequence[object]) -> Sequence[object]:
@@ -2685,6 +2714,10 @@ def _task_event_details(task: Task, previous_status: str) -> tuple[str, str]:
     return "task.updated", f"Task updated: {task.title}."
 
 
+def _actor_bypasses_transition_rules(actor: ActorContext) -> bool:
+    return actor.actor_type == "user" and actor.local_auth_bypass
+
+
 async def _lead_notify_new_assignee(
     session: AsyncSession,
     *,
@@ -2758,33 +2791,34 @@ async def _apply_lead_task_update(
 
     await _lead_apply_assignment(session, update=update)
     await _lead_apply_status(session, update=update)
-    await _require_no_pending_approval_for_status_change_when_enabled(
-        session,
-        board_id=update.board_id,
-        task_id=update.task.id,
-        previous_status=update.previous_status,
-        target_status=update.task.status,
-        status_requested=update.status_requested,
-    )
-    await _require_review_before_done_when_enabled(
-        session,
-        board_id=update.board_id,
-        previous_status=update.previous_status,
-        target_status=update.task.status,
-    )
-    await _require_approved_linked_approval_for_done(
-        session,
-        board_id=update.board_id,
-        task_id=update.task.id,
-        previous_status=update.previous_status,
-        target_status=update.task.status,
-    )
-    await _require_task_evidence_for_done_when_enabled(
-        session,
-        task=update.task,
-        previous_status=update.previous_status,
-        target_status=update.task.status,
-    )
+    if not _actor_bypasses_transition_rules(update.actor):
+        await _require_no_pending_approval_for_status_change_when_enabled(
+            session,
+            board_id=update.board_id,
+            task_id=update.task.id,
+            previous_status=update.previous_status,
+            target_status=update.task.status,
+            status_requested=update.status_requested,
+        )
+        await _require_review_before_done_when_enabled(
+            session,
+            board_id=update.board_id,
+            previous_status=update.previous_status,
+            target_status=update.task.status,
+        )
+        await _require_approved_linked_approval_for_done(
+            session,
+            board_id=update.board_id,
+            task_id=update.task.id,
+            previous_status=update.previous_status,
+            target_status=update.task.status,
+        )
+        await _require_task_evidence_for_done_when_enabled(
+            session,
+            task=update.task,
+            previous_status=update.previous_status,
+            target_status=update.task.status,
+        )
 
     if normalized_tag_ids is not None:
         await replace_tags(
@@ -3247,41 +3281,46 @@ async def _finalize_updated_task(
     for key, value in update.updates.items():
         setattr(update.task, key, value)
     _apply_default_evidence_closure_for_okr_task_model(update.task)
-    await _require_no_pending_approval_for_status_change_when_enabled(
-        session,
-        board_id=update.board_id,
-        task_id=update.task.id,
-        previous_status=update.previous_status,
-        target_status=update.task.status,
-        status_requested=update.status_requested,
-    )
-    await _require_review_before_done_when_enabled(
-        session,
-        board_id=update.board_id,
-        previous_status=update.previous_status,
-        target_status=update.task.status,
-    )
-    await _require_approved_linked_approval_for_done(
-        session,
-        board_id=update.board_id,
-        task_id=update.task.id,
-        previous_status=update.previous_status,
-        target_status=update.task.status,
-    )
-    await _require_task_evidence_for_done_when_enabled(
-        session,
-        task=update.task,
-        previous_status=update.previous_status,
-        target_status=update.task.status,
-    )
+    if not _actor_bypasses_transition_rules(update.actor):
+        await _require_no_pending_approval_for_status_change_when_enabled(
+            session,
+            board_id=update.board_id,
+            task_id=update.task.id,
+            previous_status=update.previous_status,
+            target_status=update.task.status,
+            status_requested=update.status_requested,
+        )
+        await _require_review_before_done_when_enabled(
+            session,
+            board_id=update.board_id,
+            previous_status=update.previous_status,
+            target_status=update.task.status,
+        )
+        await _require_approved_linked_approval_for_done(
+            session,
+            board_id=update.board_id,
+            task_id=update.task.id,
+            previous_status=update.previous_status,
+            target_status=update.task.status,
+        )
+        await _require_task_evidence_for_done_when_enabled(
+            session,
+            task=update.task,
+            previous_status=update.previous_status,
+            target_status=update.task.status,
+        )
     update.task.updated_at = utcnow()
 
     status_raw = update.updates.get("status")
     # Entering review can require a new comment or valid recent context when
     # the board-level rule is enabled.
-    if status_raw == "review" and await _require_comment_for_review_when_enabled(
-        session,
-        board_id=update.board_id,
+    if (
+        not _actor_bypasses_transition_rules(update.actor)
+        and status_raw == "review"
+        and await _require_comment_for_review_when_enabled(
+            session,
+            board_id=update.board_id,
+        )
     ):
         comment_text = (update.comment or "").strip()
         review_comment_author = update.task.assigned_agent_id or update.previous_assigned
@@ -3457,7 +3496,7 @@ async def bulk_update_task_status(
             continue
         # Evidence enforcement guard: if closing to 'done' and task requires evidence,
         # ensure an active evidence packet exists. Skip task on failure.
-        if payload.status == "done":
+        if payload.status == "done" and not _actor_bypasses_transition_rules(actor):
             try:
                 await _require_task_evidence_for_done_when_enabled(
                     session,

@@ -2,6 +2,8 @@
 
 Use `mcon` for Mission Control task inspection and verifier comments.
 
+- The verifier heartbeat runs in a task-scoped session for the current review task. Do not switch to a main session or rebuild context from memory.
+
 - Do not construct raw HTTP requests.
 - Do not use `curl` against Mission Control endpoints.
 - Do not search for or print tokens.

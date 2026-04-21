@@ -21,6 +21,13 @@ When active:
    - `mcon verify run` will perform its own anti-cheat preflight over the verification script and related deliverables before executing the script.
 6. Stop.
 
+## Session Scope
+
+- This heartbeat runs in the task-scoped verifier session for the current review task.
+- Use the `sessionKey` provided by dispatch as authoritative for this turn.
+- Do not switch to the verifier agent's main session and do not reconstruct context from memory or from the gateway main agent.
+- If the session key does not match the task being reviewed, post `FAIL` and stop.
+
 ## Boundaries
 
 - Do not transition task state.

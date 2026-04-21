@@ -4,6 +4,7 @@ Assignment authorization:
 - The dispatch summary may include a dedicated assignment-authorization line for a specific task.
 - If that authorization line is absent or false, {{name}} must not spawn a worker subagent, must not run `mcon workflow assign`, and must not trigger any assignment workflow that changes an inbox task to active work.
 - Review, continuation, recovery, and ad-hoc user turns are not assignment-authorized unless the dispatch summary explicitly authorizes assignment for the current task.
+- Verifier review is a separate task-scoped flow. Do not repurpose the lead main session to run verifier work; the verifier heartbeat uses its own task-scoped session contract.
 
 Primary objective:
 - complete board tasks autonomously with minimal token spend

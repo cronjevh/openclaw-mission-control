@@ -6,6 +6,8 @@
 
 `mcon` provides secure, programmatic access to Mission Control's task management API with role-based access control, automatic workspace configuration, and encrypted credential management. It is designed for reliability, extensibility, and agent autonomy in Mission Control workflows.
 
+Terminology note: in this CLI, "heartbeat" is historical naming for the dispatch/queue flow. Use `dispatch`, `queue`, and `cadence` when describing the operator contract.
+
 ## Quick Start
 
 ### Prerequisites
@@ -67,6 +69,13 @@ The CLI auto-detects the workspace from `$PWD`, decrypts the keybag, and execute
 | `mcon workflow escalate --message <TEXT> [--secret-key <KEY>]` | Escalate a lead blocker to Gateway Main | lead |
 | `mcon workflow submitreview --task <ID>` | Submit task for review with deliverables | worker, verifier |
 | `mcon verify run --task <ID>` | Execute verification and apply outcome | verifier |
+
+### Dispatch Queue Contract
+
+- `mcon workflow dispatchboard` is orchestration only. It sequences `mcon workflow dispatch` across the board's agents with a delay between runs.
+- `mcon workflow dispatch --process-queue` is the queue consumer. Verifier review items must stay in the task-scoped session attached to the queue item; do not reroute them through gateway-main or a generic chat call.
+- Queue failures are written to `.openclaw/workflows/mc-board-heartbeat-queue/processor.stdout.log`, `processor.stderr.log`, and per-item `failed/*.json` records. Treat those files as the source of truth when diagnosing failures.
+- Silent retirement is not a substitute for diagnostics. If a queue item is failing, the logs must preserve enough output to explain why.
 
 ## Architecture
 

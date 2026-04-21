@@ -313,11 +313,11 @@ function Initialize-MconHeartbeatQueue {
 }
 
 function Test-MconHeartbeatProcessAlive {
-    param([int]$Pid)
+    param([int]$ProcessId)
 
-    if (-not $Pid) { return $false }
+    if (-not $ProcessId) { return $false }
     try {
-        Get-Process -Id $Pid -ErrorAction Stop | Out-Null
+        Get-Process -Id $ProcessId -ErrorAction Stop | Out-Null
         return $true
     } catch {
         return $false

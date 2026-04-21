@@ -218,4 +218,69 @@ function Set-MconTask {
     return Invoke-MconApi -Method Patch -Uri $uri -Token $Token -Body $body
 }
 
+function Get-MconBoardTags {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [Parameter(Mandatory)][string]$Token,
+        [Parameter(Mandatory)][string]$BoardId
+    )
+    $encodedBoard = [uri]::EscapeDataString($BoardId)
+    $uri = "$BaseUrl/api/v1/agent/boards/$encodedBoard/tags"
+    return Invoke-MconApi -Method Get -Uri $uri -Token $Token
+}
+
+function Get-MconBoardTag {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [Parameter(Mandatory)][string]$Token,
+        [Parameter(Mandatory)][string]$BoardId,
+        [Parameter(Mandatory)][string]$TagId
+    )
+    $encodedBoard = [uri]::EscapeDataString($BoardId)
+    $encodedTag = [uri]::EscapeDataString($TagId)
+    $uri = "$BaseUrl/api/v1/agent/boards/$encodedBoard/tags/$encodedTag"
+    return Invoke-MconApi -Method Get -Uri $uri -Token $Token
+}
+
+function Get-MconBoardTasks {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [Parameter(Mandatory)][string]$Token,
+        [Parameter(Mandatory)][string]$BoardId,
+        [string]$Tag,
+        [bool]$IncludeHiddenDone = $false,
+        [string]$Status,
+        [string]$AssignedAgentId,
+        [bool]$Unassigned,
+        [int]$Limit = 200,
+        [int]$Offset = 0
+    )
+    $encodedBoard = [uri]::EscapeDataString($BoardId)
+    $uri = "$BaseUrl/api/v1/agent/boards/$encodedBoard/tasks"
+    $queryParams = @{}
+    if ($PSBoundParameters.ContainsKey('Tag')) { $queryParams['tag'] = $Tag }
+    if ($PSBoundParameters.ContainsKey('Status')) { $queryParams['status'] = $Status }
+    if ($PSBoundParameters.ContainsKey('AssignedAgentId')) { $queryParams['assigned_agent_id'] = $AssignedAgentId }
+    if ($PSBoundParameters.ContainsKey('Unassigned')) { $queryParams['unassigned'] = $Unassigned.ToString().ToLower() }
+    $queryParams['include_hidden_done'] = $IncludeHiddenDone.ToString().ToLower()
+    $queryParams['limit'] = $Limit
+    $queryParams['offset'] = $Offset
+
+    if ($queryParams.Count -gt 0) {
+        $uri = "$uri?" + ($queryParams.GetEnumerator() | ForEach-Object { "$($_.Key)=$([uri]::EscapeDataString($_.Value))" } -join '&')
+    }
+
+    $response = Invoke-MconApi -Method Get -Uri $uri -Token $Token
+    if ($response.PSObject.Properties.Name -contains 'items') {
+        return @($response.items | Where-Object { $null -ne $_ })
+    }
+    if ($response -is [array]) {
+        return @($response)
+    }
+    return @($response)
+}
+
 Export-ModuleMember -Function Invoke-MconApi, Get-MconTask, Get-MconTaskComments, Get-MconBoardTags, Get-MconBoardTag, Get-MconBoardTasks, Send-MconComment, Set-MconTaskStatus, New-MconTask, Set-MconTask

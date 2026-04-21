@@ -178,6 +178,14 @@ Board state evaluation. Evaluates memory for pause/resume, checks task queues ba
 Key exports:
 - `Invoke-MconDispatch` - Full dispatch evaluation, returns act/reason/tasks result
 
+### DispatchBoard.psm1
+
+Sequential board-wide dispatch. Fetches all agents for a board, orders them (lead first, then workers, then verifiers), and dispatches each one in sequence with a configurable delay between agents. Changes directory to each agent's workspace before dispatching.
+
+Key exports:
+- `Invoke-MconDispatchBoard` - Sequential dispatch across all board agents
+- `Get-MconBoardAgentsOrdered` - Fetch and order board agents (lead, workers, verifiers)
+
 ### Heartbeat.psm1
 
 Heartbeat queue and OpenClaw gateway session management. File-based queue with pending/processing/failed directories, atomic locking, and process spawning.
@@ -222,3 +230,10 @@ Verification execution. Runs verification scripts or evaluation specs against ta
 
 Key exports:
 - `Invoke-MconVerifyRun` - Execute verification and apply outcome
+
+### Cron.psm1
+
+Board cadence management. Generates a single crontab entry per board that runs `mcon workflow dispatchboard` at the configured interval, replacing the previous per-agent cron approach.
+
+Key exports:
+- `Invoke-MconAdminCron` - Set board cadence and update crontab

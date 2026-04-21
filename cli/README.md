@@ -61,7 +61,8 @@ The CLI auto-detects the workspace from `$PWD`, decrypts the keybag, and execute
 | `mcon admin templatedist --templates-dir <DIR>` | Render and distribute workspace templates | gateway |
 | `mcon workflow dispatch` | Evaluate board state, enqueue heartbeat items | lead, worker, verifier |
 | `mcon workflow dispatch --process-queue` | Process queued heartbeat items | lead, worker, verifier |
-| `mcon workflow assign --task <ID> --worker <ID>` | Assign task to worker agent | lead |
+| `mcon workflow dispatchboard --board <ID> [--delay <SECONDS>]` | Sequential dispatch for all board agents (lead, workers, verifiers) with configurable delay between each | gateway |
+| `mcon workflow assign --task <ID> --worker <ID> --origin-session-key <task:...|tag:...>` | Assign task to worker agent; requires a gated lead session key | lead |
 | `mcon workflow blocker --task <ID> --message <TEXT>` | Mark task blocked and escalate to lead | worker, verifier |
 | `mcon workflow escalate --message <TEXT> [--secret-key <KEY>]` | Escalate a lead blocker to Gateway Main | lead |
 | `mcon workflow submitreview --task <ID>` | Submit task for review with deliverables | worker, verifier |
@@ -86,6 +87,7 @@ The CLI auto-detects the workspace from `$PWD`, decrypts the keybag, and execute
 | `Crypto.psm1` | AES-256 encryption/decryption for keybag |
 | `Admin.psm1` | Token management and keybag generation |
 | `Dispatch.psm1` | Board state evaluation and dispatch gate logic |
+| `DispatchBoard.psm1` | Sequential board-wide dispatch with ordered agent sequencing |
 | `Heartbeat.psm1` | Heartbeat queue management and OpenClaw gateway integration |
 | `Assign.psm1` | Worker handoff: bootstrap bundle, spawn, task assignment |
 | `Blocker.psm1` | Worker/verifier blocker escalation and blocked-state transition |
@@ -117,6 +119,7 @@ Permissions matrix:
 | `admin.decrypt-keybag` | | yes | | |
 | `admin.templatedist` | | yes | | |
 | `workflow.dispatch` | yes | | yes | yes |
+| `workflow.dispatchboard` | | yes | | |
 | `workflow.assign` | yes | | | |
 | `workflow.blocker` | | | yes | yes |
 | `workflow.escalate` | yes | | | |
@@ -215,6 +218,7 @@ mcon-cli/
       Crypto.psm1
       Admin.psm1
       Dispatch.psm1
+      DispatchBoard.psm1
       Heartbeat.psm1
       Assign.psm1
       Blocker.psm1

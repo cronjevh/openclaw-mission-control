@@ -433,4 +433,4 @@ function Invoke-MconDispatch {
     }
 }
 
-Export-ModuleMember -Function Invoke-MconDispatch, New-MconDispatchResult
+Export-ModuleMember -Function Invoke-MconDispatch, New-MconDispatchResult, Get-MconResponseItems

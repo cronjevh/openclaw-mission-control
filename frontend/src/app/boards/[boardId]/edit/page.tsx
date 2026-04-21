@@ -328,7 +328,7 @@ export default function EditBoardPage() {
     boolean | undefined
   >(undefined);
   const [maxAgents, setMaxAgents] = useState<number | undefined>(undefined);
-  const [cadenceMinutes, setCadenceMinutes] = useState<number | undefined>(undefined);
+  const [cadenceMinutes, setCadenceMinutes] = useState<number | null | undefined>(undefined);
   const [hideDoneAfterDays, setHideDoneAfterDays] = useState<number | undefined>(undefined);
   const [successMetrics, setSuccessMetrics] = useState<string | undefined>(
     undefined,
@@ -670,7 +670,8 @@ export default function EditBoardPage() {
   const resolvedOnlyLeadCanChangeStatus =
     onlyLeadCanChangeStatus ?? baseBoard?.only_lead_can_change_status ?? false;
   const resolvedMaxAgents = maxAgents ?? baseBoard?.max_agents ?? 1;
-  const resolvedCadenceMinutes = cadenceMinutes ?? baseBoard?.cadence_minutes ?? null;
+  const resolvedCadenceMinutes =
+    cadenceMinutes === null ? null : (cadenceMinutes ?? baseBoard?.cadence_minutes ?? null);
   const resolvedHideDoneAfterDays =
     hideDoneAfterDays ?? baseBoard?.hide_done_after_days ?? null;
   const resolvedSuccessMetrics =
@@ -1001,18 +1002,6 @@ export default function EditBoardPage() {
 
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-strong">
-                  Board type
-                </label>
-                <Select value={resolvedBoardType} onValueChange={setBoardType}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select board type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="goal">Goal</SelectItem>
-                    <SelectItem value="general">General</SelectItem>
-                  </SelectContent>
-                </Select>
                 <div className="space-y-2 pt-1">
                   <label className="text-sm font-medium text-strong">
                     Max worker agents
@@ -1071,7 +1060,7 @@ export default function EditBoardPage() {
                     onChange={(event) => {
                       const val = event.target.value;
                       if (val === "") {
-                        setCadenceMinutes(undefined);
+                        setCadenceMinutes(null);
                         return;
                       }
                       const next = Number.parseInt(val, 10);
@@ -1111,6 +1100,20 @@ export default function EditBoardPage() {
                   Boards in the same group can share cross-board context for
                   agents.
                 </p>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-strong">
+                    Board type
+                  </label>
+                  <Select value={resolvedBoardType} onValueChange={setBoardType}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select board type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="goal">Goal</SelectItem>
+                      <SelectItem value="general">General</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               {resolvedBoardType !== "general" ? (
                 <div className="space-y-2">

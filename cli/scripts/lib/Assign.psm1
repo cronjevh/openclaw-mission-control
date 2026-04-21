@@ -104,6 +104,122 @@ function Resolve-MconSpawnResult {
     throw "Could not resolve childSessionKey from spawn output."
 }
 
+function Get-MconAssignmentOriginSessionKey {
+    param(
+        [string]$OriginSessionKey
+    )
+
+    if ($OriginSessionKey -and $OriginSessionKey.Trim()) {
+        return $OriginSessionKey.Trim()
+    }
+
+    foreach ($envName in @('MCON_ORIGIN_SESSION_KEY', 'OPENCLAW_SESSION_KEY')) {
+        $value = [Environment]::GetEnvironmentVariable($envName)
+        if ($value -and $value.Trim()) {
+            return $value.Trim()
+        }
+    }
+
+    return $null
+}
+
+function Get-MconTaskTagIds {
+    param(
+        [Parameter(Mandatory)]$TaskData
+    )
+
+    $tagIds = @()
+    if ($TaskData.PSObject.Properties.Name -contains 'tag_ids' -and $TaskData.tag_ids) {
+        $tagIds += @($TaskData.tag_ids | Where-Object { $_ })
+    }
+    if ($TaskData.PSObject.Properties.Name -contains 'tags' -and $TaskData.tags) {
+        foreach ($tag in @($TaskData.tags | Where-Object { $_ })) {
+            if ($tag -is [string]) {
+                continue
+            }
+            if ($tag.PSObject.Properties.Name -contains 'id' -and $tag.id) {
+                $tagIds += [string]$tag.id
+            }
+        }
+    }
+
+    return @($tagIds | Select-Object -Unique)
+}
+
+function Assert-MconAssignmentOrigin {
+    param(
+        [string]$OriginSessionKey,
+        $TaskData = $null
+    )
+
+    if ([string]::IsNullOrWhiteSpace($OriginSessionKey)) {
+        throw "workflow.assign requires an origin session key. Pass --origin-session-key task:<uuid> or tag:<uuid>, or set MCON_ORIGIN_SESSION_KEY."
+    }
+
+    $taskKeyMatch = [regex]::Match($OriginSessionKey, '^task:(?<taskId>[0-9a-fA-F-]{36})$')
+    if ($taskKeyMatch.Success) {
+        if ($null -eq $TaskData) {
+            return
+        }
+        $originTaskId = $taskKeyMatch.Groups['taskId'].Value
+        if ($TaskData.id -ne $originTaskId) {
+            throw "workflow.assign origin session key $OriginSessionKey does not match task $($TaskData.id)."
+        }
+
+        $isBacklog = $false
+        if ($TaskData.PSObject.Properties.Name -contains 'backlog' -and $TaskData.backlog) {
+            $isBacklog = [bool]$TaskData.backlog
+        } elseif ($TaskData.PSObject.Properties.Name -contains 'custom_field_values') {
+            $cf = $TaskData.custom_field_values
+            if ($cf -and $cf.PSObject.Properties.Name -contains 'backlog' -and $cf.backlog) {
+                $isBacklog = [bool]$cf.backlog
+            }
+        }
+
+        if ($TaskData.PSObject.Properties.Name -contains 'status') {
+            $status = [string]$TaskData.status
+            if (($status -ne 'inbox') -and $isBacklog) {
+                throw "workflow.assign origin task $OriginSessionKey is not assignable because task $($TaskData.id) is not inbox and backlog=true."
+            }
+        }
+
+        return
+    }
+
+    $tagKeyMatch = [regex]::Match($OriginSessionKey, '^tag:(?<tagId>[0-9a-fA-F-]{36})$')
+    if ($tagKeyMatch.Success) {
+        if ($null -eq $TaskData) {
+            return
+        }
+        $originTagId = $tagKeyMatch.Groups['tagId'].Value
+        $taskTagIds = Get-MconTaskTagIds -TaskData $TaskData
+        if (-not ($taskTagIds -contains $originTagId)) {
+            throw "workflow.assign origin session key $OriginSessionKey does not match any tag on task $($TaskData.id)."
+        }
+
+        $isBacklog = $false
+        if ($TaskData.PSObject.Properties.Name -contains 'backlog' -and $TaskData.backlog) {
+            $isBacklog = [bool]$TaskData.backlog
+        } elseif ($TaskData.PSObject.Properties.Name -contains 'custom_field_values') {
+            $cf = $TaskData.custom_field_values
+            if ($cf -and $cf.PSObject.Properties.Name -contains 'backlog' -and $cf.backlog) {
+                $isBacklog = [bool]$cf.backlog
+            }
+        }
+
+        if ($TaskData.PSObject.Properties.Name -contains 'status') {
+            $status = [string]$TaskData.status
+            if (($status -ne 'inbox') -and $isBacklog) {
+                throw "workflow.assign origin tag $OriginSessionKey is not assignable because task $($TaskData.id) is not inbox and backlog=true."
+            }
+        }
+
+        return
+    }
+
+    throw "workflow.assign requires an origin session key of the exact form task:<uuid> or tag:<uuid>; got '$OriginSessionKey'."
+}
+
 function New-MconDirectory {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -361,6 +477,7 @@ function Invoke-MconAssign {
         [Parameter(Mandatory)][hashtable]$Config,
         [Parameter(Mandatory)][string]$TaskId,
         [Parameter(Mandatory)][string]$WorkerAgentId,
+        [string]$OriginSessionKey,
         [string]$WorkerWorkspacePath,
         [string]$LeadAgentId,
         [string]$OutputDir,
@@ -384,6 +501,20 @@ function Invoke-MconAssign {
     $taskUri = "$baseUrl/api/v1/agent/boards/$encodedBoardId/tasks/$encodedTaskId"
     $commentsUri = "$taskUri/comments"
 
+    $resolvedOriginSessionKey = Get-MconAssignmentOriginSessionKey -OriginSessionKey $OriginSessionKey
+    try {
+        Assert-MconAssignmentOrigin -OriginSessionKey $resolvedOriginSessionKey
+    } catch {
+        return [ordered]@{
+            ok            = $false
+            phase         = 'origin_validation'
+            error         = $_.Exception.Message
+            taskId        = $TaskId
+            workerAgentId = $WorkerAgentId
+            originSessionKey = $resolvedOriginSessionKey
+        }
+    }
+
     try {
         $task = Invoke-MconApi -Method Get -Uri $taskUri -Token $authToken
         $commentsResponse = Invoke-MconApi -Method Get -Uri $commentsUri -Token $authToken
@@ -395,6 +526,20 @@ function Invoke-MconAssign {
             taskId = $TaskId
             workerAgentId = $WorkerAgentId
             boardId = $boardId
+        }
+    }
+
+    try {
+        Assert-MconAssignmentOrigin -OriginSessionKey $resolvedOriginSessionKey -TaskData $task
+    } catch {
+        return [ordered]@{
+            ok            = $false
+            phase         = 'origin_validation'
+            error         = $_.Exception.Message
+            taskId        = $TaskId
+            workerAgentId = $WorkerAgentId
+            originSessionKey = $resolvedOriginSessionKey
+            task          = Get-MconAssignTaskProjection -TaskData $task
         }
     }
 

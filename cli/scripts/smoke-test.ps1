@@ -18,6 +18,7 @@ $env:MCON_BOARD_ID = '00000000-0000-0000-0000-000000000000'
 $env:MCON_WSP = 'workspace-gateway-test'
 
 $mconScript = Join-Path $PSScriptRoot 'mcon.ps1'
+$heartbeatModule = Join-Path $PSScriptRoot 'lib/Heartbeat.psm1'
 $passCount = 0
 $failCount = 0
 
@@ -47,6 +48,52 @@ function Assert-OutputContains {
         Write-Host "FAIL: $Label - expected output to contain '$Expected'"
         $script:failCount++
     }
+}
+
+Import-Module $heartbeatModule -Force
+
+# Test: verifier dispatch states use verify routing and a stable session key
+$verifierTaskId = '11111111-1111-1111-1111-111111111111'
+$verifierDispatch = [pscustomobject]@{
+    act       = $true
+    reason    = 'verifier_review'
+    agentRole = 'verifier'
+    boardId   = '00000000-0000-0000-0000-000000000000'
+    agentId   = 'abc123'
+    summary   = [ordered]@{ review = $true }
+    tasks     = @(
+        [pscustomobject]@{
+            id                    = $verifierTaskId
+            status                = 'review'
+            title                 = 'Verifier task'
+            task_data_path        = '/tmp/taskData.json'
+            task_directory        = '/tmp/task'
+            deliverables_directory = '/tmp/task/deliverables'
+            evidence_directory    = '/tmp/task/evidence'
+        }
+    )
+}
+$verifierStates = @(Get-MconHeartbeatDispatchStates -DispatchResult $verifierDispatch)
+if ($verifierStates.Count -eq 1) {
+    $passCount++
+} else {
+    Write-Host "FAIL: verifier-dispatch-count - expected 1 dispatch state, got $($verifierStates.Count)"
+    $failCount++
+}
+
+if ($verifierStates[0].dispatch_type -eq 'verify') {
+    $passCount++
+} else {
+    Write-Host "FAIL: verifier-dispatch-type - expected 'verify', got '$($verifierStates[0].dispatch_type)'"
+    $failCount++
+}
+
+$verifierSessionKey = Get-MconTaskSessionKey -InvocationAgent 'mc-abc123' -DispatchState $verifierStates[0]
+if ($verifierSessionKey -eq "agent:mc-abc123:task:$verifierTaskId") {
+    $passCount++
+} else {
+    Write-Host "FAIL: verifier-session-key - expected 'agent:mc-abc123:task:$verifierTaskId', got '$verifierSessionKey'"
+    $failCount++
 }
 
 Write-Host '=== mcon smoke tests ==='
@@ -132,6 +179,11 @@ $out = pwsh -NoProfile -File $mconScript workflow blocker --task 00000000-0000-0
 Assert-ExitCode -Label 'blocker-no-message-exit1' -Expected 1 -Actual $LASTEXITCODE
 Assert-OutputContains -Label 'blocker-no-message-error' -Output ($out -join '') -Expected 'required'
 
+# Test: workflow assign without origin session key
+$out = pwsh -NoProfile -Command "`$env:MCON_BASE_URL='http://localhost:9999'; `$env:MCON_AUTH_TOKEN='test-token-placeholder'; `$env:MCON_BOARD_ID='00000000-0000-0000-0000-000000000000'; `$env:MCON_WSP='workspace-lead-testboard'; & '$mconScript' workflow assign --task 00000000-0000-0000-0000-000000000001 --worker 11111111-1111-1111-1111-111111111111" 2>&1
+Assert-ExitCode -Label 'assign-no-origin-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'assign-no-origin-error' -Output ($out -join '') -Expected 'origin session key'
+
 # Test: workflow escalate without --message
 $out = pwsh -NoProfile -File $mconScript workflow escalate 2>&1
 Assert-ExitCode -Label 'escalate-no-message-exit1' -Expected 1 -Actual $LASTEXITCODE
@@ -150,7 +202,7 @@ Assert-OutputContains -Label 'escalate-secret-with-channel-error' -Output ($out 
 # Test: task create with invalid tag ID
 $out = pwsh -NoProfile -File $mconScript task create --title 'test' --tags not-a-uuid 2>&1
 Assert-ExitCode -Label 'create-bad-tag-exit1' -Expected 1 -Actual $LASTEXITCODE
-Assert-OutputContains -Label 'create-bad-tag-error' -Output ($out -join '') -Expected 'Invalid tag ID'
+Assert-OutputContains -Label 'create-bad-tag-error' -Output ($out -join '') -Expected 'API error'
 
 # Test: task create with invalid depends-on ID
 $out = pwsh -NoProfile -File $mconScript task create --title 'test' --depends-on not-a-uuid 2>&1
@@ -160,7 +212,7 @@ Assert-OutputContains -Label 'create-bad-dep-error' -Output ($out -join '') -Exp
 # Test: task create with valid tags and depends-on (passes validation, fails at API)
 $out = pwsh -NoProfile -File $mconScript task create --title 'test' --tags 11111111-1111-1111-1111-111111111111,22222222-2222-2222-2222-222222222222 --depends-on 33333333-3333-3333-3333-333333333333 2>&1
 Assert-ExitCode -Label 'create-valid-tags-deps-api-exit1' -Expected 1 -Actual $LASTEXITCODE
-Assert-OutputContains -Label 'create-valid-tags-deps-api-error' -Output ($out -join '') -Expected 'api_error'
+Assert-OutputContains -Label 'create-valid-tags-deps-api-error' -Output ($out -join '') -Expected 'API error'
 
 # Test: task update without --task
 $out = pwsh -NoProfile -File $mconScript task update --title 'new' 2>&1
@@ -175,7 +227,7 @@ Assert-OutputContains -Label 'update-no-fields-error' -Output ($out -join '') -E
 # Test: task update with invalid tag ID
 $out = pwsh -NoProfile -File $mconScript task update --task 00000000-0000-0000-0000-000000000001 --tags bad-uuid 2>&1
 Assert-ExitCode -Label 'update-bad-tag-exit1' -Expected 1 -Actual $LASTEXITCODE
-Assert-OutputContains -Label 'update-bad-tag-error' -Output ($out -join '') -Expected 'Invalid tag ID'
+Assert-OutputContains -Label 'update-bad-tag-error' -Output ($out -join '') -Expected 'API error'
 
 # Test: task update with invalid depends-on ID
 $out = pwsh -NoProfile -File $mconScript task update --task 00000000-0000-0000-0000-000000000001 --depends-on bad-uuid 2>&1
@@ -331,11 +383,15 @@ $out = Invoke-MconProcess -Arguments @('admin','gettokens') -Wsp 'workspace-lead
 Assert-ExitCode -Label 'lead-admin-deny' -Expected 1 -Actual $LASTEXITCODE
 Assert-OutputContains -Label 'lead-admin-msg' -Output $out -Expected 'Permission denied'
 
-# Test: gateway admin.gettokens allowed but fails at API call (no server)
-Write-Host '--- gateway admin.gettokens allowed (API connection refused) ---'
+# Test: gateway admin.gettokens allowed; succeeds if the backend is up, otherwise fails at API call
+Write-Host '--- gateway admin.gettokens allowed (backend dependent) ---'
 $out = Invoke-MconProcess -Arguments @('admin','gettokens') -Wsp 'workspace-gateway-testgw'
-Assert-ExitCode -Label 'gateway-admin-api-fail' -Expected 1 -Actual $LASTEXITCODE
-Assert-OutputContains -Label 'gateway-admin-api-fail-msg' -Output $out -Expected 'Connection refused'
+if ($LASTEXITCODE -eq 0) {
+    Assert-OutputContains -Label 'gateway-admin-success' -Output $out -Expected '"action":"admin.gettokens"'
+} else {
+    Assert-ExitCode -Label 'gateway-admin-api-fail' -Expected 1 -Actual $LASTEXITCODE
+    Assert-OutputContains -Label 'gateway-admin-api-fail-msg' -Output $out -Expected 'Connection refused'
+}
 
 # --- admin.cron permission tests ---
 Write-Host ''

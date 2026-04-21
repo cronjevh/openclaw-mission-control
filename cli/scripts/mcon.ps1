@@ -28,6 +28,7 @@ Import-Module (Join-Path $libDir 'SubmitReview.psm1') -Force
 Import-Module (Join-Path $libDir 'TemplateDist.psm1') -Force
 Import-Module (Join-Path $libDir 'Verify.psm1') -Force
 Import-Module (Join-Path $libDir 'Cron.psm1') -Force
+Import-Module (Join-Path $libDir 'DispatchBoard.psm1') -Force
 
 if ($args.Count -lt 1) {
     Write-MconError -Message 'Usage: mcon <subcommand> [options]. Run ''mcon help'' for details.' -Code 'usage'
@@ -54,7 +55,8 @@ Usage:
   mcon admin cron --board-id <BOARD_ID> --cadence-minutes <INT> [--dry-run] [--crontab-dir <DIR>]  # set board cadence and update crontab
   mcon workflow dispatch              # evaluate board state, enqueue heartbeat
   mcon workflow dispatch --process-queue  # process queued heartbeat items
-  mcon workflow assign --task <TASK_ID> --worker <AGENT_ID>  # assign task to worker
+  mcon workflow dispatchboard --board <BOARD_ID> [--delay <SECONDS>]  # sequential dispatch for all board agents
+  mcon workflow assign --task <TASK_ID> --worker <AGENT_ID> [--origin-session-key <task:...|tag:...>]  # assign task to worker
   mcon workflow blocker --task <TASK_ID> --message <TEXT>  # mark task blocked and escalate to lead
   mcon workflow escalate --message <TEXT> [--secret-key <KEY>] [--task <TASK_ID>]  # escalate a lead blocker to Gateway Main
   mcon workflow submitreview --task <TASK_ID> [--message <TEXT>]  # submit task for review
@@ -79,6 +81,7 @@ Permissions:
   admin.templatedist   → gateway only
   admin.cron           → gateway only
   workflow.dispatch    → lead, worker, verifier
+  workflow.dispatchboard → gateway only
   workflow.blocker     → worker, verifier
   workflow.escalate    → lead
   workflow.submitreview → worker, verifier
@@ -207,6 +210,13 @@ Statuses: inbox, in_progress, review, done, blocked
             }
         }
 
+        try {
+            $config = Resolve-MconConfig
+        }
+        catch {
+            Write-MconError -Message $_.Exception.Message -Code 'config_error'
+        }
+
         switch ($action) {
             'comment' {
                 if (-not $message) {
@@ -235,16 +245,20 @@ Statuses: inbox, in_progress, review, done, blocked
                     }
                 }
                 if ($null -ne $tags) {
-                    $tagList = @($tags -split ',' | Where-Object { $_.Trim() }) | ForEach-Object { $_.Trim() }
-                    foreach ($t in $tagList) {
-                        if ($t -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
-                            Write-MconError -Message "Invalid tag ID format: $t" -Code 'validation'
-                        }
+                    $tagList = @($tags -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+                    if ($tagList.Count -eq 0) {
+                        Write-MconError -Message '--tags requires at least one tag identifier.' -Code 'usage'
                     }
-                    $tags = $tagList
+                    # Resolve tag identifiers (UUIDs or slugs) to UUIDs
+                    try {
+                        $resolvedTags = Resolve-MconTagIds -BaseUrl $config.base_url -Token $config.auth_token -BoardId $config.board_id -Identifiers $tagList
+                        $tags = $resolvedTags
+                    } catch {
+                        Write-MconError -Message $_.Exception.Message -Code 'validation'
+                    }
                 }
                 if ($null -ne $dependsOn) {
-                    $depList = @($dependsOn -split ',' | Where-Object { $_.Trim() }) | ForEach-Object { $_.Trim() }
+                    $depList = @($dependsOn -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
                     foreach ($d in $depList) {
                         if ($d -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
                             Write-MconError -Message "Invalid depends-on task ID format: $d" -Code 'validation'
@@ -265,16 +279,20 @@ Statuses: inbox, in_progress, review, done, blocked
                     }
                 }
                 if ($null -ne $tags) {
-                    $tagList = @($tags -split ',' | Where-Object { $_.Trim() }) | ForEach-Object { $_.Trim() }
-                    foreach ($t in $tagList) {
-                        if ($t -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
-                            Write-MconError -Message "Invalid tag ID format: $t" -Code 'validation'
-                        }
+                    $tagList = @($tags -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+                    if ($tagList.Count -eq 0) {
+                        Write-MconError -Message '--tags requires at least one tag identifier.' -Code 'usage'
                     }
-                    $tags = $tagList
+                    # Resolve tag identifiers (UUIDs or slugs) to UUIDs
+                    try {
+                        $resolvedTags = Resolve-MconTagIds -BaseUrl $config.base_url -Token $config.auth_token -BoardId $config.board_id -Identifiers $tagList
+                        $tags = $resolvedTags
+                    } catch {
+                        Write-MconError -Message $_.Exception.Message -Code 'validation'
+                    }
                 }
                 if ($null -ne $dependsOn) {
-                    $depList = @($dependsOn -split ',' | Where-Object { $_.Trim() }) | ForEach-Object { $_.Trim() }
+                    $depList = @($dependsOn -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
                     foreach ($d in $depList) {
                         if ($d -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
                             Write-MconError -Message "Invalid depends-on task ID format: $d" -Code 'validation'
@@ -286,7 +304,6 @@ Statuses: inbox, in_progress, review, done, blocked
         }
 
         try {
-            $config = Resolve-MconConfig
             $workspacePath = Get-MconWorkspacePathFromWsp -Wsp $config.wsp
             $role = Resolve-MconExecutionRole -Wsp $config.wsp -WorkspacePath $workspacePath
         }
@@ -410,7 +427,7 @@ Statuses: inbox, in_progress, review, done, blocked
 
     'workflow' {
         if ($remaining.Count -lt 1) {
-            Write-MconError -Message 'Usage: mcon workflow <action>. Actions: dispatch, assign, blocker, escalate, submitreview.' -Code 'usage'
+            Write-MconError -Message 'Usage: mcon workflow <action>. Actions: dispatch, dispatchboard, assign, blocker, escalate, submitreview.' -Code 'usage'
         }
 
         $wfAction = $remaining[0]
@@ -450,7 +467,7 @@ Statuses: inbox, in_progress, review, done, blocked
                             -WorkspacePath $agentConfig.workspace_path `
                             -InvocationAgent $invocationAgent `
                             -Config $agentConfig `
-                            -TimeoutSec 120
+                            -TimeoutSec 300
                         Write-MconResult -Data ([ordered]@{
                             ok     = $true
                             action = 'workflow.process_queue'
@@ -508,10 +525,63 @@ Statuses: inbox, in_progress, review, done, blocked
                 }
             }
 
+            'dispatchboard' {
+                $boardId = $null
+                $delaySeconds = 60
+                $chatLimit = 20
+                $i = 0
+                while ($i -lt $wfArgs.Count) {
+                    switch ($wfArgs[$i]) {
+                        '--board' { $boardId = $wfArgs[++$i]; break }
+                        '--delay' { $delaySeconds = [int]$wfArgs[++$i]; break }
+                        '--chat-limit' { $chatLimit = [int]$wfArgs[++$i]; break }
+                        default { Write-MconError -Message "Unknown flag: $($wfArgs[$i])" -Code 'usage' }
+                    }
+                    $i++
+                }
+
+                if (-not $boardId) {
+                    Write-MconError -Message '--board <BOARD_ID> is required.' -Code 'usage'
+                }
+                if ($boardId -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                    Write-MconError -Message "Invalid board ID format: $boardId" -Code 'validation'
+                }
+
+                $agentConfig = Resolve-MconKeybagAgent
+                if (-not $agentConfig) {
+                    Write-MconError -Message "No agent configuration found for current directory. Run from an agent workspace or set MCON_* env vars." -Code 'config_error'
+                }
+
+                $role = Resolve-MconExecutionRole -Wsp $agentConfig.wsp -WorkspacePath $agentConfig.workspace_path
+                $actionKey = 'workflow.dispatchboard'
+                if (-not (Test-MconPermission -Action $actionKey -Role $role)) {
+                    $msg = Get-MconDeniedMessage -Action $actionKey -Role $role
+                    Write-MconError -Message $msg -Code 'forbidden'
+                }
+
+                $dispatchConfig = [ordered]@{
+                    base_url   = $agentConfig.base_url
+                    auth_token = $agentConfig.auth_token
+                    board_id   = $boardId
+                }
+
+                try {
+                    $result = Invoke-MconDispatchBoard -Config $dispatchConfig -DelaySeconds $delaySeconds -ChatLimit $chatLimit
+                    Write-MconResult -Data $result
+                } catch {
+                    $errMsg = $_.Exception.Message
+                    if ($errMsg -match 'connect(ion)? refused|No connection could be made|timed out|Failed to connect|Unable to connect|actively refused') {
+                        Write-MconError -Message "API backend is not responding. Check that the API service is running." -Code 'api_down'
+                    }
+                    Write-MconError -Message $errMsg -Code 'dispatchboard_error'
+                }
+            }
+
             'assign' {
                 $taskId = $null
                 $workerAgentId = $null
                 $workerWorkspacePath = $null
+                $originSessionKey = $null
                 $bundleOnly = $false
                 $dryRun = $false
                 $i = 0
@@ -520,6 +590,7 @@ Statuses: inbox, in_progress, review, done, blocked
                         '--task' { $taskId = $wfArgs[++$i]; break }
                         '--worker' { $workerAgentId = $wfArgs[++$i]; break }
                         '--worker-workspace' { $workerWorkspacePath = $wfArgs[++$i]; break }
+                        '--origin-session-key' { $originSessionKey = $wfArgs[++$i]; break }
                         '--bundle-only' { $bundleOnly = $true; break }
                         '--dry-run' { $dryRun = $true; break }
                         default { Write-MconError -Message "Unknown flag: $($wfArgs[$i])" -Code 'usage' }
@@ -540,6 +611,10 @@ Statuses: inbox, in_progress, review, done, blocked
                     Write-MconError -Message "Invalid worker agent ID format: $workerAgentId" -Code 'validation'
                 }
 
+                if (-not $originSessionKey) {
+                    $originSessionKey = $env:MCON_ORIGIN_SESSION_KEY
+                }
+
                 $agentConfig = Resolve-MconKeybagAgent
                 if (-not $agentConfig) {
                     Write-MconError -Message "No agent configuration found for current directory. Run from an agent workspace or set MCON_* env vars." -Code 'config_error'
@@ -557,6 +632,7 @@ Statuses: inbox, in_progress, review, done, blocked
                         Config        = $agentConfig
                         TaskId        = $taskId
                         WorkerAgentId = $workerAgentId
+                        OriginSessionKey = $originSessionKey
                     }
                     if ($workerWorkspacePath) { $assignParams.WorkerWorkspacePath = $workerWorkspacePath }
                     if ($bundleOnly) { $assignParams.BundleOnly = $true }
@@ -765,7 +841,7 @@ Statuses: inbox, in_progress, review, done, blocked
             }
 
             default {
-                Write-MconError -Message "Unknown workflow action: $wfAction. Valid: dispatch, assign, blocker, escalate, submitreview." -Code 'usage'
+                Write-MconError -Message "Unknown workflow action: $wfAction. Valid: dispatch, dispatchboard, assign, blocker, escalate, submitreview." -Code 'usage'
             }
         }
     }

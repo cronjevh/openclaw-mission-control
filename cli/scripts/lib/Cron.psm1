@@ -5,6 +5,7 @@ function Invoke-MconAdminCron {
         [Parameter(Mandatory)][string]$AuthToken,
         [Parameter(Mandatory)][string]$BoardId,
         [Parameter(Mandatory)][int]$CadenceMinutes,
+        [string]$GatewayId,
         [string]$CrontabDir = '/etc/cron.d',
         [switch]$DryRun
     )
@@ -23,7 +24,6 @@ function Invoke-MconAdminCron {
 
     $encodedBoardId = [uri]::EscapeDataString($BoardId)
     $boardUri = "$BaseUrl/api/v1/boards/$encodedBoardId"
-    $membersUri = "$boardUri/members"
 
     $board = $null
     try {
@@ -48,7 +48,6 @@ function Invoke-MconAdminCron {
             board_id         = $BoardId
             board_name       = $board.name
             cadence_minutes  = $CadenceMinutes
-            workers          = 0
             crontab_path     = $null
             status           = 'unchanged'
             message          = "Cadence is already $CadenceMinutes minutes. No update needed."
@@ -62,27 +61,12 @@ function Invoke-MconAdminCron {
         throw "Failed to update board cadence: $($_.Exception.Message)"
     }
 
-    $workers = @()
-    try {
-        $membersResponse = Invoke-RestMethod -Method Get -Uri $membersUri -Headers $headers -TimeoutSec 20
-        if ($membersResponse.PSObject.Properties.Name -contains 'items') {
-            $workers = @($membersResponse.items | Where-Object { $null -ne $_ })
-        }
-    } catch {
-        throw "Failed to fetch board members: $($_.Exception.Message)"
+    $resolvedGatewayId = if ($GatewayId) { $GatewayId } elseif ($board.PSObject.Properties.Name -contains 'gateway_id') { $board.gateway_id } else { $null }
+    if (-not $resolvedGatewayId) {
+        throw "Board has no gateway_id and none was provided. Cannot determine gateway workspace."
     }
 
     if ($CadenceMinutes -eq 0) {
-        $crontabContent = @(
-            '# Mission Control board automation'
-            "# Board: $($board.name) ($BoardId)"
-            "# Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-            '# DO NOT EDIT MANUALLY - changes will be overwritten'
-            ''
-            '# Cadence set to 0 - no dispatch entries generated'
-            ''
-        ) -join "`n"
-
         $crontabPath = $null
         if (-not $DryRun) {
             $shortId = $BoardId.Substring(0, 8)
@@ -99,30 +83,26 @@ function Invoke-MconAdminCron {
             board_name      = $board.name
             cadence_minutes = $CadenceMinutes
             previous_cadence = $previousCadence
-            workers         = $workers.Count
+            gateway_id      = $resolvedGatewayId
             crontab_path    = $crontabPath
             status          = 'disabled'
             message         = 'Cadence set to 0. Crontab file removed.'
         }
     }
 
-    $crontabLines = @(
+    $schedule = "*/$CadenceMinutes * * * *"
+    $gatewayWorkspace = "/home/cronjev/.openclaw/workspace-gateway-$resolvedGatewayId"
+    $crontabEntry = "$schedule cronjev cd $gatewayWorkspace && /home/cronjev/bin/mcon workflow dispatchboard --board $BoardId"
+
+    $crontabContent = @(
         '# Mission Control board automation'
         "# Board: $($board.name) ($BoardId)"
         "# Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
         '# DO NOT EDIT MANUALLY - changes will be overwritten'
         ''
-    )
-
-    foreach ($worker in $workers) {
-        $workerId = if ($worker.PSObject.Properties.Name -contains 'id') { $worker.id } else { 'unknown' }
-        $schedule = "*/$CadenceMinutes * * * *"
-        $workspaceDir = "/home/cronjev/.openclaw/workspace-mc-$workerId"
-        $crontabLines += "$schedule cronjev cd $workspaceDir && /home/cronjev/bin/mcon workflow dispatch"
-    }
-    $crontabLines += ''
-
-    $crontabContent = $crontabLines -join "`n"
+        $crontabEntry
+        ''
+    ) -join "`n"
 
     $crontabPath = $null
     if (-not $DryRun) {
@@ -144,7 +124,7 @@ function Invoke-MconAdminCron {
         board_name      = $board.name
         cadence_minutes = $CadenceMinutes
         previous_cadence = $previousCadence
-        workers         = $workers.Count
+        gateway_id      = $resolvedGatewayId
         crontab_path    = $crontabPath
         crontab_content = if ($DryRun) { $crontabContent } else { $null }
         status          = 'updated'

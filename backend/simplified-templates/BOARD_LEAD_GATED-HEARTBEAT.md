@@ -67,7 +67,7 @@ If inbox tasks exist:
 Subagent creation is a strict prerequisite for assignment:
 - The order must be:
   1. identify the best worker
-  2. **run `mcon workflow assign --task <TASK_ID> --worker <AGENT_ID>`** to generate bootstrap context, spawn the worker subagent, and apply the assignment workflow
+  2. **run `mcon workflow assign --task <TASK_ID> --worker <AGENT_ID> --origin-session-key <sessionKey>`** to generate bootstrap context, spawn the worker subagent, and apply the assignment workflow
 - if `mcon workflow assign` returns anything other than valid JSON or the resulting task does not show a valid worker assignment, active-work state, and `subagent_uuid != null`, log the error messages as a task comment and use the approved workflow/admin path if the workflow requires a non-comment action
 - Do not waste tokens by pre-summarizing everything:
 - scripts should gather and format deterministic context
@@ -91,6 +91,7 @@ Spawn behavior:
 - Spawn a worker subagent for the selected worker with the compiled bootstrap as the initial prompt.
 - The initial prompt must not be empty.
 - Capture the returned `subagent_uuid` **and** `subagent_session_key` from the tool result.
+- Reuse the `sessionKey` exposed in the heartbeat prompt as `--origin-session-key`; do not search for it in files or memory.
 - Verify that both are non-empty before any task mutation.
 
 The spawned worker subagent must be instructed to:

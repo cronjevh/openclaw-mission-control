@@ -90,7 +90,8 @@ function New-MconHeartbeatPrompt {
     param(
         [Parameter(Mandatory)][string]$WorkspacePath,
         [Parameter(Mandatory)]$DispatchState,
-        [Parameter(Mandatory)][string]$AuthToken
+        [Parameter(Mandatory)][string]$AuthToken,
+        [Parameter(Mandatory)][string]$SessionKey
     )
 
     $tasks = @($DispatchState.tasks | Where-Object { $_ -and $_.id })
@@ -163,8 +164,10 @@ Board dispatch summary:
 - reason: $($DispatchState.reason)
 - boardId: $($DispatchState.boardId)
 - agentId: $($DispatchState.agentId)
+- sessionKey: $SessionKey
 - task count: $($tasks.Count)
 - ASSIGNMENT_AUTHORIZED: $($assignmentAuthorized.ToString().ToLowerInvariant())
+- Use the sessionKey above directly for any gated assignment. Do not search for it elsewhere.
 "@
     if ($assignmentAuthorized -and $assignmentTaskId) {
         $sections += "- ASSIGNMENT_TASK_ID: $assignmentTaskId"
@@ -214,25 +217,64 @@ function Invoke-MconOpenClawGatewayChat {
     return Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec $TimeoutSec
 }
 
+function Invoke-MconOpenClawAgentSession {
+    param(
+        [Parameter(Mandatory)][string]$InvocationAgent,
+        [Parameter(Mandatory)][string]$SessionKey,
+        [Parameter(Mandatory)][string]$Message,
+        [int]$TimeoutSec = 300
+    )
+
+    $agentOutput = & openclaw agent --agent $InvocationAgent --session-id $SessionKey --message $Message --json --timeout $TimeoutSec --thinking off 2>&1
+    return [ordered]@{
+        exit_code = $LASTEXITCODE
+        output    = ($agentOutput -join "`n")
+    }
+}
+
 function Invoke-MconHeartbeatAgent {
     param(
         [Parameter(Mandatory)][string]$WorkspacePath,
         [Parameter(Mandatory)][string]$InvocationAgent,
         [Parameter(Mandatory)]$DispatchState,
         [Parameter(Mandatory)][string]$AuthToken,
+        [Parameter(Mandatory)][string]$SessionKey,
         [int]$TimeoutSec = 120
     )
 
-    $prompt = New-MconHeartbeatPrompt -WorkspacePath $WorkspacePath -DispatchState $DispatchState -AuthToken $AuthToken
-    $sessionKey = Get-MconTaskSessionKey -InvocationAgent $InvocationAgent -DispatchState $DispatchState
+    $prompt = New-MconHeartbeatPrompt -WorkspacePath $WorkspacePath -DispatchState $DispatchState -AuthToken $AuthToken -SessionKey $SessionKey
     $response = Invoke-MconOpenClawGatewayChat `
         -WorkspacePath $WorkspacePath `
         -InvocationAgent $InvocationAgent `
         -Message $prompt `
-        -SessionKey $sessionKey `
+        -SessionKey $SessionKey `
         -TimeoutSec $TimeoutSec
 
     $response | ConvertTo-Json -Depth 50
+}
+
+function Invoke-MconVerifierAgent {
+    param(
+        [Parameter(Mandatory)][string]$WorkspacePath,
+        [Parameter(Mandatory)][string]$InvocationAgent,
+        [Parameter(Mandatory)]$DispatchState,
+        [Parameter(Mandatory)][string]$AuthToken,
+        [Parameter(Mandatory)][string]$SessionKey,
+        [int]$TimeoutSec = 300
+    )
+
+    $prompt = New-MconVerifierPrompt -WorkspacePath $WorkspacePath -DispatchState $DispatchState -AuthToken $AuthToken -SessionKey $SessionKey
+    $result = Invoke-MconOpenClawAgentSession `
+        -InvocationAgent $InvocationAgent `
+        -SessionKey $SessionKey `
+        -Message $prompt `
+        -TimeoutSec $TimeoutSec
+
+    return [ordered]@{
+        exit_code      = $result.exit_code
+        output         = $result.output
+        command_output = $result.output
+    }
 }
 
 function Get-MconHeartbeatQueuePaths {
@@ -248,6 +290,7 @@ function Get-MconHeartbeatQueuePaths {
         pending    = Join-Path $queueRoot 'pending'
         processing = Join-Path $queueRoot 'processing'
         failed     = Join-Path $queueRoot 'failed'
+        retired    = Join-Path $queueRoot 'retired'
         lock       = Join-Path $queueRoot 'processing.lock.json'
         stdoutLog  = Join-Path $queueRoot 'processor.stdout.log'
         stderrLog  = Join-Path $queueRoot 'processor.stderr.log'
@@ -260,7 +303,7 @@ function Initialize-MconHeartbeatQueue {
     )
 
     $paths = Get-MconHeartbeatQueuePaths -WorkspacePath $WorkspacePath
-    foreach ($dir in @($paths.workflow, $paths.root, $paths.pending, $paths.processing, $paths.failed)) {
+    foreach ($dir in @($paths.workflow, $paths.root, $paths.pending, $paths.processing, $paths.failed, $paths.retired)) {
         if (-not (Test-Path -LiteralPath $dir)) {
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
         }
@@ -298,6 +341,30 @@ function Restore-MconHeartbeatProcessingQueue {
         }
         Move-Item -LiteralPath $item.FullName -Destination $pendingPath -Force
     }
+}
+
+function Clear-MconHeartbeatStuckProcessingItems {
+    param(
+        [Parameter(Mandatory)]$QueuePaths,
+        [int]$MaxProcessingMinutes = 10,
+        [string]$LogPath = $null
+    )
+
+    $cutoffTime = (Get-Date).AddMinutes(-$MaxProcessingMinutes)
+    $stuckItems = @(
+        Get-ChildItem -LiteralPath $QueuePaths.processing -Filter '*.json' -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -lt $cutoffTime }
+    )
+
+    foreach ($item in $stuckItems) {
+        $ts = (Get-Date).ToString('yyyyMMdd-HHmmss')
+        $failedName = "$($item.BaseName)-stale-$ts.json"
+        $failedPath = Join-Path $QueuePaths.failed $failedName
+        Write-MconQueueLog -Path $LogPath -Message "moving stuck processing item to failed: $($item.Name)"
+        Move-Item -LiteralPath $item.FullName -Destination $failedPath -Force
+    }
+
+    return $stuckItems.Count
 }
 
 function Get-MconHeartbeatQueueLockState {
@@ -434,11 +501,95 @@ function Get-MconHeartbeatQueueItemId {
     return "dispatch-$safeReason"
 }
 
+function Write-MconQueueLog {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Message
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($Message)) {
+        return
+    }
+
+    $line = "[{0}] {1}" -f (Get-Date).ToString('o'), $Message
+    Add-Content -LiteralPath $Path -Value $line -Encoding UTF8
+}
+
+function Write-MconQueueOutput {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Prefix,
+        [Parameter(Mandatory)][string]$Text
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return
+    }
+
+    foreach ($line in @($Text -split "`r?`n")) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+        Write-MconQueueLog -Path $Path -Message "$Prefix $line"
+    }
+}
+
+function New-MconVerifierPrompt {
+    param(
+        [Parameter(Mandatory)][string]$WorkspacePath,
+        [Parameter(Mandatory)]$DispatchState,
+        [Parameter(Mandatory)][string]$AuthToken,
+        [Parameter(Mandatory)][string]$SessionKey
+    )
+
+    $tasks = @($DispatchState.tasks | Where-Object { $_ -and $_.id })
+    if ($tasks.Count -eq 0) {
+        throw "Verifier prompt requires at least one task"
+    }
+
+    $gatedHeartbeatPath = Join-Path $WorkspacePath 'GATED-HEARTBEAT.md'
+    if (-not (Test-Path -LiteralPath $gatedHeartbeatPath)) {
+        throw "GATED-HEARTBEAT.md not found at $gatedHeartbeatPath"
+    }
+
+    $task = $tasks[0]
+    $taskLines = @()
+    foreach ($taskRef in $tasks) {
+        $taskLines += "- Task $($taskRef.id) ($($taskRef.status)): [taskData.json]($($taskRef.task_data_path))"
+        $taskLines += "  deliverables: [deliverables/]($($taskRef.deliverables_directory))"
+        $taskLines += "  evidence: [evidence/]($($taskRef.evidence_directory))"
+    }
+
+    $sections = @()
+    $sections += @"
+# VERIFIER
+Board dispatch summary:
+- act: $($DispatchState.act)
+- reason: $($DispatchState.reason)
+- boardId: $($DispatchState.boardId)
+- agentId: $($DispatchState.agentId)
+- sessionKey: $SessionKey
+- task count: $($tasks.Count)
+- task_id: $($task.id)
+- task_title: $($task.title)
+- task_status: $($task.status)
+
+Read these task context files first:
+$($taskLines -join "`n")
+
+AUTH_TOKEN=$AuthToken
+
+"@
+    $sections += (Get-Content -LiteralPath $gatedHeartbeatPath -Raw)
+    return ($sections -join "`n")
+}
+
 function Add-MconHeartbeatQueueItem {
     param(
         [Parameter(Mandatory)][string]$WorkspacePath,
         [Parameter(Mandatory)][string]$InvocationAgent,
-        [Parameter(Mandatory)]$DispatchState
+        [Parameter(Mandatory)]$DispatchState,
+        [int]$MaxFailures = 3
     )
 
     $paths = Initialize-MconHeartbeatQueue -WorkspacePath $WorkspacePath
@@ -446,8 +597,45 @@ function Add-MconHeartbeatQueueItem {
     $pendingPath = Join-Path $paths.pending "$queueItemId.json"
     $processingPath = Join-Path $paths.processing "$queueItemId.json"
 
-    if ((Test-Path -LiteralPath $pendingPath) -or (Test-Path -LiteralPath $processingPath)) {
-        return $false
+    if ((Test-Path -LiteralPath $pendingPath)) {
+        Write-MconQueueLog -Path $paths.stdoutLog -Message "SKIP already_pending $queueItemId"
+        return 'already_pending'
+    }
+
+    if ((Test-Path -LiteralPath $processingPath)) {
+        Write-MconQueueLog -Path $paths.stdoutLog -Message "SKIP already_processing $queueItemId"
+        return 'already_processing'
+    }
+
+    $failedFiles = @(Get-ChildItem -LiteralPath $paths.failed -Filter "$queueItemId*.json" -File -ErrorAction SilentlyContinue)
+    $failureCount = $failedFiles.Count
+
+    if ($failureCount -ge $MaxFailures) {
+        $retiredPath = Join-Path $paths.retired "$queueItemId.json"
+        if (-not (Test-Path -LiteralPath $retiredPath)) {
+            $firstTask = @($DispatchState.tasks | Where-Object { $_ -and $_.id }) | Select-Object -First 1
+            $failureReasons = @()
+            foreach ($ff in ($failedFiles | Sort-Object LastWriteTime | Select-Object -Last 3)) {
+                try {
+                    $fd = Get-Content -LiteralPath $ff.FullName -Raw | ConvertFrom-Json -Depth 10
+                    $failureReasons += if ($fd.error) { $fd.error } elseif ($fd.command_output) { $fd.command_output } elseif ($fd.output) { $fd.output } else { $null }
+                } catch {}
+            }
+            $retiredRecord = [ordered]@{
+                queue_item_id    = $queueItemId
+                retired_at       = (Get-Date).ToUniversalTime().ToString('o')
+                total_failures   = $failureCount
+                last_errors      = $failureReasons
+                invocation_agent = $InvocationAgent
+                task_id          = if ($firstTask -and $firstTask.id) { $firstTask.id } else { $null }
+                task_title       = if ($firstTask -and $firstTask.title) { $firstTask.title } else { $null }
+                task_status      = if ($firstTask -and $firstTask.status) { $firstTask.status } else { $null }
+            }
+            $retiredRecord | ConvertTo-Json -Depth 50 | Set-Content -LiteralPath $retiredPath -Encoding UTF8
+            Write-MconQueueLog -Path $paths.stdoutLog -Message "RETIRED $($queueItemId): $failureCount failures, task=$($retiredRecord.task_id) ($($retiredRecord.task_title))"
+        }
+        Write-MconQueueLog -Path $paths.stdoutLog -Message "SKIP retired $queueItemId"
+        return 'retired'
     }
 
     $firstTask = @($DispatchState.tasks | Where-Object { $_ -and $_.id }) | Select-Object -First 1
@@ -465,7 +653,8 @@ function Add-MconHeartbeatQueueItem {
     }
 
     $queueItem | ConvertTo-Json -Depth 50 | Set-Content -LiteralPath $pendingPath -Encoding UTF8
-    return $true
+    Write-MconQueueLog -Path $paths.stdoutLog -Message "QUEUED $queueItemId dispatch_type=$($DispatchState.dispatch_type) session_key=$($queueItem.session_key)"
+    return 'queued'
 }
 
 function Start-MconHeartbeatQueueProcessor {
@@ -509,6 +698,7 @@ function Get-MconHeartbeatDispatchStates {
         $taskDispatchState = [ordered]@{
             act       = $DispatchResult.act
             reason    = $DispatchResult.reason
+            dispatch_type = if ($DispatchResult.agentRole -eq 'verifier') { 'verify' } else { 'heartbeat' }
             agentRole = $DispatchResult.agentRole
             boardId   = $DispatchResult.boardId
             agentId   = $DispatchResult.agentId
@@ -686,17 +876,25 @@ function Invoke-MconHeartbeatQueueProcessor {
         [Parameter(Mandatory)][string]$WorkspacePath,
         [Parameter(Mandatory)][string]$InvocationAgent,
         [Parameter(Mandatory)][hashtable]$Config,
-        [int]$TimeoutSec = 120
+        [int]$TimeoutSec = 300
     )
 
     $lockState = Request-MconHeartbeatQueueLock -WorkspacePath $WorkspacePath
     if (-not $lockState.acquired) { return $false }
 
+    # Clean up any stuck processing items before starting
+    $stuckCount = Clear-MconHeartbeatStuckProcessingItems -QueuePaths $lockState.paths -MaxProcessingMinutes 10
+    $stdoutLogPath = $lockState.paths.stdoutLog
+    $stderrLogPath = $lockState.paths.stderrLog
+    Write-MconQueueLog -Path $stdoutLogPath -Message "queue processor started workspace=$WorkspacePath invocation_agent=$InvocationAgent"
+    if ($stuckCount -gt 0) {
+        Write-MconQueueLog -Path $stdoutLogPath -Message "cleaned up $stuckCount stuck processing items"
+    }
+
     $itemsProcessed = 0
     $itemsFailed = 0
 
     try {
-        Write-Host ("[{0}] queue processor started" -f (Get-Date).ToString('o'))
         while ($true) {
             $nextItem = @(
                 Get-ChildItem -LiteralPath $lockState.paths.pending -Filter '*.json' -File -ErrorAction SilentlyContinue |
@@ -713,10 +911,30 @@ function Invoke-MconHeartbeatQueueProcessor {
             try {
                 $queueItem = Get-Content -LiteralPath $processingPath -Raw | ConvertFrom-Json -Depth 50
                 $taskId = if ($queueItem.task_id) { $queueItem.task_id } else { $queueItem.queue_item_id }
-                Write-Host ("[{0}] processing {1}" -f (Get-Date).ToString('o'), $taskId)
+                $dispatchType = if (
+                    $queueItem.dispatch_state -and
+                    $queueItem.dispatch_state.PSObject.Properties.Name -contains 'dispatch_type' -and
+                    $queueItem.dispatch_state.dispatch_type
+                ) {
+                    [string]$queueItem.dispatch_state.dispatch_type
+                } else {
+                    'heartbeat'
+                }
+                $sessionKey = if ($queueItem.PSObject.Properties.Name -contains 'session_key' -and $queueItem.session_key) {
+                    [string]$queueItem.session_key
+                } else {
+                    $null
+                }
+                if ([string]::IsNullOrWhiteSpace($sessionKey)) {
+                    $sessionKey = Get-MconTaskSessionKey -InvocationAgent $InvocationAgent -DispatchState $queueItem.dispatch_state
+                }
+                Write-MconQueueLog -Path $stdoutLogPath -Message "processing task=$taskId dispatch_type=$dispatchType session_key=$sessionKey"
 
-                $dispatchType = if ($queueItem.dispatch_state.PSObject.Properties.Name -contains 'dispatch_type') { $queueItem.dispatch_state.dispatch_type } else { 'heartbeat' }
+                $commandOutput = $null
+                $commandExitCode = $null
+                $commandName = $dispatchType
                 if ($dispatchType -eq 'recovery') {
+                    $commandName = 'recovery'
                     $null = Invoke-MconRecoveryPrompt `
                         -WorkspacePath $WorkspacePath `
                         -InvocationAgent $InvocationAgent `
@@ -725,27 +943,56 @@ function Invoke-MconHeartbeatQueueProcessor {
                         -BaseUrl $Config.base_url `
                         -BoardId $Config.board_id `
                         -TimeoutSec $TimeoutSec
-                } else {
-                    $null = Invoke-MconHeartbeatAgent `
+                    Write-MconQueueLog -Path $stdoutLogPath -Message "completed recovery task=$taskId"
+                } elseif ($dispatchType -eq 'verify') {
+                    $commandName = 'verify'
+                    $commandResult = Invoke-MconVerifierAgent `
                         -WorkspacePath $WorkspacePath `
                         -InvocationAgent $InvocationAgent `
                         -DispatchState $queueItem.dispatch_state `
                         -AuthToken $Config.auth_token `
+                        -SessionKey $sessionKey `
                         -TimeoutSec $TimeoutSec
+                    $commandExitCode = $commandResult.exit_code
+                    $commandOutput = [string]$commandResult.output
+                    Write-MconQueueLog -Path $stdoutLogPath -Message "verify exit_code=$commandExitCode task=$taskId session_key=$sessionKey"
+                    Write-MconQueueOutput -Path $stdoutLogPath -Prefix "verify output:" -Text $commandOutput
+                    if ($commandExitCode -ne 0) {
+                        throw "Verifier command failed with exit code $commandExitCode"
+                    }
+                } else {
+                    $commandName = 'heartbeat'
+                    $commandOutput = Invoke-MconHeartbeatAgent `
+                        -WorkspacePath $WorkspacePath `
+                        -InvocationAgent $InvocationAgent `
+                        -DispatchState $queueItem.dispatch_state `
+                        -AuthToken $Config.auth_token `
+                        -SessionKey $sessionKey
+                    Write-MconQueueOutput -Path $stdoutLogPath -Prefix "heartbeat output:" -Text ([string]$commandOutput)
                 }
 
                 Remove-Item -LiteralPath $processingPath -Force
                 $itemsProcessed++
-                Write-Host ("[{0}] completed {1}" -f (Get-Date).ToString('o'), $taskId)
+                Write-MconQueueLog -Path $stdoutLogPath -Message "completed task=$taskId command=$commandName"
             } catch {
                 $itemsFailed++
-                $failurePath = Join-Path $lockState.paths.failed $pendingItem.Name
+                $ts = (Get-Date).ToString('yyyyMMdd-HHmmss')
+                $failureName = "$($pendingItem.BaseName)-failure-$ts.json"
+                $failurePath = Join-Path $lockState.paths.failed $failureName
                 $failureRecord = [ordered]@{
                     failed_at   = (Get-Date).ToUniversalTime().ToString('o')
                     error       = ($_ | Out-String).Trim()
+                    command     = $commandName
+                    command_exit_code = $commandExitCode
+                    command_output = $commandOutput
                     queue_item  = $queueItem
                 }
                 $failureRecord | ConvertTo-Json -Depth 50 | Set-Content -LiteralPath $failurePath -Encoding UTF8
+                Write-MconQueueLog -Path $stderrLogPath -Message "FAILED task=$($pendingItem.Name) command=$commandName"
+                Write-MconQueueOutput -Path $stderrLogPath -Prefix "failure error:" -Text $failureRecord.error
+                if (-not [string]::IsNullOrWhiteSpace([string]$commandOutput)) {
+                    Write-MconQueueOutput -Path $stderrLogPath -Prefix "failure output:" -Text ([string]$commandOutput)
+                }
 
                 if (Test-Path -LiteralPath $processingPath) {
                     Remove-Item -LiteralPath $processingPath -Force
@@ -755,7 +1002,7 @@ function Invoke-MconHeartbeatQueueProcessor {
             }
         }
 
-        Write-Host ("[{0}] queue processor idle (processed={1} failed={2})" -f (Get-Date).ToString('o'), $itemsProcessed, $itemsFailed)
+        Write-MconQueueLog -Path $stdoutLogPath -Message "queue processor idle processed=$itemsProcessed failed=$itemsFailed"
         return [ordered]@{
             items_processed = $itemsProcessed
             items_failed    = $itemsFailed
@@ -765,4 +1012,4 @@ function Invoke-MconHeartbeatQueueProcessor {
     }
 }
 
-Export-ModuleMember -Function Get-MconOpenClawGatewayConfig, Get-MconTaskSessionKey, New-MconHeartbeatPrompt, Invoke-MconOpenClawGatewayChat, Invoke-MconHeartbeatAgent, Get-MconHeartbeatQueuePaths, Initialize-MconHeartbeatQueue, Test-MconHeartbeatProcessAlive, Restore-MconHeartbeatProcessingQueue, Get-MconHeartbeatQueueLockState, Test-MconHeartbeatQueueProcessing, Request-MconHeartbeatQueueLock, Unlock-MconHeartbeatQueueLock, Get-MconHeartbeatQueueItemId, Add-MconHeartbeatQueueItem, Start-MconHeartbeatQueueProcessor, Get-MconHeartbeatDispatchStates, Invoke-MconRecoveryPrompt, Invoke-MconHeartbeatQueueProcessor
+Export-ModuleMember -Function Get-MconOpenClawGatewayConfig, Get-MconTaskSessionKey, New-MconHeartbeatPrompt, Invoke-MconOpenClawGatewayChat, Invoke-MconHeartbeatAgent, Get-MconHeartbeatQueuePaths, Initialize-MconHeartbeatQueue, Test-MconHeartbeatProcessAlive, Restore-MconHeartbeatProcessingQueue, Clear-MconHeartbeatStuckProcessingItems, Get-MconHeartbeatQueueLockState, Test-MconHeartbeatQueueProcessing, Request-MconHeartbeatQueueLock, Unlock-MconHeartbeatQueueLock, Get-MconHeartbeatQueueItemId, Add-MconHeartbeatQueueItem, Start-MconHeartbeatQueueProcessor, Get-MconHeartbeatDispatchStates, Invoke-MconRecoveryPrompt, Invoke-MconHeartbeatQueueProcessor

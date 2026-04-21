@@ -1,7 +1,34 @@
+Import-Module (Join-Path $PSScriptRoot 'Api.psm1')
+
 function Test-MconUuidLike {
     param([Parameter(Mandatory)][string]$Value)
 
     return $Value -match '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+}
+
+function Resolve-MconTagIds {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [Parameter(Mandatory)][string]$Token,
+        [Parameter(Mandatory)][string]$BoardId,
+        [Parameter(Mandatory)][string[]]$Identifiers
+    )
+    $available = @(Get-MconBoardTags -BaseUrl $BaseUrl -Token $Token -BoardId $BoardId)
+    $resolved = @()
+    foreach ($id in $Identifiers) {
+        if (Test-MconUuidLike -Value $id) {
+            $resolved += $id
+        } else {
+            $lowered = $id.ToLowerInvariant()
+            $match = $available | Where-Object { $_.slug.ToLowerInvariant() -eq $lowered -or $_.name.ToLowerInvariant() -eq $lowered } | Select-Object -First 1
+            if (-not $match) {
+                throw "Tag not found on board: $id"
+            }
+            $resolved += "$($match.id)"
+        }
+    }
+    return $resolved
 }
 
 function Get-MconTagIdentifierList {
@@ -420,4 +447,4 @@ function Get-MconProjectTagSummaries {
     }
 }
 
-Export-ModuleMember -Function Get-MconTagIdentifierList, Get-MconProjectTagSummaries
+Export-ModuleMember -Function Get-MconTagIdentifierList, Resolve-MconTagIds, Get-MconProjectTagSummaries

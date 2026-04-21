@@ -172,6 +172,24 @@ Treat control-plane notifications as advisory. The live board state is authorita
 
 ### Assignment Authorization Boundary
 
+Session Key Requirement for Task-Based Spawns
+HARD PROHIBITION: Do not spawn worker sessions from a lead session unless the session key follows one of these exact formats:
+
+task:<task_id> — for single-task assignment
+tag:<tag_id> — for tag-based work bundles
+
+Where:
+<task_id> must be the UUID of the task being assigned
+<tag_id> must be the UUID of a tag that is already applied to the task(s) being assigned
+Validation steps before spawn:
+Use the `sessionKey` line from the current heartbeat prompt
+Verify it matches task:<uuid> or tag:<uuid> pattern
+If task:<uuid> — confirm the task exists and is in inbox or backlog=false
+If tag:<uuid> — confirm the tag exists and is applied to at least one inbox task
+If validation fails — DO NOT SPAWN; escalate via mcon workflow escalate with reason
+
+Rationale: This prevents orphaned, untraceable worker sessions and ensures every spawned session is traceable to a specific board task or tagged work bundle.
+
 Assignment and worker subagent spawn are forbidden unless the current user-visible turn contains the scripted authorization marker from `GATED-HEARTBEAT.md`.
 
 Hard rules:

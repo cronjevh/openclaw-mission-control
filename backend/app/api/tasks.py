@@ -2296,17 +2296,6 @@ async def _validate_task_comment_access(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
         await require_board_access(session, user=actor.user, board=board, write=True)
 
-    if (
-        actor.actor_type == "agent"
-        and actor.agent
-        and actor.agent.is_board_lead
-        and task.status == "done"
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=("Board leads cannot comment on tasks that are done."),
-        )
-
     if actor.actor_type == "agent" and actor.agent is not None:
         board = await Board.objects.by_id(task.board_id).first(session)
         if board is None:
@@ -2588,16 +2577,9 @@ def _validate_lead_update_request(update: _TaskUpdateInput) -> None:
         "depends_on_task_ids",
         "tag_ids",
         "custom_field_values",
+        "comment",
     }
     requested_fields = _lead_requested_fields(update)
-    if update.comment is not None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Lead comment gate failed: board leads cannot include `comment` in task PATCH. "
-                "Use the task comments endpoint instead."
-            ),
-        )
     disallowed_fields = requested_fields - allowed_fields
     if disallowed_fields:
         disallowed = ", ".join(sorted(disallowed_fields))

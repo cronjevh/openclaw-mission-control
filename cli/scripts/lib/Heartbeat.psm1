@@ -588,6 +588,79 @@ function Clear-MconHeartbeatStuckProcessingItems {
     return $stuckItems.Count
 }
 
+function Repair-MconHeartbeatProcessorRunAfterUnexpectedExit {
+    param(
+        [Parameter(Mandatory)]$QueuePaths,
+        $LockData = $null
+    )
+
+    if (-not (Test-Path -LiteralPath $QueuePaths.processorLatest)) {
+        return
+    }
+
+    $latestRun = $null
+    try {
+        $latestRun = Get-Content -LiteralPath $QueuePaths.processorLatest -Raw | ConvertFrom-Json -Depth 20
+    } catch {
+        return
+    }
+
+    if (-not $latestRun) {
+        return
+    }
+
+    $launchId = if ($latestRun.PSObject.Properties.Name -contains 'launch_id') { [string]$latestRun.launch_id } else { $null }
+    if ([string]::IsNullOrWhiteSpace($launchId)) {
+        return
+    }
+
+    $terminalStates = @('completed', 'launch_failed', 'lock_active', 'exited_before_start', 'exited_unexpectedly')
+    $previousState = if ($latestRun.PSObject.Properties.Name -contains 'state') { [string]$latestRun.state } else { '' }
+    if ($previousState -in $terminalStates) {
+        return
+    }
+
+    $lockPid = $null
+    if ($LockData -and $LockData.PSObject.Properties.Name -contains 'pid' -and $LockData.pid) {
+        $lockPid = [int]$LockData.pid
+    }
+
+    $runPid = $null
+    if ($latestRun.PSObject.Properties.Name -contains 'pid' -and $latestRun.pid) {
+        $runPid = [int]$latestRun.pid
+    }
+
+    if ($lockPid -and $runPid -and $lockPid -ne $runPid) {
+        return
+    }
+
+    $recoveredQueueItem = if ($latestRun.PSObject.Properties.Name -contains 'current_queue_item') {
+        [string]$latestRun.current_queue_item
+    } else {
+        $null
+    }
+
+    $fields = @{
+        pid            = if ($runPid) { $runPid } else { $lockPid }
+        previous_state = $previousState
+        exited_at      = (Get-Date).ToUniversalTime().ToString('o')
+        error          = if ($lockPid) {
+            "Processor process $lockPid exited unexpectedly while state was $previousState."
+        } else {
+            "Processor exited unexpectedly while state was $previousState."
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($recoveredQueueItem)) {
+        $fields.recovered_queue_item = $recoveredQueueItem
+    }
+
+    Write-MconHeartbeatProcessorRunState `
+        -QueuePaths $QueuePaths `
+        -LaunchId $launchId `
+        -State 'exited_unexpectedly' `
+        -Fields $fields | Out-Null
+}
+
 function Get-MconHeartbeatQueueLockState {
     param(
         [Parameter(Mandatory)][string]$WorkspacePath
@@ -628,6 +701,7 @@ function Get-MconHeartbeatQueueLockState {
         }
     }
 
+    Repair-MconHeartbeatProcessorRunAfterUnexpectedExit -QueuePaths $paths -LockData $lockData
     Remove-Item -LiteralPath $paths.lock -Force
     Restore-MconHeartbeatProcessingQueue -QueuePaths $paths
     return [pscustomobject]@{
@@ -878,6 +952,95 @@ function Add-MconHeartbeatQueueItem {
     return 'queued'
 }
 
+function ConvertTo-MconBashSingleQuotedString {
+    param(
+        [Parameter(Mandatory)][string]$Value
+    )
+
+    return "'" + ($Value -replace "'", "'""'""'") + "'"
+}
+
+function Start-MconDetachedHeartbeatQueueProcess {
+    param(
+        [Parameter(Mandatory)][string]$PwshPath,
+        [Parameter(Mandatory)][string]$WorkspacePath,
+        [Parameter(Mandatory)][string]$MconScriptPath,
+        [Parameter(Mandatory)][string]$LaunchId,
+        [Parameter(Mandatory)][string]$StdoutLogPath,
+        [Parameter(Mandatory)][string]$StderrLogPath
+    )
+
+    if (-not ($IsLinux -or $IsMacOS)) {
+        return Start-Process `
+            -FilePath $PwshPath `
+            -ArgumentList @('-NoProfile', '-NoLogo', '-NonInteractive', '-File', $MconScriptPath, 'workflow', 'dispatch', '--process-queue', '--processor-launch-id', $LaunchId) `
+            -WorkingDirectory $WorkspacePath `
+            -RedirectStandardOutput $StdoutLogPath `
+            -RedirectStandardError $StderrLogPath `
+            -PassThru
+    }
+
+    $bashPath = (Get-Command bash -ErrorAction Stop).Source
+    $setsidPath = $null
+    try {
+        $setsidPath = (Get-Command setsid -ErrorAction Stop).Source
+    } catch {
+        $setsidPath = $null
+    }
+
+    $commandWords = @()
+    if (-not [string]::IsNullOrWhiteSpace($setsidPath)) {
+        $commandWords += (ConvertTo-MconBashSingleQuotedString -Value $setsidPath)
+    }
+    $commandWords += (ConvertTo-MconBashSingleQuotedString -Value $PwshPath)
+    $commandWords += @(
+        '-NoProfile',
+        '-NoLogo',
+        '-NonInteractive',
+        '-File',
+        (ConvertTo-MconBashSingleQuotedString -Value $MconScriptPath),
+        'workflow',
+        'dispatch',
+        '--process-queue',
+        '--processor-launch-id',
+        (ConvertTo-MconBashSingleQuotedString -Value $LaunchId)
+    )
+
+    $launchCommand = @(
+        "cd {0} || exit 1" -f (ConvertTo-MconBashSingleQuotedString -Value $WorkspacePath)
+        "nohup {0} </dev/null >> {1} 2>> {2} &" -f (
+            ($commandWords -join ' '),
+            (ConvertTo-MconBashSingleQuotedString -Value $StdoutLogPath),
+            (ConvertTo-MconBashSingleQuotedString -Value $StderrLogPath)
+        )
+        'echo $!'
+    ) -join "`n"
+
+    $launchOutput = & $bashPath '-lc' $launchCommand 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $errorText = ($launchOutput | Out-String).Trim()
+        if ([string]::IsNullOrWhiteSpace($errorText)) {
+            $errorText = "bash launcher exited with code $LASTEXITCODE"
+        }
+        throw $errorText
+    }
+
+    $pidLine = @(
+        $launchOutput |
+        ForEach-Object { [string]$_ } |
+        Where-Object { $_ -match '^\d+$' } |
+        Select-Object -Last 1
+    )
+    if ($pidLine.Count -eq 0) {
+        $errorText = ($launchOutput | Out-String).Trim()
+        throw "Detached queue launch did not return a PID. Output: $errorText"
+    }
+
+    return [pscustomobject]@{
+        Id = [int]$pidLine[0]
+    }
+}
+
 function Start-MconHeartbeatQueueProcessor {
     param(
         [Parameter(Mandatory)][string]$WorkspacePath,
@@ -935,13 +1098,13 @@ function Start-MconHeartbeatQueueProcessor {
         } | Out-Null
 
     try {
-        $process = Start-Process `
-            -FilePath $pwshPath `
-            -ArgumentList @('-NoProfile', '-NoLogo', '-NonInteractive', '-File', $MconScriptPath, 'workflow', 'dispatch', '--process-queue', '--processor-launch-id', $launchId) `
-            -WorkingDirectory $WorkspacePath `
-            -RedirectStandardOutput $state.paths.stdoutLog `
-            -RedirectStandardError $state.paths.stderrLog `
-            -PassThru
+        $process = Start-MconDetachedHeartbeatQueueProcess `
+            -PwshPath $pwshPath `
+            -WorkspacePath $WorkspacePath `
+            -MconScriptPath $MconScriptPath `
+            -LaunchId $launchId `
+            -StdoutLogPath $state.paths.stdoutLog `
+            -StderrLogPath $state.paths.stderrLog
     } catch {
         $errorText = ($_ | Out-String).Trim()
         Write-MconHeartbeatProcessorRunState `

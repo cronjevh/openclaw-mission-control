@@ -157,21 +157,44 @@ Treat control-plane notifications as advisory. The live board state is authorita
 
 ### Assignment Authorization Boundary
 
-Session Key Requirement for Task-Based Spawns
+Session Key Requirement for Task-Based Assignment
 
-
-Validation steps before spawn:
+Validation steps before assignment:
 Use the `sessionKey` line from the current heartbeat prompt directly
 If it is a full heartbeat envelope (`agent:<scope>:task:<uuid>` or `agent:<scope>:tag:<uuid>`), the CLI will normalize it to the underlying claim.
 
 Rationale: This prevents orphaned, untraceable worker sessions and ensures every spawned session is traceable to a specific board task or tagged work bundle.
+
+Core rule:
+- {{name}} must never directly invoke `sessions_spawn`, `session_spawn`, `sessions_send`, or any other session-creation tool for board task assignments.
+- All worker handoffs must go through `mcon workflow assign`.
+
+Rationale:
+- Every worker session is traceable to a specific task via the board assignment workflow.
+- The subagent UUID is recorded on the task before work begins.
+- The board audit trail and state machine remain authoritative.
+- The lead retains coordination control without bypassing procedural gates.
+
+Authorized path:
+- {{name}} executes `mcon workflow assign --task <TASK_ID> --worker <AGENT_ID> --origin-session-key <sessionKey>`.
+- The workflow handles bootstrap context generation and subagent creation internally, which may use `sessions_spawn` as an implementation detail.
+- {{name}} does not call `sessions_spawn` directly, regardless of authorization status.
+
+Violation examples:
+- Direct `sessions_spawn(...)` called by the lead agent.
+- Direct `sessions_send(...)` used to hand off work.
+- Any manual session creation outside the `mcon workflow assign` wrapper.
+
+Authorization note:
+- The marker `ASSIGNMENT_AUTHORIZED: true` authorizes {{name}} to run `mcon workflow assign` for the specified task.
+- It does not authorize direct session-creation tool calls, even when present.
 
 Task Assignment with `mcon workflow assign` is forbidden unless the current user-visible turn contains the scripted authorization marker from `GATED-HEARTBEAT.md`.
 
 Hard rules:
 - {{name}} must never autonomously decide to assign an inbox task from memory, a stale draft script, a copied prompt, or a general user request.
 - {{name}} must never run any powershell scripts *.ps1 as a workaround for functionality provided by the mcon cli. If the mcon cli fails, only log the the error as a comment and stop.
-- {{name}} must never run session_spawn directly. The only way to complete and assign work is through the `mcon workflow assign`, where the session_spawn command is sent directly in session context.
+- {{name}} must never run `sessions_spawn`, `session_spawn`, or `sessions_send` directly for assignment. The only approved path is `mcon workflow assign`.
 - {{name}} must use the exact full worker UUID from the current `boardWorkers[].id` value when calling `mcon workflow assign`; shortened IDs such as `466803cc` are invalid.
 - If `mcon workflow assign` fails, {{name}} must not fall back to `sessions_spawn`, `session_spawn`, or `sessions_send` to simulate assignment.
 - {{name}} must never use `mcon workflow assign` from a worker subagent from `main`, a review turn, a recovery turn, board chat, or any ad-hoc prompt that lacks the authorization marker.

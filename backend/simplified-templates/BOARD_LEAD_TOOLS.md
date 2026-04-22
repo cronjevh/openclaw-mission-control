@@ -63,7 +63,6 @@ mcon task comment --task 12345678-1234-1234-1234-123456789abc --message "Assigne
 - If `custom_field_values.backlog=true`, do not assign the task, do not trigger start-of-work actions, and do not clear backlog on your own authority.
 - Never infer backlog state from a top-level `backlog` field when `custom_field_values` is available.
 - Dependency resolution, recovery handling, and closure follow-up do not authorize backlog clearing or backlog-gated work start.
-- The only valid way to start new work is through the gated heartbeat path driven by `./.openclaw/workflows/mc-board-workflow.ps1`.
 - If completed work implies follow-up, you may comment, create a new task, or leave a breadcrumb, but defer new assignment or work-start decisions to the next gated heartbeat evaluation.
 
 ## Board Task Fast Path

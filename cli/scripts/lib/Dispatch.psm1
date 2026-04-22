@@ -71,7 +71,7 @@ function Get-MconCommentsProjection {
         }
     }
 
-    return @(
+    $sortedItems = @(
         $items | Sort-Object -Property @{
             Expression = {
                 if ($_.created_at) { [datetimeoffset]$_.created_at } else { [datetimeoffset]::MinValue }
@@ -79,6 +79,8 @@ function Get-MconCommentsProjection {
             Descending = $false
         }
     )
+
+    return ,$sortedItems
 }
 
 function ConvertTo-MconWorkerAgentContext {
@@ -191,6 +193,8 @@ function Write-MconTaskContextBundle {
         task_directory = $taskDir
         deliverables_directory = $taskDeliverablesDir
         evidence_directory = $taskEvidenceDir
+        comments = $taskComments
+        task_data = $taskData
     }
 }
 
@@ -214,6 +218,98 @@ function New-MconDispatchResult {
         summary   = $Summary
         tasks     = $Tasks
     }
+}
+
+function Get-MconDispatchStatePath {
+    param(
+        [Parameter(Mandatory)][string]$WorkspacePath
+    )
+
+    return Join-Path (Join-Path $WorkspacePath '.openclaw/workflows') '.dispatch-state-latest.json'
+}
+
+function Get-MconDispatchFieldValue {
+    param(
+        [Parameter(Mandatory)]$Item,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    if ($null -eq $Item) { return $null }
+
+    if ($Item -is [System.Collections.IDictionary]) {
+        if ($Item.Contains($Name)) {
+            return $Item[$Name]
+        }
+        return $null
+    }
+
+    if ($Item.PSObject.Properties.Name -contains $Name) {
+        return $Item.$Name
+    }
+
+    return $null
+}
+
+function Get-MconDispatchArrayValue {
+    param(
+        [Parameter(Mandatory)]$Item,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    $value = Get-MconDispatchFieldValue -Item $Item -Name $Name
+    if ($null -eq $value) { return @() }
+    if ($value -is [string]) { return @($value) }
+    if ($value -is [System.Collections.IEnumerable]) { return @($value) }
+    return @($value)
+}
+
+function Write-MconDispatchState {
+    param(
+        [Parameter(Mandatory)][string]$WorkspacePath,
+        [Parameter(Mandatory)]$DispatchResult
+    )
+
+    $dispatchStatePath = Get-MconDispatchStatePath -WorkspacePath $WorkspacePath
+    $dispatchStateDir = Split-Path -Path $dispatchStatePath -Parent
+    if (-not (Test-Path -LiteralPath $dispatchStateDir)) {
+        New-Item -ItemType Directory -Path $dispatchStateDir -Force | Out-Null
+    }
+
+    $tasks = @()
+    foreach ($task in @($DispatchResult.tasks)) {
+        if ($null -eq $task) { continue }
+        $tasks += [ordered]@{
+            id                     = Get-MconDispatchFieldValue -Item $task -Name 'id'
+            status                 = Get-MconDispatchFieldValue -Item $task -Name 'status'
+            title                  = Get-MconDispatchFieldValue -Item $task -Name 'title'
+            subagent_uuid          = Get-MconDispatchFieldValue -Item $task -Name 'subagent_uuid'
+            task_data_path         = Get-MconDispatchFieldValue -Item $task -Name 'task_data_path'
+            task_directory         = Get-MconDispatchFieldValue -Item $task -Name 'task_directory'
+            deliverables_directory = Get-MconDispatchFieldValue -Item $task -Name 'deliverables_directory'
+            evidence_directory     = Get-MconDispatchFieldValue -Item $task -Name 'evidence_directory'
+            comments               = Get-MconDispatchArrayValue -Item $task -Name 'comments'
+            task_data              = Get-MconDispatchFieldValue -Item $task -Name 'task_data'
+        }
+    }
+
+    $dispatchState = [ordered]@{
+        timestamp    = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        ttl_seconds  = 300
+        gate_version = '1.0.0'
+        board_id     = $DispatchResult.boardId
+        agent_id     = $DispatchResult.agentId
+        agent_role   = $DispatchResult.agentRole
+        act          = [bool]$DispatchResult.act
+        reason       = $DispatchResult.reason
+        tasks        = $tasks
+    }
+
+    $tmpPath = Join-Path $dispatchStateDir ('.dispatch-state-latest.' + [guid]::NewGuid().Guid + '.tmp')
+    $json = $dispatchState | ConvertTo-Json -Depth 20
+    Set-Content -LiteralPath $tmpPath -Value $json -Encoding UTF8
+    Move-Item -LiteralPath $tmpPath -Destination $dispatchStatePath -Force
+
+    return $dispatchStatePath
 }
 
 function Get-MconBoardVerifierAgents {
@@ -288,7 +384,9 @@ function Invoke-MconDispatch {
     $summary.paused = $paused
 
     if ($paused) {
-        return New-MconDispatchResult -Act $false -Reason 'paused' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary
+        $dispatchResult = New-MconDispatchResult -Act $false -Reason 'paused' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary
+        Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult | Out-Null
+        return $dispatchResult
     }
 
     switch ($role) {
@@ -310,7 +408,9 @@ function Invoke-MconDispatch {
             if ($summary.review) {
                 $verifierAgents = @(Get-MconBoardVerifierAgents -BaseUrl $baseUrl -Token $authToken -BoardId $boardId)
                 if ($verifierAgents.Count -eq 0) {
-                    return New-MconDispatchResult -Act $false -Reason 'review_tasks_no_verifier' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary
+                    $dispatchResult = New-MconDispatchResult -Act $false -Reason 'review_tasks_no_verifier' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary
+                    Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult | Out-Null
+                    return $dispatchResult
                 }
             }
 
@@ -327,16 +427,22 @@ function Invoke-MconDispatch {
                         task_directory = $taskContext.task_directory
                         deliverables_directory = $taskContext.deliverables_directory
                         evidence_directory = $taskContext.evidence_directory
+                        comments      = $taskContext.comments
+                        task_data     = $taskContext.task_data
                     }
                 }
             }
 
             if ($summary.inbox) {
                 $reason = 'lead_inbox'
-                return New-MconDispatchResult -Act $true -Reason $reason -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary -Tasks $allTasks
+                $dispatchResult = New-MconDispatchResult -Act $true -Reason $reason -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary -Tasks $allTasks
+                Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult | Out-Null
+                return $dispatchResult
             }
 
-            return New-MconDispatchResult -Act $false -Reason 'idle' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary
+            $dispatchResult = New-MconDispatchResult -Act $false -Reason 'idle' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary
+            Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult | Out-Null
+            return $dispatchResult
         }
 
         'verifier' {
@@ -346,7 +452,9 @@ function Invoke-MconDispatch {
 
             $summary.review = ($reviewTasks.Count -gt 0)
             if (-not $summary.review) {
-                return New-MconDispatchResult -Act $false -Reason 'idle' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary
+                $dispatchResult = New-MconDispatchResult -Act $false -Reason 'idle' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary
+                Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult | Out-Null
+                return $dispatchResult
             }
 
             $leadWorkspacePath = Get-MconLeadWorkspacePath -BoardId $boardId
@@ -361,19 +469,23 @@ function Invoke-MconDispatch {
                     -AuthToken $authToken `
                     -TaskSummary $task `
                     -TaskBundleWorkspacePath $leadWorkspacePath
-                $allTasks += [ordered]@{
-                    id            = $task.id
-                    status        = 'review'
-                    title         = $task.title
-                    subagent_uuid = (Get-MconTaskSubagentUuid -Task $task)
-                    task_data_path = $taskContext.task_data_path
-                    task_directory = $taskContext.task_directory
-                    deliverables_directory = $taskContext.deliverables_directory
-                    evidence_directory = $taskContext.evidence_directory
+                    $allTasks += [ordered]@{
+                        id            = $task.id
+                        status        = 'review'
+                        title         = $task.title
+                        subagent_uuid = (Get-MconTaskSubagentUuid -Task $task)
+                        task_data_path = $taskContext.task_data_path
+                        task_directory = $taskContext.task_directory
+                        deliverables_directory = $taskContext.deliverables_directory
+                        evidence_directory = $taskContext.evidence_directory
+                        comments      = $taskContext.comments
+                        task_data     = $taskContext.task_data
+                    }
                 }
-            }
 
-            return New-MconDispatchResult -Act $true -Reason 'verifier_review' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary -Tasks $allTasks
+            $dispatchResult = New-MconDispatchResult -Act $true -Reason 'verifier_review' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary -Tasks $allTasks
+            Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult | Out-Null
+            return $dispatchResult
         }
 
         'worker' {
@@ -402,9 +514,13 @@ function Invoke-MconDispatch {
                         task_directory = $taskContext.task_directory
                         deliverables_directory = $taskContext.deliverables_directory
                         evidence_directory = $taskContext.evidence_directory
+                        comments      = $taskContext.comments
+                        task_data     = $taskContext.task_data
                     }
                 }
-                return New-MconDispatchResult -Act $true -Reason 'worker_inbox' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary -Tasks $allTasks
+                $dispatchResult = New-MconDispatchResult -Act $true -Reason 'worker_inbox' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary -Tasks $allTasks
+                Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult | Out-Null
+                return $dispatchResult
             }
 
             if ($summary.assignedInProgress) {
@@ -419,12 +535,18 @@ function Invoke-MconDispatch {
                         task_directory = $taskContext.task_directory
                         deliverables_directory = $taskContext.deliverables_directory
                         evidence_directory = $taskContext.evidence_directory
+                        comments      = $taskContext.comments
+                        task_data     = $taskContext.task_data
                     }
                 }
-                return New-MconDispatchResult -Act $true -Reason 'worker_in_progress' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary -Tasks $allTasks
+                $dispatchResult = New-MconDispatchResult -Act $true -Reason 'worker_in_progress' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary -Tasks $allTasks
+                Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult | Out-Null
+                return $dispatchResult
             }
 
-            return New-MconDispatchResult -Act $false -Reason 'idle' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary
+            $dispatchResult = New-MconDispatchResult -Act $false -Reason 'idle' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary
+            Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult | Out-Null
+            return $dispatchResult
         }
 
         default {
@@ -433,4 +555,4 @@ function Invoke-MconDispatch {
     }
 }
 
-Export-ModuleMember -Function Invoke-MconDispatch, New-MconDispatchResult, Get-MconResponseItems
+Export-ModuleMember -Function Invoke-MconDispatch, New-MconDispatchResult, Get-MconResponseItems, Write-MconDispatchState

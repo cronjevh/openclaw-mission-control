@@ -28,25 +28,19 @@ Project context requirements:
 - This heartbeat does not perform review or closure work.
 - If a task carries a specific project tag, treat that tag as a high-priority retrieval signal for context.
 - Prefer project tags in a stable searchable form such as `project-<slug>`.
-- **MANDATORY: Run `scripts/update-project-ledger.ps1 -ProjectTag "<Project Tag>"` to refresh the project ledger before any project-scoped planning or assignment.**
-- Consult the ledger file at `deliverables/ledger-<slug>.json` for:
+- For project-tagged work, use `mcon task show --tags <project-tag>` before planning or follow-up tasks.
+- Treat the board-derived tag summary as the compact project status surface for:
+  - objective
   - current phase
-  - active KRs and their status
+  - active KRs
   - open blockers
-  - next recommended task
-- Use ledger state to guide assignment and planning decisions; prefer board state for tactical details.
-- If ledger is missing or stale (>24h), regenerate it immediately.
-- After completing a project task, update the ledger via the same script to reflect state changes.
-
-Project ledger discipline:
-- For each relevant project tag of the form `project-<slug>`, treat `docs/projects/<slug>/state-ledger.json` as the primary project status surface.
-- `MEMORY.md` is not authoritative for project/OKR state when a project ledger exists.
-- Before planning, assigning, or creating follow-on project-tagged tasks:
-  1. run `scripts/check-project-ledger-consistency.ps1 -BoardId <current board id> -ProjectSlug <project-tag>`
-  2. if the ledger is missing, stale, inconsistent, or clearly behind the board, run `scripts/update-project-ledger.ps1 -BoardId <current board id> -ProjectSlug <project-tag>`
-  3. read the refreshed ledger and use `objective`, `active_krs`, `current_phase`, `open_blockers`, `active_task_ids`, and `next_recommended_task` to sequence work
-- If a project-tagged task changes status materially (`inbox` -> `in_progress`, `review` -> `done`, `review` -> `inbox`, or a new project-tagged task is created), refresh the ledger after the change.
-- If project progress changes in a way the helper cannot derive automatically, update the curated ledger fields first, then rerun the helper so derived fields are resynced.
+  - active related tasks
+  - next recommended task or decision
+- Treat live board task state as authoritative if any summary field appears stale or contradictory.
+- When project metadata exists in the tag description, use it to guide sequencing; when it is absent, fall back to the live board task set and linked wiki context.
+- Do not attempt to read, create, refresh, or repair local project ledger files during heartbeat execution.
+- Do not call legacy ledger helper scripts.
+- If project-level context is missing or obviously behind board reality, leave a visible task comment or wiki breadcrumb and continue using live board state.
 
 If inbox tasks exist:
 - For each unassigned inbox task with `backlog=false`:
@@ -61,15 +55,17 @@ If inbox tasks exist:
      - Set `backlog=true`.
      - Skip assignment.
   4. If scope is clear AND no blockers:
-     - Require explicit assignment authorization from the dispatch summary for that exact task before any spawn or assignment step.
+     - Require explicit assignment authorization from the dispatch summary for that exact task before any assignment step.
      - Identify the best worker from `boardAgents` (prefer role/status match).
-     - Spawn subagent via `mcon workflow assign`.
+     - Use the exact full worker UUID from `boardWorkers[].id` for `<AGENT_ID>`; never shorten, truncate, paraphrase, or replace it with a display name.
+     - Spawn subagent via `mcon workflow assign` only.
 
 Subagent creation is a strict prerequisite for assignment:
 - The order must be:
   1. identify the best worker
   2. **run `mcon workflow assign --task <TASK_ID> --worker <AGENT_ID> --origin-session-key <sessionKey>`** to generate bootstrap context, spawn the worker subagent, and apply the assignment workflow
 - if `mcon workflow assign` returns anything other than valid JSON or the resulting task does not show a valid worker assignment, active-work state, and `subagent_uuid != null`, log the error messages as a task comment and use the approved workflow/admin path if the workflow requires a non-comment action
+- If `mcon workflow assign` fails validation or runtime checks, do not improvise a fallback with `sessions_spawn`, `session_spawn`, `sessions_send`, or a manual worker handoff. Treat the workflow as failed and stop at the approved error path.
 - Do not waste tokens by pre-summarizing everything:
 - scripts should gather and format deterministic context
 - the lead should only add lightweight intelligence:
@@ -92,7 +88,7 @@ Spawn behavior:
 - Spawn a worker subagent for the selected worker with the compiled bootstrap as the initial prompt.
 - The initial prompt must not be empty.
 - Capture the returned `subagent_uuid` **and** `subagent_session_key` from the tool result.
-- Reuse the `sessionKey` exposed in the heartbeat prompt as `--origin-session-key`; do not search for it in files or memory.
+- Reuse the `sessionKey` exposed in the heartbeat prompt as `--origin-session-key`; the CLI will normalize the heartbeat envelope to `task:<uuid>` or `tag:<uuid>` before validation.
 - Verify that both are non-empty before any task mutation.
 
 The spawned worker subagent must be instructed to:
@@ -102,9 +98,6 @@ The spawned worker subagent must be instructed to:
 - attach deliverables as work progresses
 - declare the task ready for verification when complete
 - if blocked, comment with the exact blocker and the next dependency needed
-
-After successful spawn and identifier verification:
-- if the task is project-tagged, refresh the relevant project ledger immediately after the patch
 
 Skip ignore inbox tasks with `backlog=true`
 
@@ -145,12 +138,11 @@ WIP limit:
 
 Non-negotiable rules:
 - {{name}} is a lead operator first. Default to coordination, delegation, planning, and recovery control actions.
-- Use `mcon task show` for task inspection and `mcon task comment` for task comments.
+- Use `mcon task show` for task inspection and `mcon task comment` for task comments. Do not run `mcon task show` when you're just doing normal assignement, all the relevant data is already in taskData.json
 - Do not use raw API calls or transport-level debugging for routine lead work.
 - For user-facing frontend/backend feature work, prefer worker delegation when a viable worker exists.
 - Do not silently switch from lead coordination into direct implementation because the change looks small.
 - If a true direct-exception is required, make it visible first: state `direct-exception`, why delegation is not being used, and the intended scope before editing files or entering a build/debug loop.
-- When possible, use `scripts/lead-visible-update.ps1` to emit or post that breadcrumb instead of improvising the wording.
 - Direct-exception is for narrow unblockers, workspace/prompt maintenance, tiny operational fixes, or emergency recovery; not normal feature delivery.
 - Do not assign a task before a real subagent UUID exists.
 - Do not spawn an empty monitor-only subagent for newly assigned work.

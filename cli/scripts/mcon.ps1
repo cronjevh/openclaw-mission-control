@@ -30,6 +30,21 @@ Import-Module (Join-Path $libDir 'Verify.psm1') -Force
 Import-Module (Join-Path $libDir 'Cron.psm1') -Force
 Import-Module (Join-Path $libDir 'DispatchBoard.psm1') -Force
 
+function Get-MconErrorCodeFromException {
+    param([Parameter(Mandatory)][System.Exception]$Exception)
+
+    if ($Exception -is [System.Management.Automation.ParameterBindingException]) {
+        return 'validation'
+    }
+
+    $message = [string]$Exception.Message
+    if ($message -match 'Cannot bind parameter|Cannot process argument transformation|Cannot convert value to type') {
+        return 'validation'
+    }
+
+    return 'api_error'
+}
+
 if ($args.Count -lt 1) {
     Write-MconError -Message 'Usage: mcon <subcommand> [options]. Run ''mcon help'' for details.' -Code 'usage'
 }
@@ -56,17 +71,11 @@ Usage:
   mcon workflow dispatch              # evaluate board state, enqueue heartbeat
   mcon workflow dispatch --process-queue  # process queued heartbeat items
   mcon workflow dispatchboard --board <BOARD_ID> [--delay <SECONDS>]  # sequential dispatch for all board agents
-  mcon workflow assign --task <TASK_ID> --worker <AGENT_ID> [--origin-session-key <task:...|tag:...>]  # assign task to worker
+  mcon workflow assign --task <TASK_ID> --worker <AGENT_ID> [--origin-session-key <task:...|tag:...|agent:...:task:...|agent:...:tag:...>]  # assign task to worker
   mcon workflow blocker --task <TASK_ID> --message <TEXT>  # mark task blocked and escalate to lead
   mcon workflow escalate --message <TEXT> [--secret-key <KEY>] [--task <TASK_ID>]  # escalate a lead blocker to Gateway Main
   mcon workflow submitreview --task <TASK_ID> [--message <TEXT>]  # submit task for review
   mcon verify run --task <TASK_ID>    # verifier-only: execute verification and apply outcome
-
-Configuration (env vars, .mcon.env, or TOOLS.md):
-  MCON_BASE_URL    API base URL (e.g. http://localhost:8002)
-  MCON_AUTH_TOKEN  Agent auth token (X-Agent-Token)
-  MCON_BOARD_ID    Default board UUID
-  MCON_WSP         Workspace name (e.g. workspace-lead-*, workspace-gateway-*, workspace-mc-*)
 
 Roles (derived from MCON_WSP):
   workspace-lead-*     = lead
@@ -141,7 +150,8 @@ Statuses: inbox, in_progress, review, done, blocked
             $env:MCON_AGENT_ID = $matchingAgent.id
             $env:MCON_WSP = if ($matchingAgent.is_board_lead) {
                 "workspace-lead-$($matchingAgent.board_id)"
-            } else {
+            }
+            else {
                 "workspace-mc-$($matchingAgent.id)"
             }
         }
@@ -196,7 +206,8 @@ Statuses: inbox, in_progress, review, done, blocked
                     Write-MconError -Message '--tags requires at least one tag identifier.' -Code 'usage'
                 }
             }
-        } elseif ($action -ne 'create') {
+        }
+        elseif ($action -ne 'create') {
             if (-not $task) {
                 Write-MconError -Message '--task <TASK_ID> is required.' -Code 'usage'
             }
@@ -204,7 +215,8 @@ Statuses: inbox, in_progress, review, done, blocked
             if ($task -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
                 Write-MconError -Message "Invalid task ID format: $task" -Code 'validation'
             }
-        } else {
+        }
+        else {
             if (-not $title) {
                 Write-MconError -Message '--title <TITLE> is required for task creation.' -Code 'usage'
             }
@@ -253,7 +265,8 @@ Statuses: inbox, in_progress, review, done, blocked
                     try {
                         $resolvedTags = Resolve-MconTagIds -BaseUrl $config.base_url -Token $config.auth_token -BoardId $config.board_id -Identifiers $tagList
                         $tags = $resolvedTags
-                    } catch {
+                    }
+                    catch {
                         Write-MconError -Message $_.Exception.Message -Code 'validation'
                     }
                 }
@@ -287,7 +300,8 @@ Statuses: inbox, in_progress, review, done, blocked
                     try {
                         $resolvedTags = Resolve-MconTagIds -BaseUrl $config.base_url -Token $config.auth_token -BoardId $config.board_id -Identifiers $tagList
                         $tags = $resolvedTags
-                    } catch {
+                    }
+                    catch {
                         Write-MconError -Message $_.Exception.Message -Code 'validation'
                     }
                 }
@@ -324,22 +338,23 @@ Statuses: inbox, in_progress, review, done, blocked
                         $result = Get-MconTask -BaseUrl $config.base_url -Token $config.auth_token -BoardId $config.board_id -TaskId $task
                         $comments = Get-MconTaskComments -BaseUrl $config.base_url -Token $config.auth_token -BoardId $config.board_id -TaskId $task
                         Write-MconResult -Data ([ordered]@{ ok = $true; task = $result; comments = $comments })
-                    } else {
+                    }
+                    else {
                         $result = Get-MconProjectTagSummaries `
                             -BaseUrl $config.base_url `
                             -Token $config.auth_token `
                             -BoardId $config.board_id `
                             -TagIdentifiers ([string[]]$tags)
                         Write-MconResult -Data ([ordered]@{
-                            ok             = $true
-                            generated_at   = $result.generated_at
-                            requested_tags = $result.requested_tags
-                            summaries      = $result.summaries
-                        })
+                                ok             = $true
+                                generated_at   = $result.generated_at
+                                requested_tags = $result.requested_tags
+                                summaries      = $result.summaries
+                            })
                     }
                 }
                 catch {
-                    Write-MconError -Message $_.Exception.Message -Code 'api_error'
+                    Write-MconError -Message $_.Exception.Message -Code (Get-MconErrorCodeFromException -Exception $_.Exception)
                 }
             }
             'comment' {
@@ -348,7 +363,7 @@ Statuses: inbox, in_progress, review, done, blocked
                     Write-MconResult -Data ([ordered]@{ ok = $true; comment = $result })
                 }
                 catch {
-                    Write-MconError -Message $_.Exception.Message -Code 'api_error'
+                    Write-MconError -Message $_.Exception.Message -Code (Get-MconErrorCodeFromException -Exception $_.Exception)
                 }
             }
             'move' {
@@ -357,18 +372,18 @@ Statuses: inbox, in_progress, review, done, blocked
                     Write-MconResult -Data ([ordered]@{ ok = $true; task = $result })
                 }
                 catch {
-                    Write-MconError -Message $_.Exception.Message -Code 'api_error'
+                    Write-MconError -Message $_.Exception.Message -Code (Get-MconErrorCodeFromException -Exception $_.Exception)
                 }
             }
             'create' {
                 try {
                     $createParams = @{
-                        BaseUrl = $config.base_url
-                        Token = $config.auth_token
-                        BoardId = $config.board_id
-                        Title = $title
+                        BaseUrl     = $config.base_url
+                        Token       = $config.auth_token
+                        BoardId     = $config.board_id
+                        Title       = $title
                         Description = $description
-                        Priority = $priority
+                        Priority    = $priority
                     }
                     if ($null -ne $backlog) {
                         $createParams.Backlog = [bool]$backlog
@@ -383,16 +398,16 @@ Statuses: inbox, in_progress, review, done, blocked
                     Write-MconResult -Data ([ordered]@{ ok = $true; task = $result })
                 }
                 catch {
-                    Write-MconError -Message $_.Exception.Message -Code 'api_error'
+                    Write-MconError -Message $_.Exception.Message -Code (Get-MconErrorCodeFromException -Exception $_.Exception)
                 }
             }
             'update' {
                 try {
                     $updateParams = @{
                         BaseUrl = $config.base_url
-                        Token = $config.auth_token
+                        Token   = $config.auth_token
                         BoardId = $config.board_id
-                        TaskId = $task
+                        TaskId  = $task
                     }
                     if ($null -ne $title) {
                         $updateParams.Title = $title
@@ -416,7 +431,7 @@ Statuses: inbox, in_progress, review, done, blocked
                     Write-MconResult -Data ([ordered]@{ ok = $true; task = $result })
                 }
                 catch {
-                    Write-MconError -Message $_.Exception.Message -Code 'api_error'
+                    Write-MconError -Message $_.Exception.Message -Code (Get-MconErrorCodeFromException -Exception $_.Exception)
                 }
             }
             default {
@@ -437,10 +452,12 @@ Statuses: inbox, in_progress, review, done, blocked
             'dispatch' {
                 $processQueue = $false
                 $chatLimit = 20
+                $processorLaunchId = $null
                 $i = 0
                 while ($i -lt $wfArgs.Count) {
                     switch ($wfArgs[$i]) {
                         '--process-queue' { $processQueue = $true; break }
+                        '--processor-launch-id' { $processorLaunchId = $wfArgs[++$i]; break }
                         '--chat-limit' { $chatLimit = [int]$wfArgs[++$i]; break }
                         default { Write-MconError -Message "Unknown flag: $($wfArgs[$i])" -Code 'usage' }
                     }
@@ -467,19 +484,27 @@ Statuses: inbox, in_progress, review, done, blocked
                             -WorkspacePath $agentConfig.workspace_path `
                             -InvocationAgent $invocationAgent `
                             -Config $agentConfig `
-                            -TimeoutSec 300
+                            -TimeoutSec 300 `
+                            -LaunchId $processorLaunchId
+                        $resultOk = $true
+                        if ($result -and ($result.PSObject.Properties.Name -contains 'ok')) {
+                            $resultOk = [bool]$result.ok
+                        }
                         Write-MconResult -Data ([ordered]@{
-                            ok     = $true
-                            action = 'workflow.process_queue'
-                            result = $result
-                        })
-                    } catch {
+                                ok     = $resultOk
+                                action = 'workflow.process_queue'
+                                result = $result
+                            })
+                    }
+                    catch {
                         Write-MconError -Message $_.Exception.Message -Code 'queue_error'
                     }
-                } else {
+                }
+                else {
                     try {
                         $dispatchResult = Invoke-MconDispatch -Config $agentConfig -ChatLimit $chatLimit
-                    } catch {
+                    }
+                    catch {
                         $errMsg = $_.Exception.Message
                         if ($errMsg -match 'connect(ion)? refused|No connection could be made|timed out|Failed to connect|Unable to connect|actively refused') {
                             Write-MconError -Message "API backend is not responding. Check that the API service is running." -Code 'api_down'
@@ -487,41 +512,43 @@ Statuses: inbox, in_progress, review, done, blocked
                         Write-MconError -Message $errMsg -Code 'dispatch_error'
                     }
 
-                    if ($dispatchResult.act -ne $true) {
-                        Write-MconResult -Data ([ordered]@{
+                    $queued = 0
+                    $skipped = 0
+                    $retired = @()
+                    if ($dispatchResult.act -eq $true) {
+                        $dispatchStates = @(Get-MconHeartbeatDispatchStates -DispatchResult $dispatchResult)
+                        foreach ($ds in $dispatchStates) {
+                            $addResult = Add-MconHeartbeatQueueItem -WorkspacePath $agentConfig.workspace_path -InvocationAgent $invocationAgent -DispatchState $ds
+                            switch ($addResult) {
+                                'queued' {
+                                    $queued++
+                                }
+                                'retired' {
+                                    $skipped++
+                                    $taskId = Get-MconHeartbeatQueueItemId -DispatchState $ds
+                                    $retired += $taskId
+                                }
+                                default {
+                                    $skipped++
+                                }
+                            }
+                        }
+                    }
+
+                    $processingStart = Start-MconHeartbeatQueueProcessor -WorkspacePath $agentConfig.workspace_path -MconScriptPath $PSCommandPath
+
+                    Write-MconResult -Data ([ordered]@{
                             ok       = $true
                             action   = 'workflow.dispatch'
                             dispatch = $dispatchResult
+                            queue    = [ordered]@{
+                                queued             = $queued
+                                skipped            = $skipped
+                                retired            = $retired
+                                processing_started = [bool]($processingStart.confirmed_started)
+                                processing         = $processingStart
+                            }
                         })
-                        exit 0
-                    }
-
-                    $dispatchStates = @(Get-MconHeartbeatDispatchStates -DispatchResult $dispatchResult)
-                    $queued = 0
-                    $skipped = 0
-                    foreach ($ds in $dispatchStates) {
-                        if (Add-MconHeartbeatQueueItem -WorkspacePath $agentConfig.workspace_path -InvocationAgent $invocationAgent -DispatchState $ds) {
-                            $queued++
-                        } else {
-                            $skipped++
-                        }
-                    }
-
-                    $processingStarted = $false
-                    if ($queued -gt 0) {
-                        $processingStarted = Start-MconHeartbeatQueueProcessor -WorkspacePath $agentConfig.workspace_path -MconScriptPath $PSCommandPath
-                    }
-
-                    Write-MconResult -Data ([ordered]@{
-                        ok       = $true
-                        action   = 'workflow.dispatch'
-                        dispatch = $dispatchResult
-                        queue    = [ordered]@{
-                            queued             = $queued
-                            skipped            = $skipped
-                            processing_started = $processingStarted
-                        }
-                    })
                 }
             }
 
@@ -568,7 +595,8 @@ Statuses: inbox, in_progress, review, done, blocked
                 try {
                     $result = Invoke-MconDispatchBoard -Config $dispatchConfig -DelaySeconds $delaySeconds -ChatLimit $chatLimit
                     Write-MconResult -Data $result
-                } catch {
+                }
+                catch {
                     $errMsg = $_.Exception.Message
                     if ($errMsg -match 'connect(ion)? refused|No connection could be made|timed out|Failed to connect|Unable to connect|actively refused') {
                         Write-MconError -Message "API backend is not responding. Check that the API service is running." -Code 'api_down'
@@ -584,6 +612,8 @@ Statuses: inbox, in_progress, review, done, blocked
                 $originSessionKey = $null
                 $bundleOnly = $false
                 $dryRun = $false
+                $processDeferredSpawn = $false
+                $payloadPath = $null
                 $i = 0
                 while ($i -lt $wfArgs.Count) {
                     switch ($wfArgs[$i]) {
@@ -593,9 +623,35 @@ Statuses: inbox, in_progress, review, done, blocked
                         '--origin-session-key' { $originSessionKey = $wfArgs[++$i]; break }
                         '--bundle-only' { $bundleOnly = $true; break }
                         '--dry-run' { $dryRun = $true; break }
+                        '--process-deferred-spawn' { $processDeferredSpawn = $true; break }
+                        '--payload' { $payloadPath = $wfArgs[++$i]; break }
                         default { Write-MconError -Message "Unknown flag: $($wfArgs[$i])" -Code 'usage' }
                     }
                     $i++
+                }
+
+                if ($processDeferredSpawn) {
+                    if (-not $payloadPath) {
+                        Write-MconError -Message '--payload <PATH> is required with --process-deferred-spawn.' -Code 'usage'
+                    }
+
+                    try {
+                        $result = Invoke-MconDeferredAssignSpawn -PayloadPath $payloadPath
+                        if ($result.ok) {
+                            Write-MconResult -Data ([ordered]@{
+                                    ok     = $true
+                                    action = 'workflow.assign.deferred'
+                                    result = $result
+                                })
+                            return
+                        }
+                        else {
+                            Write-MconError -Message "$($result.phase): $($result.error)" -Code 'assign_error'
+                        }
+                    }
+                    catch {
+                        Write-MconError -Message $_.Exception.Message -Code 'assign_error'
+                    }
                 }
 
                 if (-not $taskId) {
@@ -629,10 +685,11 @@ Statuses: inbox, in_progress, review, done, blocked
 
                 try {
                     $assignParams = @{
-                        Config        = $agentConfig
-                        TaskId        = $taskId
-                        WorkerAgentId = $workerAgentId
+                        Config           = $agentConfig
+                        TaskId           = $taskId
+                        WorkerAgentId    = $workerAgentId
                         OriginSessionKey = $originSessionKey
+                        MconScriptPath   = $PSCommandPath
                     }
                     if ($workerWorkspacePath) { $assignParams.WorkerWorkspacePath = $workerWorkspacePath }
                     if ($bundleOnly) { $assignParams.BundleOnly = $true }
@@ -642,14 +699,16 @@ Statuses: inbox, in_progress, review, done, blocked
 
                     if ($result.ok) {
                         Write-MconResult -Data ([ordered]@{
-                            ok     = $true
-                            action = 'workflow.assign'
-                            result = $result
-                        })
-                    } else {
+                                ok     = $true
+                                action = 'workflow.assign'
+                                result = $result
+                            })
+                    }
+                    else {
                         Write-MconError -Message "$($result.phase): $($result.error)" -Code 'assign_error'
                     }
-                } catch {
+                }
+                catch {
                     Write-MconError -Message $_.Exception.Message -Code 'assign_error'
                 }
             }
@@ -697,14 +756,16 @@ Statuses: inbox, in_progress, review, done, blocked
 
                     if ($result.ok) {
                         Write-MconResult -Data ([ordered]@{
-                            ok     = $true
-                            action = 'workflow.blocker'
-                            result = $result
-                        })
-                    } else {
+                                ok     = $true
+                                action = 'workflow.blocker'
+                                result = $result
+                            })
+                    }
+                    else {
                         Write-MconError -Message "$($result.message)" -Code $result.code
                     }
-                } catch {
+                }
+                catch {
                     Write-MconError -Message $_.Exception.Message -Code 'blocker_error'
                 }
             }
@@ -779,14 +840,16 @@ Statuses: inbox, in_progress, review, done, blocked
 
                     if ($result.ok) {
                         Write-MconResult -Data ([ordered]@{
-                            ok     = $true
-                            action = 'workflow.escalate'
-                            result = $result
-                        })
-                    } else {
+                                ok     = $true
+                                action = 'workflow.escalate'
+                                result = $result
+                            })
+                    }
+                    else {
                         Write-MconError -Message "$($result.message)" -Code $result.code
                     }
-                } catch {
+                }
+                catch {
                     Write-MconError -Message $_.Exception.Message -Code 'escalate_error'
                 }
             }
@@ -828,14 +891,16 @@ Statuses: inbox, in_progress, review, done, blocked
 
                     if ($result.ok) {
                         Write-MconResult -Data ([ordered]@{
-                            ok     = $true
-                            action = 'workflow.submitreview'
-                            result = $result
-                        })
-                    } else {
+                                ok     = $true
+                                action = 'workflow.submitreview'
+                                result = $result
+                            })
+                    }
+                    else {
                         Write-MconError -Message "$($result.message)" -Code $result.code
                     }
-                } catch {
+                }
+                catch {
                     Write-MconError -Message $_.Exception.Message -Code 'submitreview_error'
                 }
             }
@@ -888,11 +953,12 @@ Statuses: inbox, in_progress, review, done, blocked
                 try {
                     $result = Invoke-MconVerifyRun -Config $agentConfig -TaskId $taskId
                     Write-MconResult -Data ([ordered]@{
-                        ok     = $true
-                        action = 'verify.run'
-                        result = $result
-                    })
-                } catch {
+                            ok     = $true
+                            action = 'verify.run'
+                            result = $result
+                        })
+                }
+                catch {
                     Write-MconError -Message $_.Exception.Message -Code 'verify_error'
                 }
             }
@@ -936,7 +1002,7 @@ Statuses: inbox, in_progress, review, done, blocked
                     Invoke-MconAdminGetTokens -Wsp $adminConfig.wsp
                 }
                 catch {
-                    Write-MconError -Message $_.Exception.Message -Code 'api_error'
+                    Write-MconError -Message $_.Exception.Message -Code (Get-MconErrorCodeFromException -Exception $_.Exception)
                 }
             }
             'decrypt-keybag' {
@@ -947,9 +1013,9 @@ Statuses: inbox, in_progress, review, done, blocked
                 $i = 0
                 while ($i -lt $adminArgs.Count) {
                     switch ($adminArgs[$i]) {
-                        '--input'  { $inputPath = $adminArgs[++$i]; break }
+                        '--input' { $inputPath = $adminArgs[++$i]; break }
                         '--output' { $outputPath = $adminArgs[++$i]; break }
-                        '--key'    { $keyPath = $adminArgs[++$i]; break }
+                        '--key' { $keyPath = $adminArgs[++$i]; break }
                         default { Write-MconError -Message "Unknown flag: $($adminArgs[$i])" -Code 'usage' }
                     }
                     $i++
@@ -1022,11 +1088,12 @@ Statuses: inbox, in_progress, review, done, blocked
 
                     $result = Invoke-MconTemplateDist @tdParams
                     Write-MconResult -Data ([ordered]@{
-                        ok     = $true
-                        action = 'admin.templatedist'
-                        result = $result
-                    })
-                } catch {
+                            ok     = $true
+                            action = 'admin.templatedist'
+                            result = $result
+                        })
+                }
+                catch {
                     Write-MconError -Message $_.Exception.Message -Code 'templatedist_error'
                 }
             }
@@ -1059,7 +1126,8 @@ Statuses: inbox, in_progress, review, done, blocked
                 }
                 try {
                     $cronCadence = [int]$cronCadence
-                } catch {
+                }
+                catch {
                     Write-MconError -Message "--cadence-minutes must be an integer. Got: $cronCadence" -Code 'validation'
                 }
 
@@ -1099,7 +1167,8 @@ Statuses: inbox, in_progress, review, done, blocked
 
                     $result = Invoke-MconAdminCron @cronParams
                     Write-MconResult -Data $result
-                } catch {
+                }
+                catch {
                     Write-MconError -Message $_.Exception.Message -Code 'cron_error'
                 }
             }

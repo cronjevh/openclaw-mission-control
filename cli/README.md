@@ -64,7 +64,7 @@ The CLI auto-detects the workspace from `$PWD`, decrypts the keybag, and execute
 | `mcon workflow dispatch` | Evaluate board state, enqueue heartbeat items | lead, worker, verifier |
 | `mcon workflow dispatch --process-queue` | Process queued heartbeat items | lead, worker, verifier |
 | `mcon workflow dispatchboard --board <ID> [--delay <SECONDS>]` | Sequential dispatch for all board agents (lead, workers, verifiers) with configurable delay between each | gateway |
-| `mcon workflow assign --task <ID> --worker <ID> --origin-session-key <task:...|tag:...>` | Assign task to worker agent; requires a gated lead session key | lead |
+| `mcon workflow assign --task <ID> --worker <ID> --origin-session-key <task:...|tag:...|agent:...:task:...|agent:...:tag:...>` | Assign task to worker agent; accepts the heartbeat sessionKey or the normalized claim key | lead |
 | `mcon workflow blocker --task <ID> --message <TEXT>` | Mark task blocked and escalate to lead | worker, verifier |
 | `mcon workflow escalate --message <TEXT> [--secret-key <KEY>]` | Escalate a lead blocker to Gateway Main | lead |
 | `mcon workflow submitreview --task <ID>` | Submit task for review with deliverables | worker, verifier |

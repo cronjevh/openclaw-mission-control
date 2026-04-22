@@ -152,38 +152,36 @@ function Invoke-MconDispatchBoard {
 
             $invocationAgent = if ($role -eq 'lead') { "lead-$boardId" } else { "mc-$agentId" }
 
-            $queueInfo = $null
+            $queueInfo = [ordered]@{
+                queued             = 0
+                skipped            = 0
+                retired            = @()
+                processing_started = $false
+            }
             if ($dispatchResult.act -eq $true) {
                 $dispatchStates = @(Get-MconHeartbeatDispatchStates -DispatchResult $dispatchResult)
-                $queued = 0
-                $skipped = 0
-                $retired = @()
                 foreach ($ds in $dispatchStates) {
                     $addResult = Add-MconHeartbeatQueueItem -WorkspacePath $workspacePath -InvocationAgent $invocationAgent -DispatchState $ds
                     switch ($addResult) {
-                        'queued' { $queued++; break }
-                        'retired' {
-                            $skipped++
-                            $taskId = Get-MconHeartbeatQueueItemId -DispatchState $ds
-                            $retired += $taskId
+                        'queued' {
+                            $queueInfo.queued++
                             break
                         }
-                        default { $skipped++; break }
+                        'retired' {
+                            $queueInfo.skipped++
+                            $taskId = Get-MconHeartbeatQueueItemId -DispatchState $ds
+                            $queueInfo.retired += $taskId
+                            break
+                        }
+                        default {
+                            $queueInfo.skipped++
+                            break
+                        }
                     }
                 }
-
-                $processingStarted = $false
-                if ($queued -gt 0) {
-                    $processingStarted = Start-MconHeartbeatQueueProcessor -WorkspacePath $workspacePath -MconScriptPath $PSCommandPath
-                }
-
-                $queueInfo = [ordered]@{
-                    queued             = $queued
-                    skipped            = $skipped
-                    retired            = $retired
-                    processing_started = $processingStarted
-                }
             }
+
+            $queueInfo.processing_started = Start-MconHeartbeatQueueProcessor -WorkspacePath $workspacePath -MconScriptPath $PSCommandPath
 
             $agentResult = [ordered]@{
                 agent_id   = $agentId

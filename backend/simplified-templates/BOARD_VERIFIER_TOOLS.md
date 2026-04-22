@@ -26,16 +26,16 @@ Use `mcon help` only when command usage is unclear or validation fails.
 Inspect the assigned review task:
 
 ```bash
-mcon task show --task 12345678-1234-1234-1234-123456789abc
+mcon task show --task <TASK_ID>
 ```
 
 Post the verdict:
 
 ```bash
-mcon task comment --task 12345678-1234-1234-1234-123456789abc --message "Verifier verdict: FAIL
+mcon task comment --task <TASK_ID> --message "Verifier verdict: FAIL
 Task type: deterministic/code
 Deliverable: deliverables/build-output.zip
-Verification artifact: deliverables/verify-12345678-1234-1234-1234-123456789abc.ps1
+Verification artifact: deliverables/verify-<TASK_ID>.ps1
 Checks:
 - shape: ok
 - anti-cheat: fail
@@ -45,7 +45,7 @@ Reason: script returns success without testing the real deliverable"
 Run the actual verification after the screen passes:
 
 ```bash
-mcon verify run --task 12345678-1234-1234-1234-123456789abc
+mcon verify run --task <TASK_ID>
 ```
 
 ## Tooling Rules

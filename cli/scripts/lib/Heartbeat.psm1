@@ -195,7 +195,14 @@ function Invoke-MconOpenClawGatewayChat {
         [Parameter(Mandatory)][string]$InvocationAgent,
         [Parameter(Mandatory)][string]$Message,
         [Parameter(Mandatory)][string]$SessionKey,
-        [int]$TimeoutSec = 120
+        [int]$TimeoutSec = 120,
+        [string]$LogPath = $null,
+        [string]$TaskId = $null,
+        [string]$DispatchType = $null,
+        [string]$QueueItemId = $null,
+        [double]$Temperature = -1,
+        [int]$MaxTokens = 0,
+        [hashtable]$AdditionalBody = $null
     )
 
     $gateway = Get-MconOpenClawGatewayConfig -WorkspacePath $WorkspacePath
@@ -204,7 +211,7 @@ function Invoke-MconOpenClawGatewayChat {
         Authorization         = "Bearer $($gateway.token)"
         'x-openclaw-session-key' = $SessionKey
     }
-    $body = @{
+    $body = [ordered]@{
         model    = "openclaw/$InvocationAgent"
         messages = @(
             @{
@@ -212,9 +219,47 @@ function Invoke-MconOpenClawGatewayChat {
                 content = $Message
             }
         )
-    } | ConvertTo-Json -Depth 10
+    }
+    if ($Temperature -ge 0) {
+        $body.temperature = $Temperature
+    }
+    if ($MaxTokens -gt 0) {
+        $body.max_tokens = $MaxTokens
+    }
+    if ($AdditionalBody) {
+        foreach ($key in $AdditionalBody.Keys) {
+            $body[$key] = $AdditionalBody[$key]
+        }
+    }
 
-    return Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec $TimeoutSec
+    $logContext = @(
+        "gateway_chat",
+        "task=$TaskId",
+        "dispatch_type=$DispatchType",
+        "queue_item=$QueueItemId",
+        "session_key=$SessionKey",
+        "timeout_sec=$TimeoutSec"
+    ) -join ' '
+    $startTime = Get-Date
+    if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
+        Write-MconQueueLog -Path $LogPath -Message "$logContext begin"
+    }
+
+    try {
+        $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -ContentType 'application/json' -Body ($body | ConvertTo-Json -Depth 10) -TimeoutSec $TimeoutSec
+        $elapsedMs = ((Get-Date) - $startTime).TotalMilliseconds
+        if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
+            Write-MconQueueLog -Path $LogPath -Message "$logContext complete elapsed_ms=$([math]::Round($elapsedMs))"
+        }
+        return $response
+    } catch {
+        $elapsedMs = ((Get-Date) - $startTime).TotalMilliseconds
+        $errorText = ($_ | Out-String).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
+            Write-MconQueueLog -Path $LogPath -Message "$logContext failed elapsed_ms=$([math]::Round($elapsedMs)) error=$errorText"
+        }
+        throw "gateway chat failed task=$TaskId dispatch_type=$DispatchType queue_item=$QueueItemId session_key=$SessionKey timeout_sec=$TimeoutSec elapsed_ms=$([math]::Round($elapsedMs)): $errorText"
+    }
 }
 
 function Invoke-MconOpenClawAgentSession {
@@ -239,8 +284,19 @@ function Invoke-MconHeartbeatAgent {
         [Parameter(Mandatory)]$DispatchState,
         [Parameter(Mandatory)][string]$AuthToken,
         [Parameter(Mandatory)][string]$SessionKey,
-        [int]$TimeoutSec = 120
+        [int]$TimeoutSec = 120,
+        [string]$LogPath = $null,
+        [string]$TaskId = $null,
+        [string]$DispatchType = 'heartbeat',
+        [string]$QueueItemId = $null
     )
+
+    if (-not $TaskId) {
+        $firstTask = @($DispatchState.tasks | Where-Object { $_ -and $_.id }) | Select-Object -First 1
+        if ($firstTask -and $firstTask.id) {
+            $TaskId = [string]$firstTask.id
+        }
+    }
 
     $prompt = New-MconHeartbeatPrompt -WorkspacePath $WorkspacePath -DispatchState $DispatchState -AuthToken $AuthToken -SessionKey $SessionKey
     $response = Invoke-MconOpenClawGatewayChat `
@@ -248,7 +304,11 @@ function Invoke-MconHeartbeatAgent {
         -InvocationAgent $InvocationAgent `
         -Message $prompt `
         -SessionKey $SessionKey `
-        -TimeoutSec $TimeoutSec
+        -TimeoutSec $TimeoutSec `
+        -LogPath $LogPath `
+        -TaskId $TaskId `
+        -DispatchType $DispatchType `
+        -QueueItemId $QueueItemId
 
     $response | ConvertTo-Json -Depth 50
 }
@@ -285,15 +345,17 @@ function Get-MconHeartbeatQueuePaths {
     $workflowPath = Join-Path $WorkspacePath '.openclaw/workflows'
     $queueRoot = Join-Path $workflowPath 'mc-board-heartbeat-queue'
     return [pscustomobject]@{
-        workflow   = $workflowPath
-        root       = $queueRoot
-        pending    = Join-Path $queueRoot 'pending'
-        processing = Join-Path $queueRoot 'processing'
-        failed     = Join-Path $queueRoot 'failed'
-        retired    = Join-Path $queueRoot 'retired'
-        lock       = Join-Path $queueRoot 'processing.lock.json'
-        stdoutLog  = Join-Path $queueRoot 'processor.stdout.log'
-        stderrLog  = Join-Path $queueRoot 'processor.stderr.log'
+        workflow        = $workflowPath
+        root            = $queueRoot
+        pending         = Join-Path $queueRoot 'pending'
+        processing      = Join-Path $queueRoot 'processing'
+        failed          = Join-Path $queueRoot 'failed'
+        retired         = Join-Path $queueRoot 'retired'
+        processorRuns   = Join-Path $queueRoot 'processor-runs'
+        processorLatest = Join-Path $queueRoot 'processor.latest.json'
+        lock            = Join-Path $queueRoot 'processing.lock.json'
+        stdoutLog       = Join-Path $queueRoot 'processor.stdout.log'
+        stderrLog       = Join-Path $queueRoot 'processor.stderr.log'
     }
 }
 
@@ -303,13 +365,170 @@ function Initialize-MconHeartbeatQueue {
     )
 
     $paths = Get-MconHeartbeatQueuePaths -WorkspacePath $WorkspacePath
-    foreach ($dir in @($paths.workflow, $paths.root, $paths.pending, $paths.processing, $paths.failed, $paths.retired)) {
+    foreach ($dir in @($paths.workflow, $paths.root, $paths.pending, $paths.processing, $paths.failed, $paths.retired, $paths.processorRuns)) {
         if (-not (Test-Path -LiteralPath $dir)) {
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
         }
     }
 
     return $paths
+}
+
+function Get-MconHeartbeatProcessorRunPath {
+    param(
+        [Parameter(Mandatory)]$QueuePaths,
+        [Parameter(Mandatory)][string]$LaunchId
+    )
+
+    return Join-Path $QueuePaths.processorRuns "$LaunchId.json"
+}
+
+function Read-MconHeartbeatProcessorRunState {
+    param(
+        [Parameter(Mandatory)]$QueuePaths,
+        [Parameter(Mandatory)][string]$LaunchId
+    )
+
+    $runPath = Get-MconHeartbeatProcessorRunPath -QueuePaths $QueuePaths -LaunchId $LaunchId
+    if (-not (Test-Path -LiteralPath $runPath)) {
+        return $null
+    }
+
+    try {
+        return Get-Content -LiteralPath $runPath -Raw | ConvertFrom-Json -Depth 20
+    } catch {
+        return $null
+    }
+}
+
+function Write-MconHeartbeatProcessorRunState {
+    param(
+        [Parameter(Mandatory)]$QueuePaths,
+        [Parameter(Mandatory)][string]$LaunchId,
+        [Parameter(Mandatory)][string]$State,
+        [hashtable]$Fields = @{}
+    )
+
+    $existing = Read-MconHeartbeatProcessorRunState -QueuePaths $QueuePaths -LaunchId $LaunchId
+    $record = [ordered]@{}
+
+    if ($existing) {
+        foreach ($prop in $existing.PSObject.Properties) {
+            $record[$prop.Name] = $prop.Value
+        }
+    }
+
+    if (-not $record.Contains('launch_id')) {
+        $record.launch_id = $LaunchId
+    }
+    if (-not $record.Contains('created_at')) {
+        $record.created_at = (Get-Date).ToUniversalTime().ToString('o')
+    }
+
+    $record.state = $State
+    $record.updated_at = (Get-Date).ToUniversalTime().ToString('o')
+
+    foreach ($key in $Fields.Keys) {
+        $record[$key] = $Fields[$key]
+    }
+
+    $runPath = Get-MconHeartbeatProcessorRunPath -QueuePaths $QueuePaths -LaunchId $LaunchId
+    $tmpPath = "$runPath.tmp"
+    $json = $record | ConvertTo-Json -Depth 20
+    Set-Content -LiteralPath $tmpPath -Value $json -Encoding UTF8
+    Move-Item -LiteralPath $tmpPath -Destination $runPath -Force
+
+    $latestTmpPath = "$($QueuePaths.processorLatest).tmp"
+    Set-Content -LiteralPath $latestTmpPath -Value $json -Encoding UTF8
+    Move-Item -LiteralPath $latestTmpPath -Destination $QueuePaths.processorLatest -Force
+
+    return [pscustomobject]$record
+}
+
+function Wait-MconHeartbeatQueueProcessorStart {
+    param(
+        [Parameter(Mandatory)]$QueuePaths,
+        [Parameter(Mandatory)][string]$LaunchId,
+        [int]$ProcessId = 0,
+        [int]$TimeoutSec = 10
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        $runState = Read-MconHeartbeatProcessorRunState -QueuePaths $QueuePaths -LaunchId $LaunchId
+        if ($runState -and $runState.state -in @('started', 'processing', 'completed')) {
+            return [ordered]@{
+                launch_id           = $LaunchId
+                launched            = $true
+                confirmed_started   = $true
+                state               = [string]$runState.state
+                pid                 = if ($runState.PSObject.Properties.Name -contains 'pid') { $runState.pid } else { $ProcessId }
+                run_path            = Get-MconHeartbeatProcessorRunPath -QueuePaths $QueuePaths -LaunchId $LaunchId
+                latest_path         = $QueuePaths.processorLatest
+                stdout_log          = $QueuePaths.stdoutLog
+                stderr_log          = $QueuePaths.stderrLog
+                startup_timeout_sec = $TimeoutSec
+                error               = $null
+            }
+        }
+
+        if ($runState -and $runState.state -in @('lock_active', 'launch_failed', 'exited_before_start')) {
+            return [ordered]@{
+                launch_id           = $LaunchId
+                launched            = $true
+                confirmed_started   = $false
+                state               = [string]$runState.state
+                pid                 = if ($runState.PSObject.Properties.Name -contains 'pid') { $runState.pid } else { $ProcessId }
+                run_path            = Get-MconHeartbeatProcessorRunPath -QueuePaths $QueuePaths -LaunchId $LaunchId
+                latest_path         = $QueuePaths.processorLatest
+                stdout_log          = $QueuePaths.stdoutLog
+                stderr_log          = $QueuePaths.stderrLog
+                startup_timeout_sec = $TimeoutSec
+                error               = if ($runState.PSObject.Properties.Name -contains 'error') { $runState.error } else { $null }
+            }
+        }
+
+        if ($ProcessId -gt 0 -and -not (Test-MconHeartbeatProcessAlive -ProcessId $ProcessId)) {
+            $runState = Write-MconHeartbeatProcessorRunState `
+                -QueuePaths $QueuePaths `
+                -LaunchId $LaunchId `
+                -State 'exited_before_start' `
+                -Fields @{
+                    pid   = $ProcessId
+                    error = 'Processor process exited before confirming queue startup.'
+                }
+            return [ordered]@{
+                launch_id           = $LaunchId
+                launched            = $true
+                confirmed_started   = $false
+                state               = 'exited_before_start'
+                pid                 = $ProcessId
+                run_path            = Get-MconHeartbeatProcessorRunPath -QueuePaths $QueuePaths -LaunchId $LaunchId
+                latest_path         = $QueuePaths.processorLatest
+                stdout_log          = $QueuePaths.stdoutLog
+                stderr_log          = $QueuePaths.stderrLog
+                startup_timeout_sec = $TimeoutSec
+                error               = $runState.error
+            }
+        }
+
+        Start-Sleep -Milliseconds 250
+    }
+
+    $runState = Read-MconHeartbeatProcessorRunState -QueuePaths $QueuePaths -LaunchId $LaunchId
+    return [ordered]@{
+        launch_id           = $LaunchId
+        launched            = $true
+        confirmed_started   = $false
+        state               = if ($runState -and $runState.PSObject.Properties.Name -contains 'state') { [string]$runState.state } else { 'launch_pending' }
+        pid                 = if ($runState -and $runState.PSObject.Properties.Name -contains 'pid') { $runState.pid } else { $ProcessId }
+        run_path            = Get-MconHeartbeatProcessorRunPath -QueuePaths $QueuePaths -LaunchId $LaunchId
+        latest_path         = $QueuePaths.processorLatest
+        stdout_log          = $QueuePaths.stdoutLog
+        stderr_log          = $QueuePaths.stderrLog
+        startup_timeout_sec = $TimeoutSec
+        error               = if ($runState -and $runState.PSObject.Properties.Name -contains 'error') { $runState.error } else { $null }
+    }
 }
 
 function Test-MconHeartbeatProcessAlive {
@@ -360,7 +579,9 @@ function Clear-MconHeartbeatStuckProcessingItems {
         $ts = (Get-Date).ToString('yyyyMMdd-HHmmss')
         $failedName = "$($item.BaseName)-stale-$ts.json"
         $failedPath = Join-Path $QueuePaths.failed $failedName
-        Write-MconQueueLog -Path $LogPath -Message "moving stuck processing item to failed: $($item.Name)"
+        if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
+            Write-MconQueueLog -Path $LogPath -Message "moving stuck processing item to failed: $($item.Name)"
+        }
         Move-Item -LiteralPath $item.FullName -Destination $failedPath -Force
     }
 
@@ -660,27 +881,110 @@ function Add-MconHeartbeatQueueItem {
 function Start-MconHeartbeatQueueProcessor {
     param(
         [Parameter(Mandatory)][string]$WorkspacePath,
-        [Parameter(Mandatory)][string]$MconScriptPath
+        [Parameter(Mandatory)][string]$MconScriptPath,
+        [int]$StartupTimeoutSec = 10
     )
 
     $state = Get-MconHeartbeatQueueLockState -WorkspacePath $WorkspacePath
-    if ($state.active) { return $false }
+    if ($state.active) {
+        Write-MconQueueLog -Path $state.paths.stdoutLog -Message "queue processor start skipped lock_active pid=$($state.lock.pid)"
+        return [ordered]@{
+            launched            = $false
+            confirmed_started   = $false
+            state               = 'lock_active'
+            pid                 = if ($state.lock) { $state.lock.pid } else { $null }
+            run_path            = $null
+            latest_path         = $state.paths.processorLatest
+            stdout_log          = $state.paths.stdoutLog
+            stderr_log          = $state.paths.stderrLog
+            startup_timeout_sec = $StartupTimeoutSec
+            error               = 'Queue processor lock is already active.'
+        }
+    }
 
     $pendingItems = @(
         Get-ChildItem -LiteralPath $state.paths.pending -Filter '*.json' -File -ErrorAction SilentlyContinue
     )
-    if ($pendingItems.Count -eq 0) { return $false }
+    if ($pendingItems.Count -eq 0) {
+        Write-MconQueueLog -Path $state.paths.stdoutLog -Message "queue processor start skipped pending=0"
+        return [ordered]@{
+            launched            = $false
+            confirmed_started   = $false
+            state               = 'pending_empty'
+            pid                 = $null
+            run_path            = $null
+            latest_path         = $state.paths.processorLatest
+            stdout_log          = $state.paths.stdoutLog
+            stderr_log          = $state.paths.stderrLog
+            startup_timeout_sec = $StartupTimeoutSec
+            error               = 'No pending queue items were available.'
+        }
+    }
 
     $pwshPath = (Get-Command pwsh -ErrorAction Stop).Source
+    $launchId = [guid]::NewGuid().Guid
+    $runPath = Get-MconHeartbeatProcessorRunPath -QueuePaths $state.paths -LaunchId $launchId
+    Write-MconHeartbeatProcessorRunState `
+        -QueuePaths $state.paths `
+        -LaunchId $launchId `
+        -State 'launching' `
+        -Fields @{
+            workspace_path = $WorkspacePath
+            script_path    = $MconScriptPath
+            pending_count  = $pendingItems.Count
+        } | Out-Null
 
-    Start-Process `
-        -FilePath $pwshPath `
-        -ArgumentList @('-NoProfile', '-NoLogo', '-NonInteractive', '-File', $MconScriptPath, 'workflow', 'dispatch', '--process-queue') `
-        -WorkingDirectory $WorkspacePath `
-        -RedirectStandardOutput $state.paths.stdoutLog `
-        -RedirectStandardError $state.paths.stderrLog | Out-Null
+    try {
+        $process = Start-Process `
+            -FilePath $pwshPath `
+            -ArgumentList @('-NoProfile', '-NoLogo', '-NonInteractive', '-File', $MconScriptPath, 'workflow', 'dispatch', '--process-queue', '--processor-launch-id', $launchId) `
+            -WorkingDirectory $WorkspacePath `
+            -RedirectStandardOutput $state.paths.stdoutLog `
+            -RedirectStandardError $state.paths.stderrLog `
+            -PassThru
+    } catch {
+        $errorText = ($_ | Out-String).Trim()
+        Write-MconHeartbeatProcessorRunState `
+            -QueuePaths $state.paths `
+            -LaunchId $launchId `
+            -State 'launch_failed' `
+            -Fields @{
+                workspace_path = $WorkspacePath
+                script_path    = $MconScriptPath
+                error          = $errorText
+            } | Out-Null
+        Write-MconQueueLog -Path $state.paths.stderrLog -Message "queue processor launch failed launch_id=$launchId error=$errorText"
+        return [ordered]@{
+            launched            = $false
+            confirmed_started   = $false
+            state               = 'launch_failed'
+            pid                 = $null
+            launch_id           = $launchId
+            run_path            = $runPath
+            latest_path         = $state.paths.processorLatest
+            stdout_log          = $state.paths.stdoutLog
+            stderr_log          = $state.paths.stderrLog
+            startup_timeout_sec = $StartupTimeoutSec
+            error               = $errorText
+        }
+    }
 
-    return $true
+    Write-MconHeartbeatProcessorRunState `
+        -QueuePaths $state.paths `
+        -LaunchId $launchId `
+        -State 'launched' `
+        -Fields @{
+            pid            = $process.Id
+            launched_at    = (Get-Date).ToUniversalTime().ToString('o')
+            workspace_path = $WorkspacePath
+            script_path    = $MconScriptPath
+            pending_count  = $pendingItems.Count
+            stdout_log     = $state.paths.stdoutLog
+            stderr_log     = $state.paths.stderrLog
+        } | Out-Null
+
+    Write-MconQueueLog -Path $state.paths.stdoutLog -Message "queue processor start launched pid=$($process.Id) pending=$($pendingItems.Count) launch_id=$launchId"
+    return (Wait-MconHeartbeatQueueProcessorStart -QueuePaths $state.paths -LaunchId $launchId -ProcessId $process.Id -TimeoutSec $StartupTimeoutSec)
 }
 
 function Get-MconHeartbeatDispatchStates {
@@ -719,10 +1023,13 @@ function Invoke-MconRecoveryPrompt {
         [Parameter(Mandatory)][string]$AuthToken,
         [Parameter(Mandatory)][string]$BaseUrl,
         [Parameter(Mandatory)][string]$BoardId,
-        [int]$TimeoutSec = 60
+        [int]$TimeoutSec = 60,
+        [string]$LogPath = $null,
+        [string]$TaskId = $null,
+        [string]$QueueItemId = $null
     )
 
-    $taskId = $DispatchState.task_id
+    $taskId = if ($TaskId) { $TaskId } else { $DispatchState.task_id }
     $recoveryAttempt = $DispatchState.recovery_attempt
     $stallReason = $DispatchState.stall_reason
     $subagentSessionKey = $DispatchState.subagent_session_key
@@ -774,27 +1081,29 @@ Respond in this exact format:
 Do not add commentary outside this structure. If you cannot comply, respond with SIGNAL_ESCALATION.
 "@
 
-    Write-Host "[{0}] Sending recovery prompt to subagent session (key: {1}, agent: {2})" -f (Get-Date).ToString('o'), $subagentSessionKey, $subagentAgentId
-
-    $gateway = Get-MconOpenClawGatewayConfig -WorkspacePath $WorkspacePath
-    $uri = "http://127.0.0.1:$($gateway.port)/v1/chat/completions"
-    $headers = @{
-        Authorization            = "Bearer $($gateway.token)"
-        'x-openclaw-session-key' = $subagentSessionKey
+    if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
+        Write-MconQueueLog -Path $LogPath -Message "recovery_prompt begin task=$taskId queue_item=$QueueItemId session_key=$subagentSessionKey agent=$subagentAgentId attempt=$recoveryAttempt"
     }
-    $body = @{
-        model       = "openclaw/$subagentAgentId"
-        messages    = @(@{ role = 'user'; content = $recoveryPrompt })
-        temperature = 0.3
-        max_tokens  = 500
-    } | ConvertTo-Json -Depth 10
 
     $startTime = Get-Date
-    $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec $TimeoutSec
+    $response = Invoke-MconOpenClawGatewayChat `
+        -WorkspacePath $WorkspacePath `
+        -InvocationAgent $subagentAgentId `
+        -Message $recoveryPrompt `
+        -SessionKey $subagentSessionKey `
+        -TimeoutSec $TimeoutSec `
+        -LogPath $LogPath `
+        -TaskId $taskId `
+        -DispatchType 'recovery' `
+        -QueueItemId $QueueItemId `
+        -Temperature 0.3 `
+        -MaxTokens 500
     $elapsedMs = ((Get-Date) - $startTime).TotalMilliseconds
 
     $rawReply = $response.choices[0].message.content
-    Write-Host "[{0}] Subagent reply received ({1}ms)" -f (Get-Date).ToString('o'), [math]::Round($elapsedMs)
+    if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
+        Write-MconQueueLog -Path $LogPath -Message "recovery_prompt response task=$taskId queue_item=$QueueItemId elapsed_ms=$([math]::Round($elapsedMs))"
+    }
 
     $parsedReply = $null
     $parseSuccess = $false
@@ -814,6 +1123,9 @@ Do not add commentary outside this structure. If you cannot comply, respond with
         $parseSuccess = $false
         $parsedReply = $null
         Write-Warning "Failed to parse subagent reply as valid JSON: $_"
+        if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
+            Write-MconQueueLog -Path $LogPath -Message "recovery_prompt parse_failed task=$taskId queue_item=$QueueItemId error=$($_.Exception.Message)"
+        }
     }
 
     $taskDir = Split-Path -Path $taskDataPath -Parent
@@ -842,7 +1154,9 @@ Do not add commentary outside this structure. If you cannot comply, respond with
     }
 
     $evidence | ConvertTo-Json -Depth 50 | Set-Content -LiteralPath $evidenceFile -Encoding UTF8
-    Write-Host "[{0}] Evidence written: {1}" -f (Get-Date).ToString('o'), $evidenceFile
+    if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
+        Write-MconQueueLog -Path $LogPath -Message "recovery_prompt evidence_written task=$taskId queue_item=$QueueItemId evidence=$evidenceFile"
+    }
 
     $commentBody = @"
 **[RECOVERY TURN #$recoveryAttempt]** — Stall detected: $stallReason
@@ -859,9 +1173,14 @@ Evidence: [recovery-turn-$recoveryAttempt-$guid.json](file://$evidenceFile)
     $commentUri = "$BaseUrl/api/v1/agent/boards/$([uri]::EscapeDataString($BoardId))/tasks/$([uri]::EscapeDataString($taskId))/comments"
     try {
         Invoke-RestMethod -Uri $commentUri -Method Post -Headers @{ 'X-Agent-Token' = $AuthToken } -ContentType 'application/json' -Body $commentPayload -TimeoutSec 30 | Out-Null
-        Write-Host "[{0}] Comment posted to task {1}" -f (Get-Date).ToString('o'), $taskId
+        if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
+            Write-MconQueueLog -Path $LogPath -Message "recovery_prompt comment_posted task=$taskId queue_item=$QueueItemId"
+        }
     } catch {
         Write-Warning "Failed to post comment to task: $_"
+        if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
+            Write-MconQueueLog -Path $LogPath -Message "recovery_prompt comment_failed task=$taskId queue_item=$QueueItemId error=$($_.Exception.Message)"
+        }
     }
 
     if ($parseSuccess) {
@@ -876,17 +1195,64 @@ function Invoke-MconHeartbeatQueueProcessor {
         [Parameter(Mandatory)][string]$WorkspacePath,
         [Parameter(Mandatory)][string]$InvocationAgent,
         [Parameter(Mandatory)][hashtable]$Config,
-        [int]$TimeoutSec = 300
+        [int]$TimeoutSec = 300,
+        [string]$LaunchId = $null
     )
 
-    $lockState = Request-MconHeartbeatQueueLock -WorkspacePath $WorkspacePath
-    if (-not $lockState.acquired) { return $false }
+    $queuePaths = Initialize-MconHeartbeatQueue -WorkspacePath $WorkspacePath
+    if (-not [string]::IsNullOrWhiteSpace($LaunchId)) {
+        Write-MconHeartbeatProcessorRunState `
+            -QueuePaths $queuePaths `
+            -LaunchId $LaunchId `
+            -State 'booting' `
+            -Fields @{
+                pid              = $PID
+                workspace_path   = $WorkspacePath
+                invocation_agent = $InvocationAgent
+                booted_at        = (Get-Date).ToUniversalTime().ToString('o')
+            } | Out-Null
+    }
 
-    # Clean up any stuck processing items before starting
-    $stuckCount = Clear-MconHeartbeatStuckProcessingItems -QueuePaths $lockState.paths -MaxProcessingMinutes 10
+    $lockState = Request-MconHeartbeatQueueLock -WorkspacePath $WorkspacePath
     $stdoutLogPath = $lockState.paths.stdoutLog
     $stderrLogPath = $lockState.paths.stderrLog
+    if (-not $lockState.acquired) {
+        Write-MconQueueLog -Path $stdoutLogPath -Message "queue processor start skipped lock_active"
+        if (-not [string]::IsNullOrWhiteSpace($LaunchId)) {
+            Write-MconHeartbeatProcessorRunState `
+                -QueuePaths $lockState.paths `
+                -LaunchId $LaunchId `
+                -State 'lock_active' `
+                -Fields @{
+                    pid   = $PID
+                    error = 'Queue processor lock is already active.'
+                } | Out-Null
+        }
+        return [ordered]@{
+            ok              = $false
+            reason          = 'lock_active'
+            items_processed = 0
+            items_failed    = 0
+        }
+    }
+
+    # Clean up any stuck processing items before starting
+    $stuckCount = Clear-MconHeartbeatStuckProcessingItems -QueuePaths $lockState.paths -MaxProcessingMinutes 10 -LogPath $stdoutLogPath
     Write-MconQueueLog -Path $stdoutLogPath -Message "queue processor started workspace=$WorkspacePath invocation_agent=$InvocationAgent"
+    if (-not [string]::IsNullOrWhiteSpace($LaunchId)) {
+        Write-MconHeartbeatProcessorRunState `
+            -QueuePaths $lockState.paths `
+            -LaunchId $LaunchId `
+            -State 'started' `
+            -Fields @{
+                pid                = $PID
+                started_at         = (Get-Date).ToUniversalTime().ToString('o')
+                workspace_path     = $WorkspacePath
+                invocation_agent   = $InvocationAgent
+                lock_acquired      = $true
+                stuck_items_cleared = $stuckCount
+            } | Out-Null
+    }
     if ($stuckCount -gt 0) {
         Write-MconQueueLog -Path $stdoutLogPath -Message "cleaned up $stuckCount stuck processing items"
     }
@@ -905,7 +1271,22 @@ function Invoke-MconHeartbeatQueueProcessor {
 
             $pendingItem = $nextItem[0]
             $processingPath = Join-Path $lockState.paths.processing $pendingItem.Name
+            Write-MconQueueLog -Path $stdoutLogPath -Message "claiming queue_item=$($pendingItem.Name)"
+            if (-not [string]::IsNullOrWhiteSpace($LaunchId)) {
+                Write-MconHeartbeatProcessorRunState `
+                    -QueuePaths $lockState.paths `
+                    -LaunchId $LaunchId `
+                    -State 'processing' `
+                    -Fields @{
+                        pid                   = $PID
+                        current_queue_item    = $pendingItem.Name
+                        current_item_claimed_at = (Get-Date).ToUniversalTime().ToString('o')
+                        items_processed       = $itemsProcessed
+                        items_failed          = $itemsFailed
+                    } | Out-Null
+            }
             Move-Item -LiteralPath $pendingItem.FullName -Destination $processingPath -Force
+            Write-MconQueueLog -Path $stdoutLogPath -Message "claimed queue_item=$($pendingItem.Name)"
 
             $queueItem = $null
             try {
@@ -928,7 +1309,7 @@ function Invoke-MconHeartbeatQueueProcessor {
                 if ([string]::IsNullOrWhiteSpace($sessionKey)) {
                     $sessionKey = Get-MconTaskSessionKey -InvocationAgent $InvocationAgent -DispatchState $queueItem.dispatch_state
                 }
-                Write-MconQueueLog -Path $stdoutLogPath -Message "processing task=$taskId dispatch_type=$dispatchType session_key=$sessionKey"
+                Write-MconQueueLog -Path $stdoutLogPath -Message "processing queue_item=$($pendingItem.Name) task=$taskId dispatch_type=$dispatchType session_key=$sessionKey"
 
                 $commandOutput = $null
                 $commandExitCode = $null
@@ -942,7 +1323,10 @@ function Invoke-MconHeartbeatQueueProcessor {
                         -AuthToken $Config.auth_token `
                         -BaseUrl $Config.base_url `
                         -BoardId $Config.board_id `
-                        -TimeoutSec $TimeoutSec
+                        -TimeoutSec $TimeoutSec `
+                        -LogPath $stdoutLogPath `
+                        -TaskId $taskId `
+                        -QueueItemId $pendingItem.Name
                     Write-MconQueueLog -Path $stdoutLogPath -Message "completed recovery task=$taskId"
                 } elseif ($dispatchType -eq 'verify') {
                     $commandName = 'verify'
@@ -967,7 +1351,12 @@ function Invoke-MconHeartbeatQueueProcessor {
                         -InvocationAgent $InvocationAgent `
                         -DispatchState $queueItem.dispatch_state `
                         -AuthToken $Config.auth_token `
-                        -SessionKey $sessionKey
+                        -SessionKey $sessionKey `
+                        -TimeoutSec $TimeoutSec `
+                        -LogPath $stdoutLogPath `
+                        -TaskId $taskId `
+                        -DispatchType $dispatchType `
+                        -QueueItemId $pendingItem.Name
                     Write-MconQueueOutput -Path $stdoutLogPath -Prefix "heartbeat output:" -Text ([string]$commandOutput)
                 }
 
@@ -982,13 +1371,14 @@ function Invoke-MconHeartbeatQueueProcessor {
                 $failureRecord = [ordered]@{
                     failed_at   = (Get-Date).ToUniversalTime().ToString('o')
                     error       = ($_ | Out-String).Trim()
+                    queue_item_id = $pendingItem.Name
                     command     = $commandName
                     command_exit_code = $commandExitCode
                     command_output = $commandOutput
                     queue_item  = $queueItem
                 }
                 $failureRecord | ConvertTo-Json -Depth 50 | Set-Content -LiteralPath $failurePath -Encoding UTF8
-                Write-MconQueueLog -Path $stderrLogPath -Message "FAILED task=$($pendingItem.Name) command=$commandName"
+                Write-MconQueueLog -Path $stderrLogPath -Message "FAILED task=$($pendingItem.Name) command=$commandName failure_path=$failurePath"
                 Write-MconQueueOutput -Path $stderrLogPath -Prefix "failure error:" -Text $failureRecord.error
                 if (-not [string]::IsNullOrWhiteSpace([string]$commandOutput)) {
                     Write-MconQueueOutput -Path $stderrLogPath -Prefix "failure output:" -Text ([string]$commandOutput)
@@ -1003,13 +1393,28 @@ function Invoke-MconHeartbeatQueueProcessor {
         }
 
         Write-MconQueueLog -Path $stdoutLogPath -Message "queue processor idle processed=$itemsProcessed failed=$itemsFailed"
+        if (-not [string]::IsNullOrWhiteSpace($LaunchId)) {
+            Write-MconHeartbeatProcessorRunState `
+                -QueuePaths $lockState.paths `
+                -LaunchId $LaunchId `
+                -State 'completed' `
+                -Fields @{
+                    pid                = $PID
+                    completed_at       = (Get-Date).ToUniversalTime().ToString('o')
+                    items_processed    = $itemsProcessed
+                    items_failed       = $itemsFailed
+                    current_queue_item = $null
+                } | Out-Null
+        }
         return [ordered]@{
+            ok = $true
             items_processed = $itemsProcessed
             items_failed    = $itemsFailed
         }
     } finally {
+        Write-MconQueueLog -Path $stdoutLogPath -Message "queue processor unlocking"
         Unlock-MconHeartbeatQueueLock -QueuePaths $lockState.paths
     }
 }
 
-Export-ModuleMember -Function Get-MconOpenClawGatewayConfig, Get-MconTaskSessionKey, New-MconHeartbeatPrompt, Invoke-MconOpenClawGatewayChat, Invoke-MconHeartbeatAgent, Get-MconHeartbeatQueuePaths, Initialize-MconHeartbeatQueue, Test-MconHeartbeatProcessAlive, Restore-MconHeartbeatProcessingQueue, Clear-MconHeartbeatStuckProcessingItems, Get-MconHeartbeatQueueLockState, Test-MconHeartbeatQueueProcessing, Request-MconHeartbeatQueueLock, Unlock-MconHeartbeatQueueLock, Get-MconHeartbeatQueueItemId, Add-MconHeartbeatQueueItem, Start-MconHeartbeatQueueProcessor, Get-MconHeartbeatDispatchStates, Invoke-MconRecoveryPrompt, Invoke-MconHeartbeatQueueProcessor
+Export-ModuleMember -Function Get-MconOpenClawGatewayConfig, Get-MconTaskSessionKey, New-MconHeartbeatPrompt, Invoke-MconOpenClawGatewayChat, Invoke-MconHeartbeatAgent, Get-MconHeartbeatQueuePaths, Initialize-MconHeartbeatQueue, Get-MconHeartbeatProcessorRunPath, Read-MconHeartbeatProcessorRunState, Write-MconHeartbeatProcessorRunState, Wait-MconHeartbeatQueueProcessorStart, Test-MconHeartbeatProcessAlive, Restore-MconHeartbeatProcessingQueue, Clear-MconHeartbeatStuckProcessingItems, Get-MconHeartbeatQueueLockState, Test-MconHeartbeatQueueProcessing, Request-MconHeartbeatQueueLock, Unlock-MconHeartbeatQueueLock, Get-MconHeartbeatQueueItemId, Add-MconHeartbeatQueueItem, Start-MconHeartbeatQueueProcessor, Get-MconHeartbeatDispatchStates, Invoke-MconRecoveryPrompt, Invoke-MconHeartbeatQueueProcessor

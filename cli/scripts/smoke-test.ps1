@@ -18,7 +18,10 @@ $env:MCON_BOARD_ID = '00000000-0000-0000-0000-000000000000'
 $env:MCON_WSP = 'workspace-gateway-test'
 
 $mconScript = Join-Path $PSScriptRoot 'mcon.ps1'
+$configModule = Join-Path $PSScriptRoot 'lib/Config.psm1'
 $heartbeatModule = Join-Path $PSScriptRoot 'lib/Heartbeat.psm1'
+$dispatchModule = Join-Path $PSScriptRoot 'lib/Dispatch.psm1'
+$assignModule = Join-Path $PSScriptRoot 'lib/Assign.psm1'
 $passCount = 0
 $failCount = 0
 
@@ -50,7 +53,10 @@ function Assert-OutputContains {
     }
 }
 
+Import-Module $configModule -Force
 Import-Module $heartbeatModule -Force
+Import-Module $dispatchModule -Force
+Import-Module $assignModule -Force
 
 # Test: verifier dispatch states use verify routing and a stable session key
 $verifierTaskId = '11111111-1111-1111-1111-111111111111'
@@ -94,6 +100,318 @@ if ($verifierSessionKey -eq "agent:mc-abc123:task:$verifierTaskId") {
 } else {
     Write-Host "FAIL: verifier-session-key - expected 'agent:mc-abc123:task:$verifierTaskId', got '$verifierSessionKey'"
     $failCount++
+}
+
+# Test: assignment origin session keys normalize from heartbeat envelopes
+$assignTaskId = '33333333-3333-3333-3333-333333333333'
+$assignTagId = '44444444-4444-4444-4444-444444444444'
+$assignHeartbeatTaskKey = "agent:lead-testboard:task:$assignTaskId"
+$assignHeartbeatTagKey = "agent:lead-testboard:tag:$assignTagId"
+
+$normalizedTaskKey = ConvertTo-MconCanonicalAssignmentSessionKey -OriginSessionKey $assignHeartbeatTaskKey
+if ($normalizedTaskKey -eq "task:$assignTaskId") {
+    $passCount++
+} else {
+    Write-Host "FAIL: assign-origin-normalize-task - expected 'task:$assignTaskId', got '$normalizedTaskKey'"
+    $failCount++
+}
+
+$normalizedTagKey = ConvertTo-MconCanonicalAssignmentSessionKey -OriginSessionKey $assignHeartbeatTagKey
+if ($normalizedTagKey -eq "tag:$assignTagId") {
+    $passCount++
+} else {
+    Write-Host "FAIL: assign-origin-normalize-tag - expected 'tag:$assignTagId', got '$normalizedTagKey'"
+    $failCount++
+}
+
+$assignRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("mcon-assign-smoke-" + [guid]::NewGuid().Guid)
+$assignLeadWorkspace = Join-Path $assignRoot 'workspace-lead-smoke'
+$assignWorkerWorkspace = Join-Path $assignRoot 'workspace-mc-466803cc-1793-45e6-9dc0-437c505d49b4'
+New-Item -ItemType Directory -Path $assignLeadWorkspace -Force | Out-Null
+New-Item -ItemType Directory -Path $assignWorkerWorkspace -Force | Out-Null
+try {
+    $openClawConfigPath = Join-Path $assignRoot 'openclaw.json'
+    $openClawFixture = [ordered]@{
+        agents = [ordered]@{
+            list = @(
+                [ordered]@{
+                    id = 'mc-466803cc-1793-45e6-9dc0-437c505d49b4'
+                    name = 'Vulcan'
+                    workspace = $assignWorkerWorkspace
+                }
+            )
+        }
+    }
+    $openClawFixture | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $openClawConfigPath -Encoding UTF8
+
+    $assignWorkflowTaskId = '55555555-5555-5555-5555-555555555555'
+    $assignBoardId = '00000000-0000-0000-0000-000000000000'
+    $assignTask = [pscustomobject]@{
+        id                    = $assignWorkflowTaskId
+        title                 = 'Frontend change - change board display so that task in Done column are sorted by date completed descending'
+        description           = $null
+        status                = 'inbox'
+        priority              = 'medium'
+        due_at                = $null
+        assigned_agent_id     = $null
+        closure_mode          = $null
+        required_artifact_kinds = @()
+        required_check_kinds  = @()
+        lead_spot_check_required = $false
+        depends_on_task_ids    = @()
+        blocked_by_task_ids    = @()
+        is_blocked             = $false
+        tag_ids                = @('684ddc69-de7f-4864-9b1a-323fa7cc81a4')
+        tags                   = @(
+            [pscustomobject]@{
+                id    = '684ddc69-de7f-4864-9b1a-323fa7cc81a4'
+                name  = 'Project Mission Control Development'
+                slug  = 'project-mission-control-development'
+                color = '419e9e'
+            }
+        )
+        custom_field_values    = [ordered]@{
+            subagent_uuid = $null
+            backlog       = $false
+        }
+        board_id               = $assignBoardId
+        created_at             = '2026-04-21T15:38:28.29008'
+        updated_at             = '2026-04-21T15:38:28.290089'
+    }
+
+    function Invoke-MconApi {
+        param(
+            [Parameter(Mandatory)][string]$Method,
+            [Parameter(Mandatory)][string]$Uri,
+            [Parameter(Mandatory)][string]$Token,
+            $Body = $null
+        )
+
+        if ($Method -eq 'Get' -and $Uri -like '*/comments') {
+            return [pscustomobject]@{ items = @() }
+        }
+        if ($Method -eq 'Get') {
+            return $assignTask
+        }
+        throw "Unexpected Invoke-MconApi call in smoke test: $Method $Uri"
+    }
+
+    $assignConfig = [ordered]@{
+        base_url    = 'http://localhost:9999'
+        auth_token  = 'dummy'
+        board_id    = $assignBoardId
+        workspace_path = $assignLeadWorkspace
+        wsp         = 'workspace-lead-smoke'
+        agent_id    = 'lead-smoke'
+    }
+    $assignResult = Invoke-MconAssign `
+        -Config $assignConfig `
+        -TaskId $assignWorkflowTaskId `
+        -WorkerAgentId '466803cc-1793-45e6-9dc0-437c505d49b4' `
+        -OriginSessionKey "task:$assignWorkflowTaskId" `
+        -WorkerWorkspacePath $assignWorkerWorkspace `
+        -LeadAgentId 'lead-smoke' `
+        -BundleOnly
+
+    if (
+        $assignResult.ok -eq $true -and
+        $assignResult.workerSpawnAgentId -eq 'mc-466803cc-1793-45e6-9dc0-437c505d49b4' -and
+        $assignResult.workerLegacyAgentName -eq 'vulcan' -and
+        (Test-Path -LiteralPath $assignResult.bundlePath) -and
+        (Test-Path -LiteralPath $assignResult.workerTaskDataPath)
+    ) {
+        $passCount++
+    } else {
+        Write-Host "FAIL: assign-spawn-agent-id - expected canonical worker agent id 'mc-466803cc-1793-45e6-9dc0-437c505d49b4', got '$($assignResult.workerSpawnAgentId)'"
+        $failCount++
+    }
+} finally {
+    Remove-Item Function:Invoke-MconApi -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $assignLeadWorkspace -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $assignWorkerWorkspace -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $assignRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+$queueSmokeWorkspace = Join-Path ([System.IO.Path]::GetTempPath()) ("mcon-queue-smoke-" + [guid]::NewGuid().Guid)
+New-Item -ItemType Directory -Path $queueSmokeWorkspace -Force | Out-Null
+try {
+    $queueTaskId = '22222222-2222-2222-2222-222222222222'
+    $queueDispatchState = [pscustomobject]@{
+        act            = $true
+        reason         = 'smoke'
+        dispatch_type  = 'heartbeat'
+        agentRole      = 'worker'
+        boardId        = '00000000-0000-0000-0000-000000000000'
+        agentId        = 'abc123'
+        summary        = [ordered]@{}
+        tasks          = @(
+            [pscustomobject]@{
+                id                     = $queueTaskId
+                status                 = 'inbox'
+                title                  = 'Queue smoke task'
+                task_data_path         = '/tmp/taskData.json'
+                task_directory         = '/tmp/task'
+                deliverables_directory  = '/tmp/task/deliverables'
+                evidence_directory      = '/tmp/task/evidence'
+            }
+        )
+    }
+
+    $firstQueueResult = Add-MconHeartbeatQueueItem -WorkspacePath $queueSmokeWorkspace -InvocationAgent 'mc-abc123' -DispatchState $queueDispatchState
+    if ($firstQueueResult -eq 'queued') {
+        $passCount++
+    } else {
+        Write-Host "FAIL: queue-first-enqueue - expected 'queued', got '$firstQueueResult'"
+        $failCount++
+    }
+
+    $secondQueueResult = Add-MconHeartbeatQueueItem -WorkspacePath $queueSmokeWorkspace -InvocationAgent 'mc-abc123' -DispatchState $queueDispatchState
+    if ($secondQueueResult -eq 'already_pending') {
+        $passCount++
+    } else {
+        Write-Host "FAIL: queue-idempotent-enqueue - expected 'already_pending', got '$secondQueueResult'"
+        $failCount++
+    }
+
+    $queuePaths = Get-MconHeartbeatQueuePaths -WorkspacePath $queueSmokeWorkspace
+    $pendingCount = @(Get-ChildItem -LiteralPath $queuePaths.pending -Filter '*.json' -File -ErrorAction SilentlyContinue).Count
+    if ($pendingCount -eq 1) {
+        $passCount++
+    } else {
+        Write-Host "FAIL: queue-pending-count - expected 1 pending item, got $pendingCount"
+        $failCount++
+    }
+
+    $restoredSource = Join-Path $queuePaths.processing 'stale.json'
+    Set-Content -LiteralPath $restoredSource -Value '{}' -Encoding UTF8
+    Restore-MconHeartbeatProcessingQueue -QueuePaths $queuePaths
+    if ((Test-Path -LiteralPath (Join-Path $queuePaths.pending 'stale.json')) -and (-not (Test-Path -LiteralPath $restoredSource))) {
+        $passCount++
+    } else {
+        Write-Host 'FAIL: queue-restore-processing - expected processing item to move back to pending'
+        $failCount++
+    }
+
+    $staleSource = Join-Path $queuePaths.processing 'old.json'
+    Set-Content -LiteralPath $staleSource -Value '{}' -Encoding UTF8
+    (Get-Item -LiteralPath $staleSource).LastWriteTime = (Get-Date).AddMinutes(-30)
+    $staleCount = Clear-MconHeartbeatStuckProcessingItems -QueuePaths $queuePaths -MaxProcessingMinutes 10
+    $staleFailed = @(Get-ChildItem -LiteralPath $queuePaths.failed -Filter 'old-stale-*.json' -File -ErrorAction SilentlyContinue).Count
+    if ($staleCount -eq 1 -and $staleFailed -eq 1 -and (-not (Test-Path -LiteralPath $staleSource))) {
+        $passCount++
+    } else {
+        Write-Host "FAIL: queue-stale-processing - expected 1 stale item moved to failed, got count=$staleCount failed=$staleFailed"
+        $failCount++
+    }
+
+    $script:capturedStartProcess = $null
+    function Start-Process {
+        param(
+            [string]$FilePath,
+            [string[]]$ArgumentList,
+            [string]$WorkingDirectory,
+            [string]$RedirectStandardOutput,
+            [string]$RedirectStandardError,
+            [switch]$PassThru
+        )
+
+        $script:capturedStartProcess = [pscustomobject]@{
+            FilePath             = $FilePath
+            ArgumentList         = $ArgumentList
+            WorkingDirectory     = $WorkingDirectory
+            RedirectStandardOutput = $RedirectStandardOutput
+            RedirectStandardError = $RedirectStandardError
+        }
+
+        if ($PassThru) {
+            return [pscustomobject]@{ Id = 4242 }
+        }
+    }
+
+    $started = Start-MconHeartbeatQueueProcessor -WorkspacePath $queueSmokeWorkspace -MconScriptPath '/tmp/mcon.ps1'
+    if ($started -eq $true -and $script:capturedStartProcess -and ($script:capturedStartProcess.ArgumentList -contains '--process-queue')) {
+        $passCount++
+    } else {
+        Write-Host 'FAIL: queue-start-process - expected processor launch when pending items exist'
+        $failCount++
+    }
+} finally {
+    Remove-Item function:Start-Process -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $queueSmokeWorkspace -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+$dispatchSmokeWorkspace = Join-Path ([System.IO.Path]::GetTempPath()) ("mcon-dispatch-smoke-" + [guid]::NewGuid().Guid)
+New-Item -ItemType Directory -Path $dispatchSmokeWorkspace -Force | Out-Null
+try {
+    $dispatchResult = New-MconDispatchResult -Act $false -Reason 'idle' -AgentRole 'lead' -BoardId '00000000-0000-0000-0000-000000000000' -AgentId 'abc123' -Summary ([ordered]@{ paused = $false; inbox = $false; assignedInbox = $false; assignedInProgress = $false; review = $false }) -Tasks @()
+    $dispatchResult.tasks = @(
+        [ordered]@{
+            id                     = 'task-1'
+            status                 = 'inbox'
+            title                  = 'Task One'
+            subagent_uuid          = 'sub-1'
+            task_data_path         = '/tmp/taskData.json'
+            task_directory         = '/tmp/task'
+            deliverables_directory = '/tmp/task/deliverables'
+            evidence_directory     = '/tmp/task/evidence'
+            comments               = @(
+                [ordered]@{
+                    id = 'comment-1'
+                    created_at = '2026-04-21T12:00:00Z'
+                    agent_id = 'abc123'
+                    agent_name = 'Vulcan'
+                    author_name = 'Vulcan'
+                    message = 'cache smoke comment'
+                }
+            )
+            task_data              = [ordered]@{
+                task = [ordered]@{
+                    id = 'task-1'
+                    title = 'Task One'
+                }
+                comments = @(
+                    [ordered]@{
+                        id = 'comment-1'
+                        message = 'cache smoke comment'
+                    }
+                )
+                boardWorkers = @(
+                    [ordered]@{ id = 'worker-1'; name = 'Hermes' }
+                )
+            }
+        }
+    )
+    Write-MconDispatchState -WorkspacePath $dispatchSmokeWorkspace -DispatchResult $dispatchResult | Out-Null
+
+    $dispatchStatePath = Join-Path (Join-Path $dispatchSmokeWorkspace '.openclaw/workflows') '.dispatch-state-latest.json'
+    if (Test-Path -LiteralPath $dispatchStatePath) {
+        $dispatchState = Get-Content -LiteralPath $dispatchStatePath -Raw | ConvertFrom-Json -Depth 20
+        $schemaChecks = @(
+            $dispatchState.ttl_seconds -eq 300
+            $dispatchState.gate_version -eq '1.0.0'
+            $dispatchState.board_id -eq '00000000-0000-0000-0000-000000000000'
+            $dispatchState.agent_id -eq 'abc123'
+            $dispatchState.agent_role -eq 'lead'
+            $dispatchState.act -eq $false
+            $dispatchState.reason -eq 'idle'
+            @($dispatchState.tasks).Count -eq 1
+            $dispatchState.tasks[0].task_data.task.title -eq 'Task One'
+            @($dispatchState.tasks[0].task_data.comments).Count -eq 1
+            $dispatchState.tasks[0].task_data.comments[0].message -eq 'cache smoke comment'
+        )
+
+        if (@($schemaChecks | Where-Object { $_ -ne $true }).Count -eq 0) {
+            $passCount++
+        } else {
+            Write-Host 'FAIL: dispatch-state-schema - cache file missing expected fields or values'
+            $failCount++
+        }
+    } else {
+        Write-Host 'FAIL: dispatch-state-written - expected .dispatch-state-latest.json to be created by writer'
+        $failCount++
+    }
+} finally {
+    Remove-Item -LiteralPath $dispatchSmokeWorkspace -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Write-Host '=== mcon smoke tests ==='

@@ -32,6 +32,7 @@ type Task = {
   blocked_by_task_ids?: string[];
   is_blocked?: boolean;
   creator_name?: string | null;
+  updated_at?: string | null;
 };
 
 type TaskBoardProps = {
@@ -393,6 +394,13 @@ export const TaskBoard = memo(function TaskBoard({
     tasks.forEach((task) => {
       const bucket = buckets[task.status] ?? buckets.inbox;
       bucket.push(task);
+    });
+    // Sort done tasks by updated_at descending (most recently updated first)
+    // Tasks without updated_at are treated as oldest (placed at bottom).
+    buckets.done.sort((a, b) => {
+      const timeA = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+      const timeB = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+      return timeB - timeA;
     });
     return buckets;
   }, [tasks]);

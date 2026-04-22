@@ -2,7 +2,7 @@
 
 ## When This Runs
 
-The cached dispatch gate (`mc-board-workflow.ps1`) has set `act=true`. This means there is work for you to do — either an inbox task assigned to you, or an in-progress task that needs continuation.
+The cached dispatch gate (`mcon workflow dispatch`) has set `act=true`. This means there is work for you to do — either an inbox task assigned to you, or an in-progress task that needs continuation.
 
 ## Your Role
 

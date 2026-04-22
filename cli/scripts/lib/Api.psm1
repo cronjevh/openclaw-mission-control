@@ -227,7 +227,11 @@ function Get-MconBoardTags {
     )
     $encodedBoard = [uri]::EscapeDataString($BoardId)
     $uri = "$BaseUrl/api/v1/agent/boards/$encodedBoard/tags"
-    return Invoke-MconApi -Method Get -Uri $uri -Token $Token
+    $response = Invoke-MconApi -Method Get -Uri $uri -Token $Token
+    if ($response -is [array] -and $response.Count -eq 1 -and $response[0] -is [array]) {
+        return @($response[0])
+    }
+    return @($response)
 }
 
 function Get-MconBoardTag {
@@ -270,7 +274,11 @@ function Get-MconBoardTasks {
     $queryParams['offset'] = $Offset
 
     if ($queryParams.Count -gt 0) {
-        $uri = "$uri?" + ($queryParams.GetEnumerator() | ForEach-Object { "$($_.Key)=$([uri]::EscapeDataString($_.Value))" } -join '&')
+        $queryString = @(
+            $queryParams.GetEnumerator() |
+            ForEach-Object { "$($_.Key)=$([uri]::EscapeDataString($_.Value))" }
+        ) -join '&'
+        $uri = $uri + '?' + $queryString
     }
 
     $response = Invoke-MconApi -Method Get -Uri $uri -Token $Token

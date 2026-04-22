@@ -218,4 +218,50 @@ describe("TaskBoard", () => {
       "false",
     );
   });
+
+  it("sorts tasks in the Done column by updated_at descending (most recent first)", () => {
+    const now = Date.now();
+    const oneHour = 60 * 60 * 1000;
+    const tasks: Task[] = [
+      buildTask({
+        id: "done-old",
+        title: "Old Done",
+        status: "done",
+        updated_at: new Date(now - 3 * oneHour).toISOString(),
+      }),
+      buildTask({
+        id: "done-recent",
+        title: "Recent Done",
+        status: "done",
+        updated_at: new Date(now - 1 * oneHour).toISOString(),
+      }),
+      buildTask({
+        id: "done-newest",
+        title: "Newest Done",
+        status: "done",
+        updated_at: new Date(now).toISOString(),
+      }),
+      // A non-done task should not affect ordering
+      buildTask({ id: "inbox", title: "Inbox", status: "inbox" }),
+    ];
+
+    render(<TaskBoard tasks={tasks} />);
+
+    const doneHeading = screen.getByRole("heading", { name: "Done" });
+    const doneColumn = doneHeading.closest(".kanban-column") as HTMLElement | null;
+    expect(doneColumn).toBeTruthy();
+    if (!doneColumn) return;
+
+    // Extract task card titles from the Done column by finding the title <p> inside each card.
+    const cardButtons = within(doneColumn).getAllByRole("button");
+    const titles = cardButtons
+      .map((btn) => {
+        const titleEl = btn.querySelector("p.text-sm.font-medium");
+        return titleEl?.textContent?.trim() ?? null;
+      })
+      .filter((title): title is string => title !== null && title !== "");
+
+    // Expect order: Newest Done, Recent Done, Old Done
+    expect(titles).toEqual(["Newest Done", "Recent Done", "Old Done"]);
+  });
 });

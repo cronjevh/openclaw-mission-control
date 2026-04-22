@@ -264,4 +264,119 @@ function Resolve-MconLeadAgentConfig {
     return $null
 }
 
-Export-ModuleMember -Function Resolve-MconConfig, Resolve-MconWsp, Test-MconValidStatus, Get-MconValidStatuses, Resolve-MconKeybagAgent, Get-MconWorkspacePathFromWsp, Get-MconDecryptedKeybag, Resolve-MconLeadAgentConfig
+function Get-MconOpenClawConfigPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$WorkspacePath
+    )
+
+    $resolvedWorkspacePath = (Resolve-Path -LiteralPath $WorkspacePath).Path
+    $openClawRoot = Split-Path -Parent $resolvedWorkspacePath
+    $configPath = Join-Path $openClawRoot 'openclaw.json'
+    if (-not (Test-Path -LiteralPath $configPath)) {
+        throw "OpenClaw config not found at $configPath."
+    }
+
+    return (Resolve-Path -LiteralPath $configPath).Path
+}
+
+function Get-MconOpenClawConfig {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$WorkspacePath
+    )
+
+    $configPath = Get-MconOpenClawConfigPath -WorkspacePath $WorkspacePath
+    try {
+        return (Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100)
+    } catch {
+        throw "Failed to read OpenClaw config $configPath : $($_.Exception.Message)"
+    }
+}
+
+function Resolve-MconNormalizedPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path
+    )
+
+    $providerPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+    if (Test-Path -LiteralPath $providerPath) {
+        return (Resolve-Path -LiteralPath $providerPath).Path
+    }
+
+    return $providerPath
+}
+
+function Resolve-MconOpenClawAgentConfig {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$WorkspacePath
+    )
+
+    $resolvedWorkspacePath = Resolve-MconNormalizedPath -Path $WorkspacePath
+    $config = Get-MconOpenClawConfig -WorkspacePath $resolvedWorkspacePath
+    if (-not $config -or -not ($config.PSObject.Properties.Name -contains 'agents') -or -not $config.agents) {
+        throw "OpenClaw config is missing an agents registry for workspace $WorkspacePath."
+    }
+
+    $agentEntries = @()
+    if ($config.agents.PSObject.Properties.Name -contains 'list' -and $config.agents.list) {
+        $agentEntries = @($config.agents.list | Where-Object { $_ })
+    }
+
+    foreach ($agent in $agentEntries) {
+        $agentWorkspace = $null
+        if ($agent.PSObject.Properties.Name -contains 'workspace' -and $agent.workspace) {
+            $agentWorkspace = [string]$agent.workspace
+        } elseif ($agent.PSObject.Properties.Name -contains 'workspace_path' -and $agent.workspace_path) {
+            $agentWorkspace = [string]$agent.workspace_path
+        }
+
+        if ([string]::IsNullOrWhiteSpace($agentWorkspace)) {
+            continue
+        }
+
+        $resolvedAgentWorkspace = Resolve-MconNormalizedPath -Path $agentWorkspace
+        if ($resolvedAgentWorkspace -ne $resolvedWorkspacePath) {
+            continue
+        }
+
+        $agentName = $null
+        if ($agent.PSObject.Properties.Name -contains 'name' -and $agent.name) {
+            $agentName = [string]$agent.name
+        } elseif ($agent.PSObject.Properties.Name -contains 'identity' -and $agent.identity -and $agent.identity.PSObject.Properties.Name -contains 'name') {
+            $agentName = [string]$agent.identity.name
+        }
+
+        if ([string]::IsNullOrWhiteSpace($agentName)) {
+            throw "OpenClaw agent entry for workspace $WorkspacePath is missing a canonical name."
+        }
+
+        $displayName = $agentName.Trim()
+        $configId = if ($agent.PSObject.Properties.Name -contains 'id' -and $agent.id) { [string]$agent.id } else { $null }
+        if ([string]::IsNullOrWhiteSpace($configId)) {
+            throw "OpenClaw agent entry for workspace $WorkspacePath is missing a canonical id."
+        }
+        return [ordered]@{
+            config_id      = $configId
+            name           = $displayName
+            agent_id       = $displayName.ToLowerInvariant()
+            spawn_agent_id = $configId
+            workspace      = $resolvedWorkspacePath
+        }
+    }
+
+    throw "No OpenClaw agent entry found for workspace path: $WorkspacePath"
+}
+
+function Resolve-MconOpenClawAgentName {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$WorkspacePath
+    )
+
+    return (Resolve-MconOpenClawAgentConfig -WorkspacePath $WorkspacePath).name
+}
+
+Export-ModuleMember -Function Resolve-MconConfig, Resolve-MconWsp, Test-MconValidStatus, Get-MconValidStatuses, Resolve-MconKeybagAgent, Get-MconWorkspacePathFromWsp, Get-MconDecryptedKeybag, Resolve-MconLeadAgentConfig, Get-MconOpenClawConfigPath, Get-MconOpenClawConfig, Resolve-MconOpenClawAgentConfig, Resolve-MconOpenClawAgentName

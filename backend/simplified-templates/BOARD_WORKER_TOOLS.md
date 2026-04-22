@@ -26,31 +26,31 @@ Use `mcon help` only when command usage is unclear or a command fails validation
 Inspect the assigned task:
 
 ```bash
-mcon task show --task 12345678-1234-1234-1234-123456789abc
+mcon task show --task <TASK_ID>
 ```
 
 Post an acknowledgement:
 
 ```bash
-mcon task comment --task 12345678-1234-1234-1234-123456789abc --message "Acknowledged. I will create the deliverable and separate verification artifact in the task bundle."
+mcon task comment --task <TASK_ID> --message "Acknowledged. I will create the deliverable and separate verification artifact in the task bundle."
 ```
 
 Raise a blocker:
 
 ```bash
-mcon workflow blocker --task 12345678-1234-1234-1234-123456789abc --message "Blocked on missing requirement clarification from @lead."
+mcon workflow blocker --task <TASK_ID> --message "Blocked on missing requirement clarification from @lead."
 ```
 
 Post a handoff:
 
 ```bash
-mcon task comment --task 12345678-1234-1234-1234-123456789abc --message "Deliverable: tasks/<TASK_ID>/deliverables/output.md\nVerification: tasks/<TASK_ID>/deliverables/verify-<TASK_ID>.ps1"
+mcon task comment --task <TASK_ID> --message "Deliverable: tasks/<TASK_ID>/deliverables/output.md\nVerification: tasks/<TASK_ID>/deliverables/verify-<TASK_ID>.ps1"
 ```
 
 Submit the completed task for review:
 
 ```bash
-mcon workflow submitreview --task 12345678-1234-1234-1234-123456789abc
+mcon workflow submitreview --task <TASK_ID>
 ```
 
 ## Worker Boundaries

@@ -22,8 +22,6 @@ The goal is simple:
 - `BOARD_LEAD_TOOLS.md`
 - `BOARD_LEAD_GATED-HEARTBEAT.md`
 - `BOARD_LEAD_SOUL.md`
-- `scripts/extract-vars.ps1`
-- `scripts/fetch-agents.ps1`
 
 ## Current workflow
 

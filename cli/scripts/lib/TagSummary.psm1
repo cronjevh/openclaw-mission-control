@@ -298,7 +298,6 @@ function Resolve-MconProjectTags {
     )
 
     $available = @(Get-MconBoardTags -BaseUrl $BaseUrl -Token $Token -BoardId $BoardId)
-    $resolvedById = @{}
     $ordered = @()
 
     foreach ($identifier in $Identifiers) {
@@ -321,12 +320,17 @@ function Resolve-MconProjectTags {
 
         $match = $matches[0]
         $matchId = "$($match.id)"
-        if ($resolvedById.ContainsKey($matchId)) {
+        if (@($ordered | Where-Object { "$($_.id)" -eq $matchId }).Count -gt 0) {
             continue
         }
-        $detail = Get-MconBoardTag -BaseUrl $BaseUrl -Token $Token -BoardId $BoardId -TagId $matchId
-        $resolvedById[$matchId] = $detail
-        $ordered += $detail
+        $ordered += [pscustomobject]@{
+            id          = $match.id
+            name        = $match.name
+            slug        = $match.slug
+            color       = $match.color
+            description = $null
+            task_count  = 0
+        }
     }
 
     return $ordered
@@ -436,7 +440,11 @@ function Get-MconProjectTagSummaries {
     $resolvedTags = @(Resolve-MconProjectTags -BaseUrl $BaseUrl -Token $Token -BoardId $BoardId -Identifiers $TagIdentifiers)
     $summaries = @()
     foreach ($tag in $resolvedTags) {
-        $tasks = @(Get-MconBoardTasks -BaseUrl $BaseUrl -Token $Token -BoardId $BoardId -Tag $tag.slug -IncludeHiddenDone)
+        $tagSlug = [string]$tag.slug
+        if ([string]::IsNullOrWhiteSpace($tagSlug)) {
+            throw "Resolved tag is missing a slug."
+        }
+        $tasks = @(Get-MconBoardTasks -BaseUrl $BaseUrl -Token $Token -BoardId $BoardId -Tag $tagSlug -IncludeHiddenDone:$true)
         $summaries += Get-MconProjectTagSummary -Tag $tag -Tasks $tasks
     }
 

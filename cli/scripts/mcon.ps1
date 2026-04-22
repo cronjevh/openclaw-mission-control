@@ -20,6 +20,7 @@ Import-Module (Join-Path $libDir 'Rbac.psm1') -Force
 Import-Module (Join-Path $libDir 'Crypto.psm1') -Force
 Import-Module (Join-Path $libDir 'Admin.psm1') -Force
 Import-Module (Join-Path $libDir 'Dispatch.psm1') -Force
+Import-Module (Join-Path $libDir 'OpenClawSession.psm1') -Force
 Import-Module (Join-Path $libDir 'Heartbeat.psm1') -Force
 Import-Module (Join-Path $libDir 'Assign.psm1') -Force
 Import-Module (Join-Path $libDir 'Blocker.psm1') -Force
@@ -713,6 +714,44 @@ Statuses: inbox, in_progress, review, done, blocked
                 }
             }
 
+            'session-dispatch' {
+                $processDispatch = $false
+                $payloadPath = $null
+                $i = 0
+                while ($i -lt $wfArgs.Count) {
+                    switch ($wfArgs[$i]) {
+                        '--process' { $processDispatch = $true; break }
+                        '--payload' { $payloadPath = $wfArgs[++$i]; break }
+                        default { Write-MconError -Message "Unknown flag: $($wfArgs[$i])" -Code 'usage' }
+                    }
+                    $i++
+                }
+
+                if (-not $processDispatch) {
+                    Write-MconError -Message 'workflow session-dispatch is an internal command; use --process --payload <PATH>.' -Code 'usage'
+                }
+                if (-not $payloadPath) {
+                    Write-MconError -Message '--payload <PATH> is required with workflow session-dispatch --process.' -Code 'usage'
+                }
+
+                try {
+                    $result = Invoke-MconDeferredSessionDispatch -PayloadPath $payloadPath
+                    if ($result.ok) {
+                        Write-MconResult -Data ([ordered]@{
+                                ok     = $true
+                                action = 'workflow.session_dispatch.deferred'
+                                result = $result
+                            })
+                        return
+                    }
+
+                    Write-MconError -Message "$($result.phase): $($result.error)" -Code 'session_dispatch_error'
+                }
+                catch {
+                    Write-MconError -Message $_.Exception.Message -Code 'session_dispatch_error'
+                }
+            }
+
             'blocker' {
                 $taskId = $null
                 $message = $null
@@ -951,7 +990,7 @@ Statuses: inbox, in_progress, review, done, blocked
                 }
 
                 try {
-                    $result = Invoke-MconVerifyRun -Config $agentConfig -TaskId $taskId
+                    $result = Invoke-MconVerifyRun -Config $agentConfig -TaskId $taskId -MconScriptPath $PSCommandPath
                     Write-MconResult -Data ([ordered]@{
                             ok     = $true
                             action = 'verify.run'

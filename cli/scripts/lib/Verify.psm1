@@ -475,7 +475,8 @@ function Invoke-MconVerifyRun {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][hashtable]$Config,
-        [Parameter(Mandatory)][string]$TaskId
+        [Parameter(Mandatory)][string]$TaskId,
+        [string]$MconScriptPath
     )
 
     $baseUrl = $Config.base_url.TrimEnd('/')
@@ -537,6 +538,61 @@ function Invoke-MconVerifyRun {
     $comment = Send-MconComment -BaseUrl $baseUrl -Token $authToken -BoardId $boardId -TaskId $TaskId -Message $commentMessage
     $updatedTask = Set-MconTaskStatus -BaseUrl $leadConfig.base_url -Token $leadConfig.auth_token -BoardId $boardId -TaskId $TaskId -Status $resultingTaskStatus
 
+    $closureDispatch = $null
+    if ($executionResult.passed -and $updatedTask.status -eq 'done') {
+        $taskDataPath = Join-Path $taskBundlePaths.task_directory 'taskData.json'
+        $closureDirective = New-MconLeadClosureDirective -TaskRefs @(
+            [pscustomobject]@{
+                id              = $TaskId
+                title           = [string]$task.title
+                status          = 'done'
+                taskDataPath    = $taskDataPath
+                deliverablesDir = $taskBundlePaths.deliverables_directory
+                evidenceDir     = $taskBundlePaths.evidence_directory
+            }
+        )
+
+        if (-not [string]::IsNullOrWhiteSpace($closureDirective)) {
+            $leadInvocationAgent = "lead-$boardId"
+            $leadSessionKey = Get-MconAgentTaskSessionKey -InvocationAgent $leadInvocationAgent -TaskId $TaskId
+            try {
+                $diagnosticsDir = Join-Path $taskBundlePaths.evidence_directory 'session-dispatch'
+                $deferredPayload = [ordered]@{
+                    workspace_path        = [string]$leadConfig.workspace_path
+                    invocation_agent      = $leadInvocationAgent
+                    session_key           = $leadSessionKey
+                    message               = $closureDirective
+                    task_id               = $TaskId
+                    dispatch_type         = 'verify_closure'
+                    timeout_seconds       = 120
+                    temperature           = 0
+                    initial_delay_seconds = 0
+                }
+                $response = Start-MconDeferredSessionDispatch `
+                    -WorkspacePath ([string]$leadConfig.workspace_path) `
+                    -MconScriptPath $MconScriptPath `
+                    -DiagnosticsDir $diagnosticsDir `
+                    -TaskId $TaskId `
+                    -Payload $deferredPayload
+                $closureDispatch = [ordered]@{
+                    ok          = $true
+                    session_key = $leadSessionKey
+                    agent_id    = $leadInvocationAgent
+                    queued      = $true
+                    dispatch    = $response
+                }
+            } catch {
+                $closureDispatch = [ordered]@{
+                    ok          = $false
+                    session_key = $leadSessionKey
+                    agent_id    = $leadInvocationAgent
+                    queued      = $false
+                    error       = $_.Exception.Message
+                }
+            }
+        }
+    }
+
     return [ordered]@{
         ok = $true
         task_id = $TaskId
@@ -547,6 +603,7 @@ function Invoke-MconVerifyRun {
         passed = $executionResult.passed
         resulting_task_status = $updatedTask.status
         action_taken = $actionTaken
+        closure_dispatch = $closureDispatch
         comment_id = if ($comment.PSObject.Properties.Name -contains 'id') { $comment.id } else { $null }
         task = $updatedTask
     }

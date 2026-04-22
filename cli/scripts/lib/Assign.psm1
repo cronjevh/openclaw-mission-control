@@ -1076,7 +1076,7 @@ function Invoke-MconDeferredAssignSpawn {
                     return $supersededResult
                 }
 
-                $spawnResponse = Invoke-MconOpenClawGatewayChat `
+                $spawnResponse = Send-MconOpenClawSessionMessage `
                     -WorkspacePath ([string]$payload.workspace_path) `
                     -InvocationAgent ([string]$payload.lead_agent_id) `
                     -Message ([string]$payload.spawn_prompt) `

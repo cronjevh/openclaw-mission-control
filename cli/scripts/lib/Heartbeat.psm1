@@ -1,29 +1,3 @@
-function Get-MconOpenClawGatewayConfig {
-    param(
-        [Parameter(Mandatory)][string]$WorkspacePath
-    )
-
-    $openClawRoot = Split-Path -Path $WorkspacePath -Parent
-    $configPath = Join-Path $openClawRoot 'openclaw.json'
-    if (-not (Test-Path -LiteralPath $configPath)) {
-        throw "OpenClaw config not found: $configPath"
-    }
-
-    $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json -Depth 50
-    $port = $config.gateway.port
-    $token = $config.gateway.auth.token
-    $chatEnabled = $config.gateway.http.endpoints.chatCompletions.enabled
-
-    if (-not $port) { throw "Gateway port missing in $configPath" }
-    if (-not $token) { throw "Gateway auth token missing in $configPath" }
-    if (-not $chatEnabled) { throw "Gateway chat completions endpoint is disabled in $configPath" }
-
-    return [pscustomobject]@{
-        port  = [int]$port
-        token = [string]$token
-    }
-}
-
 function Get-MconTaskSessionKey {
     param(
         [Parameter(Mandatory)][string]$InvocationAgent,
@@ -36,54 +10,6 @@ function Get-MconTaskSessionKey {
     }
 
     return "agent:${InvocationAgent}:dispatch-run:$([guid]::NewGuid().Guid)"
-}
-
-function New-MconLeadClosureDirective {
-    param(
-        [Parameter(Mandatory)]$TaskRefs
-    )
-
-    $doneTaskRefs = @($TaskRefs | Where-Object { $_.status -eq 'done' })
-    if ($doneTaskRefs.Count -eq 0) {
-        return $null
-    }
-
-    $taskLines = @()
-    foreach ($taskRef in $doneTaskRefs) {
-        $taskLines += "- Task $($taskRef.id): $($taskRef.title)"
-        $taskLines += "  task context: [taskData.json]($($taskRef.taskDataPath))"
-        $taskLines += "  deliverables: [deliverables/]($($taskRef.deliverablesDir))"
-        $taskLines += "  evidence: [evidence/]($($taskRef.evidenceDir))"
-    }
-
-    return (@'
-## TASK-SPECIFIC CLOSURE DIRECTIVE
-
-The following task(s) are already in `done` and require post-completion follow-through in this turn:
-{0}
-
-Before ending the turn, execute this closure protocol for each completed task:
-1. Scan for implied follow-up work.
-   - Read the completed task's description, comments, and evidence.
-   - Ask whether the completion creates, enables, or necessitates any new board task.
-   - If yes, create the follow-up task(s) before replying.
-2. Check dependent tasks.
-   - For each task that lists the completed task in `depends_on_task_ids`, add a dependency-resolution notice.
-   - If the dependent task is now unblocked and the next step is clear, prepare it for reassessment.
-3. Ingest reusable patterns.
-   - Capture reusable process, script, decision, or operational improvements in the proper durable surface.
-   - Use the wiki for broadly reusable concepts or syntheses, and record durable updates in `MEMORY.md` where appropriate.
-4. Capture self-improvement items.
-   - Log mistakes, better approaches, or systemic friction in the appropriate learning surface.
-   - Promote durable behavior to `SOUL.md`, workflow rules to `AGENTS.md`, and tool rules to `TOOLS.md` when justified.
-5. Update the project ledger when the task is project-tagged.
-   - Run `scripts/update-project-ledger.ps1 -ProjectTag <tag>`.
-   - Verify `active_krs`, `current_phase`, and `next_recommended_task` against board reality.
-6. Post a concise factual closure summary comment.
-   - Include deliverables, follow-up tasks, wiki ingestion, and any remaining risk or open question.
-
-Keep the control-plane boundary intact: you may create follow-up tasks or leave breadcrumbs here, but defer any fresh assignment or work-start decision to the next gated heartbeat authorization.
-'@ -f ($taskLines -join "`n"))
 }
 
 function New-MconHeartbeatPrompt {
@@ -189,94 +115,6 @@ AUTH_TOKEN=$AuthToken
     return ($sections -join "`n")
 }
 
-function Invoke-MconOpenClawGatewayChat {
-    param(
-        [Parameter(Mandatory)][string]$WorkspacePath,
-        [Parameter(Mandatory)][string]$InvocationAgent,
-        [Parameter(Mandatory)][string]$Message,
-        [Parameter(Mandatory)][string]$SessionKey,
-        [int]$TimeoutSec = 120,
-        [string]$LogPath = $null,
-        [string]$TaskId = $null,
-        [string]$DispatchType = $null,
-        [string]$QueueItemId = $null,
-        [double]$Temperature = -1,
-        [int]$MaxTokens = 0,
-        [hashtable]$AdditionalBody = $null
-    )
-
-    $gateway = Get-MconOpenClawGatewayConfig -WorkspacePath $WorkspacePath
-    $uri = "http://127.0.0.1:$($gateway.port)/v1/chat/completions"
-    $headers = @{
-        Authorization         = "Bearer $($gateway.token)"
-        'x-openclaw-session-key' = $SessionKey
-    }
-    $body = [ordered]@{
-        model    = "openclaw/$InvocationAgent"
-        messages = @(
-            @{
-                role    = 'user'
-                content = $Message
-            }
-        )
-    }
-    if ($Temperature -ge 0) {
-        $body.temperature = $Temperature
-    }
-    if ($MaxTokens -gt 0) {
-        $body.max_tokens = $MaxTokens
-    }
-    if ($AdditionalBody) {
-        foreach ($key in $AdditionalBody.Keys) {
-            $body[$key] = $AdditionalBody[$key]
-        }
-    }
-
-    $logContext = @(
-        "gateway_chat",
-        "task=$TaskId",
-        "dispatch_type=$DispatchType",
-        "queue_item=$QueueItemId",
-        "session_key=$SessionKey",
-        "timeout_sec=$TimeoutSec"
-    ) -join ' '
-    $startTime = Get-Date
-    if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
-        Write-MconQueueLog -Path $LogPath -Message "$logContext begin"
-    }
-
-    try {
-        $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -ContentType 'application/json' -Body ($body | ConvertTo-Json -Depth 10) -TimeoutSec $TimeoutSec
-        $elapsedMs = ((Get-Date) - $startTime).TotalMilliseconds
-        if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
-            Write-MconQueueLog -Path $LogPath -Message "$logContext complete elapsed_ms=$([math]::Round($elapsedMs))"
-        }
-        return $response
-    } catch {
-        $elapsedMs = ((Get-Date) - $startTime).TotalMilliseconds
-        $errorText = ($_ | Out-String).Trim()
-        if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
-            Write-MconQueueLog -Path $LogPath -Message "$logContext failed elapsed_ms=$([math]::Round($elapsedMs)) error=$errorText"
-        }
-        throw "gateway chat failed task=$TaskId dispatch_type=$DispatchType queue_item=$QueueItemId session_key=$SessionKey timeout_sec=$TimeoutSec elapsed_ms=$([math]::Round($elapsedMs)): $errorText"
-    }
-}
-
-function Invoke-MconOpenClawAgentSession {
-    param(
-        [Parameter(Mandatory)][string]$InvocationAgent,
-        [Parameter(Mandatory)][string]$SessionKey,
-        [Parameter(Mandatory)][string]$Message,
-        [int]$TimeoutSec = 300
-    )
-
-    $agentOutput = & openclaw agent --agent $InvocationAgent --session-id $SessionKey --message $Message --json --timeout $TimeoutSec --thinking off 2>&1
-    return [ordered]@{
-        exit_code = $LASTEXITCODE
-        output    = ($agentOutput -join "`n")
-    }
-}
-
 function Invoke-MconHeartbeatAgent {
     param(
         [Parameter(Mandatory)][string]$WorkspacePath,
@@ -299,7 +137,7 @@ function Invoke-MconHeartbeatAgent {
     }
 
     $prompt = New-MconHeartbeatPrompt -WorkspacePath $WorkspacePath -DispatchState $DispatchState -AuthToken $AuthToken -SessionKey $SessionKey
-    $response = Invoke-MconOpenClawGatewayChat `
+    $response = Send-MconOpenClawSessionMessage `
         -WorkspacePath $WorkspacePath `
         -InvocationAgent $InvocationAgent `
         -Message $prompt `
@@ -1249,7 +1087,7 @@ Do not add commentary outside this structure. If you cannot comply, respond with
     }
 
     $startTime = Get-Date
-    $response = Invoke-MconOpenClawGatewayChat `
+    $response = Send-MconOpenClawSessionMessage `
         -WorkspacePath $WorkspacePath `
         -InvocationAgent $subagentAgentId `
         -Message $recoveryPrompt `
@@ -1580,4 +1418,4 @@ function Invoke-MconHeartbeatQueueProcessor {
     }
 }
 
-Export-ModuleMember -Function Get-MconOpenClawGatewayConfig, Get-MconTaskSessionKey, New-MconHeartbeatPrompt, Invoke-MconOpenClawGatewayChat, Invoke-MconHeartbeatAgent, Get-MconHeartbeatQueuePaths, Initialize-MconHeartbeatQueue, Get-MconHeartbeatProcessorRunPath, Read-MconHeartbeatProcessorRunState, Write-MconHeartbeatProcessorRunState, Wait-MconHeartbeatQueueProcessorStart, Test-MconHeartbeatProcessAlive, Restore-MconHeartbeatProcessingQueue, Clear-MconHeartbeatStuckProcessingItems, Get-MconHeartbeatQueueLockState, Test-MconHeartbeatQueueProcessing, Request-MconHeartbeatQueueLock, Unlock-MconHeartbeatQueueLock, Get-MconHeartbeatQueueItemId, Add-MconHeartbeatQueueItem, Start-MconHeartbeatQueueProcessor, Get-MconHeartbeatDispatchStates, Invoke-MconRecoveryPrompt, Invoke-MconHeartbeatQueueProcessor
+Export-ModuleMember -Function Get-MconTaskSessionKey, New-MconHeartbeatPrompt, Invoke-MconHeartbeatAgent, Get-MconHeartbeatQueuePaths, Initialize-MconHeartbeatQueue, Get-MconHeartbeatProcessorRunPath, Read-MconHeartbeatProcessorRunState, Write-MconHeartbeatProcessorRunState, Wait-MconHeartbeatQueueProcessorStart, Test-MconHeartbeatProcessAlive, Restore-MconHeartbeatProcessingQueue, Clear-MconHeartbeatStuckProcessingItems, Get-MconHeartbeatQueueLockState, Test-MconHeartbeatQueueProcessing, Request-MconHeartbeatQueueLock, Unlock-MconHeartbeatQueueLock, Get-MconHeartbeatQueueItemId, Add-MconHeartbeatQueueItem, Start-MconHeartbeatQueueProcessor, Get-MconHeartbeatDispatchStates, Invoke-MconRecoveryPrompt, Invoke-MconHeartbeatQueueProcessor

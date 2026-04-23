@@ -44,6 +44,16 @@ function Write-MconOpenClawSessionJson {
     return $Path
 }
 
+function Write-MconOpenClawSessionLog {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Message
+    )
+
+    $timestamp = (Get-Date).ToString('o')
+    "[$timestamp] $Message" | Add-Content -LiteralPath $Path -Encoding UTF8
+}
+
 function ConvertTo-MconOpenClawBashSingleQuotedString {
     param(
         [Parameter(Mandatory)][string]$Value
@@ -162,21 +172,21 @@ function Send-MconOpenClawSessionMessage {
     ) -join ' '
     $startTime = Get-Date
     if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
-        Write-MconQueueLog -Path $LogPath -Message "$logContext begin"
+        Write-MconOpenClawSessionLog -Path $LogPath -Message "$logContext begin"
     }
 
     try {
         $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -ContentType 'application/json' -Body ($body | ConvertTo-Json -Depth 10) -TimeoutSec $TimeoutSec
         $elapsedMs = ((Get-Date) - $startTime).TotalMilliseconds
         if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
-            Write-MconQueueLog -Path $LogPath -Message "$logContext complete elapsed_ms=$([math]::Round($elapsedMs))"
+            Write-MconOpenClawSessionLog -Path $LogPath -Message "$logContext complete elapsed_ms=$([math]::Round($elapsedMs))"
         }
         return $response
     } catch {
         $elapsedMs = ((Get-Date) - $startTime).TotalMilliseconds
         $errorText = ($_ | Out-String).Trim()
         if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
-            Write-MconQueueLog -Path $LogPath -Message "$logContext failed elapsed_ms=$([math]::Round($elapsedMs)) error=$errorText"
+            Write-MconOpenClawSessionLog -Path $LogPath -Message "$logContext failed elapsed_ms=$([math]::Round($elapsedMs)) error=$errorText"
         }
         throw "gateway chat failed task=$TaskId dispatch_type=$DispatchType queue_item=$QueueItemId session_key=$SessionKey timeout_sec=$TimeoutSec elapsed_ms=$([math]::Round($elapsedMs)): $errorText"
     }

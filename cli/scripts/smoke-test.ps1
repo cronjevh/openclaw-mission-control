@@ -304,39 +304,69 @@ try {
         $failCount++
     }
 
-    $script:capturedStartProcess = $null
-    function Start-Process {
-        param(
-            [string]$FilePath,
-            [string[]]$ArgumentList,
-            [string]$WorkingDirectory,
-            [string]$RedirectStandardOutput,
-            [string]$RedirectStandardError,
-            [switch]$PassThru
-        )
+    $fakeMconScript = Join-Path $queueSmokeWorkspace 'mcon.ps1'
+    $fakeMconScriptContent = @'
+$launchId = $null
+for ($i = 0; $i -lt $args.Count; $i++) {
+    if ($args[$i] -eq '--processor-launch-id' -and ($i + 1) -lt $args.Count) {
+        $launchId = $args[$i + 1]
+        break
+    }
+}
+if ([string]::IsNullOrWhiteSpace($launchId)) {
+    throw 'missing --processor-launch-id'
+}
 
-        $script:capturedStartProcess = [pscustomobject]@{
-            FilePath             = $FilePath
-            ArgumentList         = $ArgumentList
-            WorkingDirectory     = $WorkingDirectory
-            RedirectStandardOutput = $RedirectStandardOutput
-            RedirectStandardError = $RedirectStandardError
-        }
+$workspace = (Get-Location).Path
+$queueRoot = Join-Path $workspace '.openclaw/workflows/mc-board-heartbeat-queue'
+$runDir = Join-Path $queueRoot 'processor-runs'
+New-Item -ItemType Directory -Path $runDir -Force | Out-Null
 
-        if ($PassThru) {
-            return [pscustomobject]@{ Id = 4242 }
+$envSnapshot = [ordered]@{
+    MCON_AUTH_TOKEN = $env:MCON_AUTH_TOKEN
+    MCON_BASE_URL   = $env:MCON_BASE_URL
+    MCON_BOARD_ID   = $env:MCON_BOARD_ID
+    MCON_AGENT_ID   = $env:MCON_AGENT_ID
+    MCON_WSP        = $env:MCON_WSP
+}
+$envSnapshot | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $queueRoot 'launch-env.json') -Encoding UTF8
+
+$state = [ordered]@{
+    launch_id  = $launchId
+    state      = 'started'
+    updated_at = (Get-Date).ToUniversalTime().ToString('o')
+    pid        = $PID
+}
+$json = $state | ConvertTo-Json -Depth 10
+$json | Set-Content -LiteralPath (Join-Path $runDir "$launchId.json") -Encoding UTF8
+$json | Set-Content -LiteralPath (Join-Path $queueRoot 'processor.latest.json') -Encoding UTF8
+'@
+    Set-Content -LiteralPath $fakeMconScript -Value $fakeMconScriptContent -Encoding UTF8
+
+    $started = Start-MconHeartbeatQueueProcessor -WorkspacePath $queueSmokeWorkspace -MconScriptPath $fakeMconScript -StartupTimeoutSec 5
+    $envSnapshotPath = Join-Path $queuePaths.root 'launch-env.json'
+    $envSnapshot = if (Test-Path -LiteralPath $envSnapshotPath) {
+        Get-Content -LiteralPath $envSnapshotPath -Raw | ConvertFrom-Json
+    } else {
+        $null
+    }
+    $unscrubbedIdentityCount = [int]::MaxValue
+    if ($envSnapshot) {
+        $unscrubbedIdentityCount = 0
+        foreach ($name in @('MCON_AUTH_TOKEN', 'MCON_BASE_URL', 'MCON_BOARD_ID', 'MCON_AGENT_ID', 'MCON_WSP')) {
+            if (-not [string]::IsNullOrEmpty([string]$envSnapshot.$name)) {
+                $unscrubbedIdentityCount++
+            }
         }
     }
 
-    $started = Start-MconHeartbeatQueueProcessor -WorkspacePath $queueSmokeWorkspace -MconScriptPath '/tmp/mcon.ps1'
-    if ($started -eq $true -and $script:capturedStartProcess -and ($script:capturedStartProcess.ArgumentList -contains '--process-queue')) {
+    if ($started.launched -eq $true -and $started.confirmed_started -eq $true -and $unscrubbedIdentityCount -eq 0) {
         $passCount++
     } else {
-        Write-Host 'FAIL: queue-start-process - expected processor launch when pending items exist'
+        Write-Host 'FAIL: queue-start-process - expected detached processor launch with scrubbed identity environment'
         $failCount++
     }
 } finally {
-    Remove-Item function:Start-Process -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $queueSmokeWorkspace -Recurse -Force -ErrorAction SilentlyContinue
 }
 

@@ -531,7 +531,7 @@ function Get-MconHeartbeatQueueLockState {
         $lockPid = [int]$lockData.pid
     }
 
-    if ($lockPid -and (Test-MconHeartbeatProcessAlive -Pid $lockPid)) {
+    if ($lockPid -and (Test-MconHeartbeatProcessAlive -ProcessId $lockPid)) {
         return [pscustomobject]@{
             active = $true
             paths  = $paths
@@ -798,6 +798,16 @@ function ConvertTo-MconBashSingleQuotedString {
     return "'" + ($Value -replace "'", "'""'""'") + "'"
 }
 
+function Get-MconHeartbeatQueueIdentityEnvironmentNames {
+    return @(
+        'MCON_AUTH_TOKEN',
+        'MCON_BASE_URL',
+        'MCON_BOARD_ID',
+        'MCON_AGENT_ID',
+        'MCON_WSP'
+    )
+}
+
 function Start-MconDetachedHeartbeatQueueProcess {
     param(
         [Parameter(Mandatory)][string]$PwshPath,
@@ -809,16 +819,23 @@ function Start-MconDetachedHeartbeatQueueProcess {
     )
 
     if (-not ($IsLinux -or $IsMacOS)) {
+        $cleanEnvironment = @{}
+        foreach ($name in (Get-MconHeartbeatQueueIdentityEnvironmentNames)) {
+            $cleanEnvironment[$name] = ''
+        }
+
         return Start-Process `
             -FilePath $PwshPath `
             -ArgumentList @('-NoProfile', '-NoLogo', '-NonInteractive', '-File', $MconScriptPath, 'workflow', 'dispatch', '--process-queue', '--processor-launch-id', $LaunchId) `
             -WorkingDirectory $WorkspacePath `
             -RedirectStandardOutput $StdoutLogPath `
             -RedirectStandardError $StderrLogPath `
+            -Environment $cleanEnvironment `
             -PassThru
     }
 
     $bashPath = (Get-Command bash -ErrorAction Stop).Source
+    $envPath = (Get-Command env -ErrorAction Stop).Source
     $setsidPath = $null
     try {
         $setsidPath = (Get-Command setsid -ErrorAction Stop).Source
@@ -829,6 +846,11 @@ function Start-MconDetachedHeartbeatQueueProcess {
     $commandWords = @()
     if (-not [string]::IsNullOrWhiteSpace($setsidPath)) {
         $commandWords += (ConvertTo-MconBashSingleQuotedString -Value $setsidPath)
+    }
+    $commandWords += (ConvertTo-MconBashSingleQuotedString -Value $envPath)
+    foreach ($name in (Get-MconHeartbeatQueueIdentityEnvironmentNames)) {
+        $commandWords += '-u'
+        $commandWords += $name
     }
     $commandWords += (ConvertTo-MconBashSingleQuotedString -Value $PwshPath)
     $commandWords += @(
@@ -879,6 +901,34 @@ function Start-MconDetachedHeartbeatQueueProcess {
     }
 }
 
+function Resolve-MconHeartbeatQueueScriptPath {
+    param(
+        [Parameter(Mandatory)][string]$MconScriptPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($MconScriptPath)) {
+        throw 'Queue processor launch requires a non-empty mcon script path.'
+    }
+
+    $resolvedPath = $null
+    if (Test-Path -LiteralPath $MconScriptPath) {
+        $resolvedPath = (Resolve-Path -LiteralPath $MconScriptPath).Path
+    } else {
+        $resolvedPath = $MconScriptPath
+    }
+
+    if ((Split-Path -Path $resolvedPath -Leaf) -ieq 'mcon.ps1') {
+        return $resolvedPath
+    }
+
+    $repoCliScript = Join-Path (Split-Path -Path $PSScriptRoot -Parent) 'mcon.ps1'
+    if (Test-Path -LiteralPath $repoCliScript) {
+        return (Resolve-Path -LiteralPath $repoCliScript).Path
+    }
+
+    throw "Queue processor launch path must point at mcon.ps1; got '$MconScriptPath'."
+}
+
 function Start-MconHeartbeatQueueProcessor {
     param(
         [Parameter(Mandatory)][string]$WorkspacePath,
@@ -887,6 +937,12 @@ function Start-MconHeartbeatQueueProcessor {
     )
 
     $state = Get-MconHeartbeatQueueLockState -WorkspacePath $WorkspacePath
+    $originalMconScriptPath = $MconScriptPath
+    $MconScriptPath = Resolve-MconHeartbeatQueueScriptPath -MconScriptPath $MconScriptPath
+    if ($MconScriptPath -ne $originalMconScriptPath) {
+        Write-MconQueueLog -Path $state.paths.stdoutLog -Message "queue processor normalized script_path from=$originalMconScriptPath to=$MconScriptPath"
+    }
+
     if ($state.active) {
         Write-MconQueueLog -Path $state.paths.stdoutLog -Message "queue processor start skipped lock_active pid=$($state.lock.pid)"
         return [ordered]@{
@@ -1361,7 +1417,17 @@ function Invoke-MconHeartbeatQueueProcessor {
                     Write-MconQueueOutput -Path $stdoutLogPath -Prefix "heartbeat output:" -Text ([string]$commandOutput)
                 }
 
-                Remove-Item -LiteralPath $processingPath -Force
+                if (Test-Path -LiteralPath $processingPath) {
+                    Remove-Item -LiteralPath $processingPath -Force
+                } else {
+                    $pendingDuplicatePath = Join-Path $lockState.paths.pending $pendingItem.Name
+                    if (Test-Path -LiteralPath $pendingDuplicatePath) {
+                        Remove-Item -LiteralPath $pendingDuplicatePath -Force
+                        Write-MconQueueLog -Path $stdoutLogPath -Message "removed duplicate pending queue_item=$($pendingItem.Name) after successful command=$commandName"
+                    } else {
+                        Write-MconQueueLog -Path $stdoutLogPath -Message "processing item already absent after successful command=$commandName queue_item=$($pendingItem.Name)"
+                    }
+                }
                 $itemsProcessed++
                 Write-MconQueueLog -Path $stdoutLogPath -Message "completed task=$taskId command=$commandName"
             } catch {
@@ -1389,7 +1455,7 @@ function Invoke-MconHeartbeatQueueProcessor {
                     Remove-Item -LiteralPath $processingPath -Force
                 }
 
-                Write-Error ("queue item failed: {0}`n{1}" -f $pendingItem.Name, (($_ | Out-String).Trim()))
+                Write-MconQueueLog -Path $stderrLogPath -Message "continuing after failed queue_item=$($pendingItem.Name) command=$commandName"
             }
         }
 

@@ -181,7 +181,8 @@ function Invoke-MconDispatchBoard {
                 }
             }
 
-            $queueInfo.processing_started = Start-MconHeartbeatQueueProcessor -WorkspacePath $workspacePath -MconScriptPath $PSCommandPath
+            $mconScriptPath = Join-Path (Split-Path -Path $PSScriptRoot -Parent) 'mcon.ps1'
+            $queueInfo.processing_started = Start-MconHeartbeatQueueProcessor -WorkspacePath $workspacePath -MconScriptPath $mconScriptPath
 
             $agentResult = [ordered]@{
                 agent_id   = $agentId

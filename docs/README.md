@@ -15,6 +15,7 @@ This folder is the documentation home for **OpenClaw Mission Control**.
 - [Gateway WebSocket protocol](./openclaw_gateway_ws.md)
 - [OpenClaw baseline configuration](./openclaw_baseline_config.md)
 - [Agent capability policies](./features/agent-capability-policies.md)
+- [Board cadence cron integration](./features/board-cadence-cron.md)
 
 ## Reference
 

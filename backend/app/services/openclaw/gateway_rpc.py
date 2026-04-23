@@ -540,6 +540,19 @@ async def send_message(
     deliver: bool = False,
 ) -> object:
     """Send a chat message to a session."""
+    from app.services.openclaw.auto_wake import automatic_wake_reprovision_enabled
+
+    if not automatic_wake_reprovision_enabled():
+        logger.info(
+            "gateway.rpc.chat.send.blocked",
+            extra={
+                "session_key": session_key,
+                "deliver": deliver,
+                "blocked_message": message[:500],
+            },
+        )
+        return None
+
     params: dict[str, Any] = {
         "sessionKey": session_key,
         "message": message,

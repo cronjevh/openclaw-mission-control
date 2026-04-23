@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import asc, desc, exists, func, or_
+from sqlalchemy import asc, desc, func, or_
 from sqlmodel import col, select
 from sse_starlette.sse import EventSourceResponse
 
@@ -74,6 +74,7 @@ from app.services.approval_task_links import (
     pending_approval_conflicts_by_task,
 )
 from app.services.mentions import extract_mentions, matches_agent_mention
+from app.services.openclaw.auto_wake import automatic_wake_reprovision_enabled
 from app.services.openclaw.gateway_dispatch import GatewayDispatchService
 from app.services.openclaw.gateway_rpc import GatewayConfig as GatewayClientConfig
 from app.services.openclaw.gateway_rpc import OpenClawGatewayError, openclaw_call
@@ -1195,6 +1196,8 @@ async def _notify_lead_on_task_create(
     board: Board,
     task: Task,
 ) -> None:
+    if not automatic_wake_reprovision_enabled():
+        return
     lead = (
         await Agent.objects.filter_by(board_id=board.id)
         .filter(col(Agent.is_board_lead).is_(True))

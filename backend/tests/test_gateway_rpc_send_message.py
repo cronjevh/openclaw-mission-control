@@ -5,11 +5,42 @@ from uuid import UUID
 import pytest
 
 import app.services.openclaw.gateway_rpc as gateway_rpc
+from app.services.openclaw import auto_wake
 from app.services.openclaw.gateway_rpc import GatewayConfig
 
 
 @pytest.mark.asyncio
-async def test_send_message_dispatches_when_auto_wake_kill_switch_is_off(
+async def test_send_message_is_blocked_when_auto_wake_kill_switch_is_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    async def _fake_openclaw_call(
+        method: str,
+        params: dict[str, object] | None = None,
+        *,
+        config: GatewayConfig,
+    ) -> object:
+        nonlocal called
+        called = True
+        return {"ok": True}
+
+    monkeypatch.setattr(auto_wake, "automatic_wake_reprovision_enabled", lambda: False)
+    monkeypatch.setattr(gateway_rpc, "openclaw_call", _fake_openclaw_call)
+
+    result = await gateway_rpc.send_message(
+        "Escalation payload",
+        session_key="agent:gateway-main:test",
+        config=GatewayConfig(url="ws://gateway.example/ws"),
+        deliver=True,
+    )
+
+    assert result is None
+    assert called is False
+
+
+@pytest.mark.asyncio
+async def test_send_message_dispatches_when_auto_wake_kill_switch_is_on(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -25,6 +56,7 @@ async def test_send_message_dispatches_when_auto_wake_kill_switch_is_off(
         captured["config"] = config
         return {"ok": True}
 
+    monkeypatch.setattr(auto_wake, "automatic_wake_reprovision_enabled", lambda: True)
     monkeypatch.setattr(gateway_rpc, "openclaw_call", _fake_openclaw_call)
 
     result = await gateway_rpc.send_message(

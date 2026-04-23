@@ -61,7 +61,7 @@ mcon - Mission Control CLI
 Usage:
   mcon task show        --task <TASK_ID>
   mcon task show        --tags <TAG_ID|SLUG|NAME,...>
-  mcon task comment    --task <TASK_ID> --message <TEXT>
+   mcon task comment    --task <TASK_ID> (--message <TEXT>|--message-file <PATH>)
   mcon task move       --task <TASK_ID> --status <STATUS>
   mcon task create     --title <TITLE> [--description <TEXT>] [--priority <LEVEL>] [--backlog <true|false>] [--tags <TAG_ID,...>] [--depends-on <TASK_ID,...>]
   mcon task update     --task <TASK_ID> [--title <TITLE>] [--description <TEXT>] [--priority <LEVEL>] [--backlog <true|false>] [--tags <TAG_ID,...>] [--depends-on <TASK_ID,...>]
@@ -73,10 +73,10 @@ Usage:
   mcon workflow dispatch --process-queue  # process queued heartbeat items
   mcon workflow dispatchboard --board <BOARD_ID> [--delay <SECONDS>]  # sequential dispatch for all board agents
   mcon workflow assign --task <TASK_ID> --worker <AGENT_ID> [--origin-session-key <task:...|tag:...|agent:...:task:...|agent:...:tag:...>]  # assign task to worker
-  mcon workflow blocker --task <TASK_ID> --message <TEXT>  # mark task blocked and escalate to lead
-  mcon workflow escalate --message <TEXT> [--secret-key <KEY>] [--task <TASK_ID>]  # escalate a lead blocker to Gateway Main
+   mcon workflow blocker --task <TASK_ID> (--message <TEXT>|--message-file <PATH>)  # mark task blocked and escalate to lead
+   mcon workflow escalate (--message <TEXT>|--message-file <PATH>) [--secret-key <KEY>] [--task <TASK_ID>]  # escalate a lead blocker to Gateway Main
   mcon workflow gateway-reply --board <BOARD_ID> (--message <TEXT>|--message-file <PATH>) [--task <TASK_ID>] [--secret-reply]  # gateway-only: reply to board lead
-  mcon workflow submitreview --task <TASK_ID> [--message <TEXT>]  # submit task for review
+   mcon workflow submitreview --task <TASK_ID> (--message <TEXT>|--message-file <PATH>)  # submit task for review
   mcon verify run --task <TASK_ID>    # verifier-only: execute verification and apply outcome
 
 Roles (derived from MCON_WSP):
@@ -175,12 +175,14 @@ Statuses: inbox, in_progress, review, done, blocked
         $backlog = $null
         $tags = $null
         $dependsOn = $null
+        $messageFile = $null
 
         $i = 0
         while ($i -lt $actionArgs.Count) {
             switch ($actionArgs[$i]) {
                 '--task' { $task = $actionArgs[++$i]; break }
                 '--message' { $message = $actionArgs[++$i]; break }
+                '--message-file' { $messageFile = $actionArgs[++$i]; break }
                 '--status' { $status = $actionArgs[++$i]; break }
                 '--title' { $title = $actionArgs[++$i]; break }
                 '--description' { $description = $actionArgs[++$i]; break }
@@ -636,9 +638,20 @@ Statuses: inbox, in_progress, review, done, blocked
                 if ($processDeferredSpawn) {
                     if (-not $payloadPath) {
                         Write-MconError -Message '--payload <PATH> is required with --process-deferred-spawn.' -Code 'usage'
-                    }
+        }
 
-                    try {
+        # Handle --message-file for task comment (read message from file)
+        if ($action -eq 'comment' -and $messageFile) {
+            if ($message) {
+                Write-MconError -Message 'Use either --message <TEXT> or --message-file <PATH>, not both.' -Code 'usage'
+            }
+            if (-not (Test-Path -LiteralPath $messageFile)) {
+                Write-MconError -Message "Message file not found: $messageFile" -Code 'validation'
+            }
+            $message = Get-Content -LiteralPath $messageFile -Raw -Encoding UTF8
+        }
+
+        try {
                         $result = Invoke-MconDeferredAssignSpawn -PayloadPath $payloadPath
                         if ($result.ok) {
                             Write-MconResult -Data ([ordered]@{
@@ -655,6 +668,17 @@ Statuses: inbox, in_progress, review, done, blocked
                     catch {
                         Write-MconError -Message $_.Exception.Message -Code 'assign_error'
                     }
+                }
+
+                # Handle --message-file for workflow commands (read message from file)
+                if ($messageFile) {
+                    if ($message) {
+                        Write-MconError -Message 'Use either --message <TEXT> or --message-file <PATH>, not both.' -Code 'usage'
+                    }
+                    if (-not (Test-Path -LiteralPath $messageFile)) {
+                        Write-MconError -Message \"Message file not found: $messageFile\" -Code 'validation'
+                    }
+                    $message = Get-Content -LiteralPath $messageFile -Raw -Encoding UTF8
                 }
 
                 if (-not $taskId) {
@@ -757,14 +781,27 @@ Statuses: inbox, in_progress, review, done, blocked
             'blocker' {
                 $taskId = $null
                 $message = $null
+                $messageFile = $null
                 $i = 0
                 while ($i -lt $wfArgs.Count) {
                     switch ($wfArgs[$i]) {
                         '--task' { $taskId = $wfArgs[++$i]; break }
                         '--message' { $message = $wfArgs[++$i]; break }
+                        '--message-file' { $messageFile = $wfArgs[++$i]; break }
                         default { Write-MconError -Message "Unknown flag: $($wfArgs[$i])" -Code 'usage' }
                     }
                     $i++
+                }
+
+                # Handle --message-file for workflow commands (read message from file)
+                if ($messageFile) {
+                    if ($message) {
+                        Write-MconError -Message 'Use either --message <TEXT> or --message-file <PATH>, not both.' -Code 'usage'
+                    }
+                    if (-not (Test-Path -LiteralPath $messageFile)) {
+                        Write-MconError -Message \"Message file not found: $messageFile\" -Code 'validation'
+                    }
+                    $message = Get-Content -LiteralPath $messageFile -Raw -Encoding UTF8
                 }
 
                 if (-not $taskId) {
@@ -814,6 +851,7 @@ Statuses: inbox, in_progress, review, done, blocked
             'escalate' {
                 $taskId = $null
                 $message = $null
+                $messageFile = $null
                 $secretKey = $null
                 $targetAgentId = $null
                 $targetAgentName = $null
@@ -824,6 +862,7 @@ Statuses: inbox, in_progress, review, done, blocked
                     switch ($wfArgs[$i]) {
                         '--task' { $taskId = $wfArgs[++$i]; break }
                         '--message' { $message = $wfArgs[++$i]; break }
+                        '--message-file' { $messageFile = $wfArgs[++$i]; break }
                         '--secret-key' { $secretKey = $wfArgs[++$i]; break }
                         '--target-agent' { $targetAgentId = $wfArgs[++$i]; break }
                         '--target-agent-name' { $targetAgentName = $wfArgs[++$i]; break }
@@ -832,6 +871,17 @@ Statuses: inbox, in_progress, review, done, blocked
                         default { Write-MconError -Message "Unknown flag: $($wfArgs[$i])" -Code 'usage' }
                     }
                     $i++
+                }
+
+                # Handle --message-file for workflow escalate (read message from file)
+                if ($messageFile) {
+                    if ($message) {
+                        Write-MconError -Message 'Use either --message <TEXT> or --message-file <PATH>, not both.' -Code 'usage'
+                    }
+                    if (-not (Test-Path -LiteralPath $messageFile)) {
+                        Write-MconError -Message \"Message file not found: $messageFile\" -Code 'validation'
+                    }
+                    $message = Get-Content -LiteralPath $messageFile -Raw -Encoding UTF8
                 }
 
                 if (-not $message) {
@@ -981,14 +1031,27 @@ Statuses: inbox, in_progress, review, done, blocked
             'submitreview' {
                 $taskId = $null
                 $message = $null
+                $messageFile = $null
                 $i = 0
                 while ($i -lt $wfArgs.Count) {
                     switch ($wfArgs[$i]) {
                         '--task' { $taskId = $wfArgs[++$i]; break }
                         '--message' { $message = $wfArgs[++$i]; break }
+                        '--message-file' { $messageFile = $wfArgs[++$i]; break }
                         default { Write-MconError -Message "Unknown flag: $($wfArgs[$i])" -Code 'usage' }
                     }
                     $i++
+                }
+
+                # Handle --message-file for workflow commands (read message from file)
+                if ($messageFile) {
+                    if ($message) {
+                        Write-MconError -Message 'Use either --message <TEXT> or --message-file <PATH>, not both.' -Code 'usage'
+                    }
+                    if (-not (Test-Path -LiteralPath $messageFile)) {
+                        Write-MconError -Message \"Message file not found: $messageFile\" -Code 'validation'
+                    }
+                    $message = Get-Content -LiteralPath $messageFile -Raw -Encoding UTF8
                 }
 
                 if (-not $taskId) {
@@ -1053,6 +1116,17 @@ Statuses: inbox, in_progress, review, done, blocked
                         default { Write-MconError -Message "Unknown flag: $($verifyArgs[$i])" -Code 'usage' }
                     }
                     $i++
+                }
+
+                # Handle --message-file for workflow commands (read message from file)
+                if ($messageFile) {
+                    if ($message) {
+                        Write-MconError -Message 'Use either --message <TEXT> or --message-file <PATH>, not both.' -Code 'usage'
+                    }
+                    if (-not (Test-Path -LiteralPath $messageFile)) {
+                        Write-MconError -Message \"Message file not found: $messageFile\" -Code 'validation'
+                    }
+                    $message = Get-Content -LiteralPath $messageFile -Raw -Encoding UTF8
                 }
 
                 if (-not $taskId) {

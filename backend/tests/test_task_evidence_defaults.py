@@ -11,6 +11,7 @@ from app.api import agent as agent_api
 from app.api import tasks as tasks_api
 from app.core.agent_auth import AgentAuthContext
 from app.core.auth import AuthContext
+from app.models.activity_events import ActivityEvent
 from app.models.agents import Agent
 from app.models.boards import Board
 from app.models.gateways import Gateway
@@ -96,6 +97,89 @@ async def test_okr_task_defaults_to_evidence_packet_for_user_create() -> None:
             assert created.closure_mode == "evidence_packet"
             assert created.required_artifact_kinds == ["deliverable"]
             assert created.lead_spot_check_required is True
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_user_create_skips_lead_gateway_notification_when_auto_wake_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tasks_api, "automatic_wake_reprovision_enabled", lambda: False)
+
+    async def _unexpected_send_lead_task_message(**_: object) -> None:
+        pytest.fail("task creation must not send lead gateway prompts while disabled")
+
+    monkeypatch.setattr(
+        tasks_api,
+        "_send_lead_task_message",
+        _unexpected_send_lead_task_message,
+    )
+
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            board, lead = await _seed_board_and_lead(session)
+            lead.openclaw_session_id = "lead-session"
+            session.add(lead)
+            await session.commit()
+
+            await tasks_api.create_task(
+                payload=TaskCreate(title="New manual task"),
+                board=board,
+                session=session,
+                auth=AuthContext(actor_type="user", user=None),
+            )
+
+            events = (
+                await session.exec(
+                    select(ActivityEvent).where(
+                        ActivityEvent.event_type.in_(
+                            ["task.lead_notified", "task.lead_notify_failed"],
+                        ),
+                    ),
+                )
+            ).all()
+            assert events == []
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_user_create_notifies_lead_when_auto_wake_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tasks_api, "automatic_wake_reprovision_enabled", lambda: True)
+    sent: list[dict[str, object]] = []
+
+    async def _fake_send_lead_task_message(**kwargs: object) -> None:
+        sent.append(kwargs)
+        return None
+
+    monkeypatch.setattr(
+        tasks_api,
+        "_send_lead_task_message",
+        _fake_send_lead_task_message,
+    )
+
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            board, lead = await _seed_board_and_lead(session)
+            lead.openclaw_session_id = "lead-session"
+            session.add(lead)
+            await session.commit()
+
+            await tasks_api.create_task(
+                payload=TaskCreate(title="New manual task"),
+                board=board,
+                session=session,
+                auth=AuthContext(actor_type="user", user=None),
+            )
+
+            assert len(sent) == 1
+            assert sent[0]["session_key"] == "lead-session"
+            assert "NEW TASK ADDED" in str(sent[0]["message"])
     finally:
         await engine.dispose()
 

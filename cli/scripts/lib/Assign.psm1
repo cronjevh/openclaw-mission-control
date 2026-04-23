@@ -873,6 +873,224 @@ function Write-MconDiagnosticsJson {
     return $Path
 }
 
+function Get-MconAssignWorkflowPaths {
+    param(
+        [Parameter(Mandatory)][string]$WorkspacePath
+    )
+
+    $workflowDir = Join-Path $WorkspacePath '.openclaw/workflows'
+    $jobsDir = Join-Path (Join-Path $WorkspacePath 'diagnostics') 'assign-spawn-jobs'
+    if (-not (Test-Path -LiteralPath $workflowDir)) {
+        New-Item -ItemType Directory -Path $workflowDir -Force | Out-Null
+    }
+    if (-not (Test-Path -LiteralPath $jobsDir)) {
+        New-Item -ItemType Directory -Path $jobsDir -Force | Out-Null
+    }
+
+    return [ordered]@{
+        workflow_dir = $workflowDir
+        jobs_dir     = $jobsDir
+        latest_path  = Join-Path $workflowDir '.assign-state-latest.json'
+        log_path     = Join-Path $workflowDir 'assign-recovery.log'
+    }
+}
+
+function Write-MconAssignWorkflowLog {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Message
+    )
+
+    $timestamp = (Get-Date).ToString('o')
+    "[$timestamp] $Message" | Add-Content -LiteralPath $Path -Encoding UTF8
+}
+
+function Write-MconAssignWorkflowState {
+    param(
+        [Parameter(Mandatory)][string]$WorkspacePath,
+        [Parameter(Mandatory)][string]$State,
+        [hashtable]$Fields = @{}
+    )
+
+    $paths = Get-MconAssignWorkflowPaths -WorkspacePath $WorkspacePath
+    $record = [ordered]@{
+        state      = $State
+        updated_at = (Get-Date).ToUniversalTime().ToString('o')
+    }
+
+    foreach ($key in $Fields.Keys) {
+        $record[$key] = $Fields[$key]
+    }
+
+    $tmpPath = "$($paths.latest_path).tmp"
+    $record | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $tmpPath -Encoding UTF8
+    Move-Item -LiteralPath $tmpPath -Destination $paths.latest_path -Force
+
+    $summary = @("state=$State")
+    foreach ($key in @('task_id', 'job_id', 'phase', 'reason', 'result_path', 'payload_path')) {
+        if ($record.Contains($key) -and -not [string]::IsNullOrWhiteSpace([string]$record[$key])) {
+            $summary += "$key=$($record[$key])"
+        }
+    }
+    Write-MconAssignWorkflowLog -Path $paths.log_path -Message ($summary -join ' ')
+    return [pscustomobject]$record
+}
+
+function Test-MconProcessAlive {
+    param([int]$ProcessId)
+
+    if ($ProcessId -le 0) {
+        return $false
+    }
+
+    try {
+        $null = Get-Process -Id $ProcessId -ErrorAction Stop
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function New-MconDeferredAssignWrapperErrorResult {
+    param(
+        [Parameter(Mandatory)][string]$PayloadPath,
+        [Parameter(Mandatory)][string]$ErrorMessage
+    )
+
+    $payload = Get-Content -LiteralPath $PayloadPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
+    $resultPath = [string]$payload.result_path
+    $errorResult = [ordered]@{
+        ok                    = $false
+        phase                 = 'deferred_assign_wrapper'
+        error                 = $ErrorMessage
+        taskId                = if ($payload.PSObject.Properties.Name -contains 'task_id') { [string]$payload.task_id } else { $null }
+        boardId               = if ($payload.PSObject.Properties.Name -contains 'board_id') { [string]$payload.board_id } else { $null }
+        workerAgentId         = if ($payload.PSObject.Properties.Name -contains 'worker_agent_id') { [string]$payload.worker_agent_id } else { $null }
+        workerSpawnAgentId    = if ($payload.PSObject.Properties.Name -contains 'worker_spawn_agent_id') { [string]$payload.worker_spawn_agent_id } else { $null }
+        workerLegacyAgentName = if ($payload.PSObject.Properties.Name -contains 'worker_legacy_agent_name') { [string]$payload.worker_legacy_agent_name } else { $null }
+        bundlePath            = if ($payload.PSObject.Properties.Name -contains 'bundle_path') { [string]$payload.bundle_path } else { $null }
+        workerTaskDataPath    = if ($payload.PSObject.Properties.Name -contains 'worker_task_data_path') { [string]$payload.worker_task_data_path } else { $null }
+        deferredSpawn         = [ordered]@{
+            jobId       = if ($payload.PSObject.Properties.Name -contains 'job_id') { [string]$payload.job_id } else { $null }
+            pid         = if ($payload.PSObject.Properties.Name -contains 'pid') { $payload.pid } else { $null }
+            payloadPath = $PayloadPath
+            resultPath  = $resultPath
+            stdoutLog   = if ($payload.PSObject.Properties.Name -contains 'stdout_log') { [string]$payload.stdout_log } else { $null }
+            stderrLog   = if ($payload.PSObject.Properties.Name -contains 'stderr_log') { [string]$payload.stderr_log } else { $null }
+            attempts    = @()
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($resultPath)) {
+        Write-MconDiagnosticsJson -Path $resultPath -Data $errorResult | Out-Null
+    }
+    if ($payload.PSObject.Properties.Name -contains 'workspace_path' -and -not [string]::IsNullOrWhiteSpace([string]$payload.workspace_path)) {
+        Write-MconAssignWorkflowState `
+            -WorkspacePath ([string]$payload.workspace_path) `
+            -State 'wrapper_failed' `
+            -Fields @{
+                task_id     = $errorResult.taskId
+                job_id      = $errorResult.deferredSpawn.jobId
+                phase       = $errorResult.phase
+                reason      = $ErrorMessage
+                payload_path = $PayloadPath
+                result_path = $resultPath
+            } | Out-Null
+    }
+
+    return $errorResult
+}
+
+function Invoke-MconDeferredAssignRecoverySweep {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$WorkspacePath,
+        [int]$StaleAfterMinutes = 3,
+        [string]$ExcludePayloadPath = $null
+    )
+
+    $paths = Get-MconAssignWorkflowPaths -WorkspacePath $WorkspacePath
+    $now = Get-Date
+    $staleCutoff = $now.AddMinutes(-1 * [Math]::Max(1, $StaleAfterMinutes))
+    $recovered = @()
+
+    $payloadFiles = @(
+        Get-ChildItem -LiteralPath $paths.jobs_dir -Filter '*-payload.json' -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTimeUtc
+    )
+
+    foreach ($payloadFile in $payloadFiles) {
+        if ($ExcludePayloadPath -and $payloadFile.FullName -eq $ExcludePayloadPath) {
+            continue
+        }
+        if ($payloadFile.LastWriteTimeUtc -gt $staleCutoff) {
+            continue
+        }
+
+        $payload = $null
+        try {
+            $payload = Get-Content -LiteralPath $payloadFile.FullName -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
+        } catch {
+            continue
+        }
+
+        $resultPath = if ($payload -and ($payload.PSObject.Properties.Name -contains 'result_path')) { [string]$payload.result_path } else { $null }
+        if (-not [string]::IsNullOrWhiteSpace($resultPath) -and (Test-Path -LiteralPath $resultPath)) {
+            continue
+        }
+
+        $jobId = if ($payload -and ($payload.PSObject.Properties.Name -contains 'job_id')) { [string]$payload.job_id } else { $null }
+        $taskId = if ($payload -and ($payload.PSObject.Properties.Name -contains 'task_id')) { [string]$payload.task_id } else { $null }
+        $pid = if ($payload -and ($payload.PSObject.Properties.Name -contains 'pid')) { [int]$payload.pid } else { 0 }
+        if (Test-MconProcessAlive -ProcessId $pid) {
+            Write-MconAssignWorkflowState -WorkspacePath $WorkspacePath -State 'recovery_skipped_process_alive' -Fields @{
+                task_id      = $taskId
+                job_id       = $jobId
+                phase        = 'recovery_sweep'
+                reason       = "deferred assign worker pid $pid is still running"
+                payload_path = $payloadFile.FullName
+                result_path  = $resultPath
+            } | Out-Null
+            continue
+        }
+
+        Write-MconAssignWorkflowState -WorkspacePath $WorkspacePath -State 'recovery_replaying_orphan' -Fields @{
+            task_id      = $taskId
+            job_id       = $jobId
+            phase        = 'recovery_sweep'
+            reason       = 'payload exists without result and worker process is not running'
+            payload_path = $payloadFile.FullName
+            result_path  = $resultPath
+        } | Out-Null
+
+        try {
+            $result = Invoke-MconDeferredAssignSpawn -PayloadPath $payloadFile.FullName
+        } catch {
+            $result = New-MconDeferredAssignWrapperErrorResult -PayloadPath $payloadFile.FullName -ErrorMessage $_.Exception.Message
+        }
+
+        $recovered += [pscustomobject]@{
+            taskId      = $taskId
+            jobId       = $jobId
+            payloadPath = $payloadFile.FullName
+            resultPath  = $resultPath
+            ok          = if ($result -and ($result.PSObject.Properties.Name -contains 'ok')) { [bool]$result.ok } else { $false }
+            mode        = if ($result -and ($result.PSObject.Properties.Name -contains 'mode')) { [string]$result.mode } else { $null }
+            phase       = if ($result -and ($result.PSObject.Properties.Name -contains 'phase')) { [string]$result.phase } else { $null }
+            error       = if ($result -and ($result.PSObject.Properties.Name -contains 'error')) { [string]$result.error } else { $null }
+        }
+    }
+
+    if ($recovered.Count -gt 0) {
+        Write-MconAssignWorkflowState -WorkspacePath $WorkspacePath -State 'recovery_completed' -Fields @{
+            phase  = 'recovery_sweep'
+            reason = "replayed $($recovered.Count) orphaned deferred assign job(s)"
+        } | Out-Null
+    }
+
+    return ,$recovered
+}
+
 function Start-MconDeferredAssignSpawn {
     [CmdletBinding()]
     param(
@@ -908,6 +1126,18 @@ function Start-MconDeferredAssignSpawn {
         -RedirectStandardError $stderrLog `
         -PassThru
 
+    $Payload['pid'] = $process.Id
+    Write-MconDiagnosticsJson -Path $payloadPath -Data $Payload | Out-Null
+    Write-MconAssignWorkflowState -WorkspacePath $WorkspacePath -State 'queued' -Fields @{
+        task_id      = $TaskId
+        job_id       = $jobId
+        phase        = 'launch'
+        reason       = 'deferred assign worker launched'
+        payload_path = $payloadPath
+        result_path  = $resultPath
+        pid          = $process.Id
+    } | Out-Null
+
     return [ordered]@{
         queued       = $true
         jobId        = $jobId
@@ -940,6 +1170,16 @@ function Invoke-MconDeferredAssignSpawn {
     $spawnRegistryConfirmed = $false
     $warnings = @()
     $workerSessionAgentNames = @()
+    if ($payload.PSObject.Properties.Name -contains 'workspace_path' -and -not [string]::IsNullOrWhiteSpace([string]$payload.workspace_path)) {
+        Write-MconAssignWorkflowState -WorkspacePath ([string]$payload.workspace_path) -State 'processing' -Fields @{
+            task_id      = if ($payload.PSObject.Properties.Name -contains 'task_id') { [string]$payload.task_id } else { $null }
+            job_id       = if ($payload.PSObject.Properties.Name -contains 'job_id') { [string]$payload.job_id } else { $null }
+            phase        = 'deferred_assign_spawn'
+            reason       = 'processing payload'
+            payload_path = $PayloadPath
+            result_path  = $resultPath
+        } | Out-Null
+    }
 
     try {
         foreach ($candidateAgentName in @([string]$payload.worker_spawn_agent_id, [string]$payload.worker_legacy_agent_name)) {
@@ -1029,6 +1269,14 @@ function Invoke-MconDeferredAssignSpawn {
                     }
 
                     Write-MconDiagnosticsJson -Path $resultPath -Data $recoveredResult | Out-Null
+                    Write-MconAssignWorkflowState -WorkspacePath ([string]$payload.workspace_path) -State 'recovered' -Fields @{
+                        task_id      = [string]$payload.task_id
+                        job_id       = [string]$payload.job_id
+                        phase        = 'deferred_assign_spawn'
+                        reason       = [string]$liveTaskState.reason
+                        payload_path = $PayloadPath
+                        result_path  = $resultPath
+                    } | Out-Null
                     return $recoveredResult
                 }
 
@@ -1073,6 +1321,14 @@ function Invoke-MconDeferredAssignSpawn {
                     }
 
                     Write-MconDiagnosticsJson -Path $resultPath -Data $supersededResult | Out-Null
+                    Write-MconAssignWorkflowState -WorkspacePath ([string]$payload.workspace_path) -State 'superseded' -Fields @{
+                        task_id      = [string]$payload.task_id
+                        job_id       = [string]$payload.job_id
+                        phase        = 'deferred_assign_spawn'
+                        reason       = [string]$liveTaskState.reason
+                        payload_path = $PayloadPath
+                        result_path  = $resultPath
+                    } | Out-Null
                     return $supersededResult
                 }
 
@@ -1177,6 +1433,14 @@ function Invoke-MconDeferredAssignSpawn {
         }
 
         Write-MconDiagnosticsJson -Path $resultPath -Data $result | Out-Null
+        Write-MconAssignWorkflowState -WorkspacePath ([string]$payload.workspace_path) -State 'completed' -Fields @{
+            task_id      = [string]$payload.task_id
+            job_id       = [string]$payload.job_id
+            phase        = 'deferred_assign_spawn'
+            reason       = 'spawn accepted and task patched'
+            payload_path = $PayloadPath
+            result_path  = $resultPath
+        } | Out-Null
         return $result
     } catch {
         $errorResult = [ordered]@{
@@ -1206,6 +1470,16 @@ function Invoke-MconDeferredAssignSpawn {
         if ($resultPath) {
             Write-MconDiagnosticsJson -Path $resultPath -Data $errorResult | Out-Null
         }
+        if ($payload.PSObject.Properties.Name -contains 'workspace_path' -and -not [string]::IsNullOrWhiteSpace([string]$payload.workspace_path)) {
+            Write-MconAssignWorkflowState -WorkspacePath ([string]$payload.workspace_path) -State 'failed' -Fields @{
+                task_id      = $errorResult.taskId
+                job_id       = $errorResult.deferredSpawn.jobId
+                phase        = $errorResult.phase
+                reason       = $errorResult.error
+                payload_path = $PayloadPath
+                result_path  = $resultPath
+            } | Out-Null
+        }
         return $errorResult
     }
 }
@@ -1231,6 +1505,16 @@ function Invoke-MconAssign {
     $boardId = $Config.board_id
     $agentId = $Config.agent_id
     $workspacePath = $Config.workspace_path
+
+    $recoverySweep = @()
+    try {
+        $recoverySweep = @(Invoke-MconDeferredAssignRecoverySweep -WorkspacePath $workspacePath)
+    } catch {
+        Write-MconAssignWorkflowState -WorkspacePath $workspacePath -State 'recovery_failed' -Fields @{
+            phase  = 'recovery_sweep'
+            reason = $_.Exception.Message
+        } | Out-Null
+    }
 
     if (-not $LeadAgentId) {
         $LeadAgentId = "lead-$boardId"
@@ -1649,7 +1933,7 @@ If the tool result contains an error, copy it into the JSON object and set child
         targetAgent = $LeadAgentId
         sessionKey  = $runtimeOriginSessionKey
         model       = "openclaw/$LeadAgentId"
-        timeoutSec  = 120
+        timeoutSec  = 300
         deferred    = $true
     }
 
@@ -1659,7 +1943,7 @@ If the tool result contains an error, copy it into the JSON object and set child
         lead_agent_id             = $LeadAgentId
         runtime_origin_session_key = $runtimeOriginSessionKey
         spawn_prompt              = $spawnPrompt
-        timeout_seconds           = 120
+        timeout_seconds           = 300
         initial_delay_seconds     = 2
         retry_delay_seconds       = 5
         max_attempts              = 6
@@ -1697,21 +1981,22 @@ If the tool result contains an error, copy it into the JSON object and set child
         }
     }
 
-    return [ordered]@{
-        ok                    = $true
-        mode                  = 'assign_deferred'
-        async                 = $true
+        return [ordered]@{
+            ok                    = $true
+            mode                  = 'assign_deferred'
+            async                 = $true
         taskId                = $TaskId
         boardId               = $boardId
         workerAgentId         = $WorkerAgentId
         workerSpawnAgentId    = $workerSpawnAgentId
         workerLegacyAgentName = $workerLegacyAgentName
         bundlePath            = $bundlePath
-        workerTaskDataPath    = $workerTaskDataPath
-        spawnDispatch         = $spawnDispatch
-        deferredSpawn         = $deferredSpawn
-        nextStep              = 'A detached assign worker will sleep briefly, send the spawn prompt to the task session, retry on lock/transport failures, and patch the board after a real childSessionKey is returned.'
-    }
+            workerTaskDataPath    = $workerTaskDataPath
+            spawnDispatch         = $spawnDispatch
+            deferredSpawn         = $deferredSpawn
+            recoverySweep         = @($recoverySweep)
+            nextStep              = 'A detached assign worker will sleep briefly, send the spawn prompt to the task session, retry on lock/transport failures, and patch the board after a real childSessionKey is returned.'
+        }
 }
 
 Export-ModuleMember -Function Invoke-MconAssign, Invoke-MconDeferredAssignSpawn, ConvertTo-MconCanonicalAssignmentSessionKey

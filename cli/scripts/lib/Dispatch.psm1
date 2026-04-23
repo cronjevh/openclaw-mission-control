@@ -555,4 +555,4 @@ function Invoke-MconDispatch {
     }
 }
 
-Export-ModuleMember -Function Invoke-MconDispatch, New-MconDispatchResult, Get-MconResponseItems, Write-MconDispatchState
+Export-ModuleMember -Function Invoke-MconDispatch, New-MconDispatchResult, Get-MconResponseItems, Write-MconDispatchState, Get-MconLeadWorkspacePath

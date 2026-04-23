@@ -619,6 +619,7 @@ Statuses: inbox, in_progress, review, done, blocked
                 $dryRun = $false
                 $processDeferredSpawn = $false
                 $payloadPath = $null
+                $messageFile = $null
                 $i = 0
                 while ($i -lt $wfArgs.Count) {
                     switch ($wfArgs[$i]) {
@@ -638,20 +639,9 @@ Statuses: inbox, in_progress, review, done, blocked
                 if ($processDeferredSpawn) {
                     if (-not $payloadPath) {
                         Write-MconError -Message '--payload <PATH> is required with --process-deferred-spawn.' -Code 'usage'
-        }
+                    }
 
-        # Handle --message-file for task comment (read message from file)
-        if ($action -eq 'comment' -and $messageFile) {
-            if ($message) {
-                Write-MconError -Message 'Use either --message <TEXT> or --message-file <PATH>, not both.' -Code 'usage'
-            }
-            if (-not (Test-Path -LiteralPath $messageFile)) {
-                Write-MconError -Message "Message file not found: $messageFile" -Code 'validation'
-            }
-            $message = Get-Content -LiteralPath $messageFile -Raw -Encoding UTF8
-        }
-
-        try {
+                    try {
                         $result = Invoke-MconDeferredAssignSpawn -PayloadPath $payloadPath
                         if ($result.ok) {
                             Write-MconResult -Data ([ordered]@{

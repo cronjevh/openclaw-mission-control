@@ -261,7 +261,9 @@ function Invoke-MconVerificationProcess {
     param(
         [Parameter(Mandatory)][string]$TaskId,
         [Parameter(Mandatory)]$VerificationPaths,
-        [Parameter(Mandatory)]$TaskBundlePaths
+        [Parameter(Mandatory)]$TaskBundlePaths,
+        [Parameter(Mandatory)][hashtable]$Config,
+        [Parameter(Mandatory)]$Task
     )
 
     $evidenceDir = $TaskBundlePaths.evidence_directory
@@ -269,20 +271,85 @@ function Invoke-MconVerificationProcess {
         New-Item -ItemType Directory -Path $evidenceDir -Force | Out-Null
     }
 
-    $verificationArtifactPath = $VerificationPaths.verification_artifact_path
-    if ($VerificationPaths.verification_kind -eq 'documentation') {
-        $stdout = & pwsh -NoProfile -File $verificationArtifactPath `
-            -TaskId $TaskId `
-            -DocumentPath $VerificationPaths.primary_deliverable_path `
-            -JudgeSpecPath $VerificationPaths.judge_spec_path `
-            -EvidenceDir $evidenceDir 2>&1
-        $exitCode = $LASTEXITCODE
-    } else {
-        $stdout = & pwsh -NoProfile -File $verificationArtifactPath 2>&1
-        $exitCode = $LASTEXITCODE
+    # Prepare isolated agent session for verification
+    $invocationAgent = "mc-$($Config.agent_id)"
+    $sessionKey = Get-MconAgentTaskSessionKey -InvocationAgent $invocationAgent -TaskId $TaskId
+
+    # Compute lead workspace path
+    $leadWorkspacePath = Get-MconLeadWorkspacePath -BoardId $Config.board_id
+
+    # Create verifier's task context directory and taskData.json
+    $verifierTaskDir = Join-Path (Join-Path $Config.workspace_path 'tasks') $TaskId
+    if (-not (Test-Path -LiteralPath $verifierTaskDir)) {
+        New-Item -ItemType Directory -Path $verifierTaskDir -Force | Out-Null
     }
 
-    $stdoutText = ($stdout | Out-String).Trim()
+    # Fetch comments for the task
+    $comments = Get-MconTaskComments -BaseUrl $Config.base_url -Token $Config.auth_token -BoardId $Config.board_id -TaskId $TaskId
+
+    $taskData = [ordered]@{
+        generated_at          = (Get-Date).ToUniversalTime().ToString('o')
+        board_id              = $Config.board_id
+        lead_agent_id         = $Config.board_id
+        invocation_agent_id   = $invocationAgent
+        task_directory        = $verifierTaskDir
+        deliverables_directory = $TaskBundlePaths.deliverables_directory
+        evidence_directory    = $TaskBundlePaths.evidence_directory
+        task                  = $Task
+        comments              = $comments
+        boardWorkers          = @()
+    }
+
+    $taskDataPath = Join-Path $verifierTaskDir 'taskData.json'
+    $taskData | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $taskDataPath -Encoding UTF8
+
+    # Build minimal dispatch state for the prompt
+    $dispatchState = [ordered]@{
+        tasks = @([ordered]@{
+            id            = $TaskId
+            status        = 'review'
+            title         = $Task.title
+            task_data_path = $taskDataPath
+            task_directory = $verifierTaskDir
+            deliverables_directory = $TaskBundlePaths.deliverables_directory
+            evidence_directory = $TaskBundlePaths.evidence_directory
+        })
+    }
+
+    # Generate the standard verifier prompt
+    $prompt = New-MconVerifierPrompt -WorkspacePath $Config.workspace_path -DispatchState $dispatchState -AuthToken $Config.auth_token -SessionKey $sessionKey
+
+    # Build verification command
+    $verificationScript = $VerificationPaths.verification_artifact_path
+    if ($VerificationPaths.verification_kind -eq 'documentation') {
+        $command = @(
+            'pwsh -NoProfile -File', $verificationScript,
+            '-TaskId', $TaskId,
+            '-DocumentPath', $VerificationPaths.primary_deliverable_path,
+            '-JudgeSpecPath', $VerificationPaths.judge_spec_path,
+            '-EvidenceDir', $evidenceDir
+        ) -join ' '
+    } else {
+        $command = "pwsh -NoProfile -File `"$verificationScript`""
+    }
+
+    $prompt += "`n`n# VERIFICATION EXECUTION`n"
+    $prompt += "Run the following command exactly and capture its output:`n"
+    $prompt += "`$ $command`n"
+    $prompt += "After the command completes, exit with the same exit code as the command (0 for pass, non-zero for fail). Include the command's stdout/stderr in your response.`n"
+
+    # Run the agent in an isolated session with verifier's workspace as cwd
+    $originalLocation = Get-Location
+    try {
+        Set-Location -Path $Config.workspace_path
+        $agentResult = Invoke-MconOpenClawAgentSession -InvocationAgent $invocationAgent -SessionKey $sessionKey -Message $prompt -TimeoutSec 300
+    } finally {
+        Set-Location -Path $originalLocation
+    }
+
+    $stdoutText = ($agentResult.output | Out-String).Trim()
+    $exitCode = $agentResult.exit_code
+
     $validationResultPath = Join-Path $evidenceDir "validation-result-$TaskId.json"
     $parsedResult = $null
     if (Test-Path -LiteralPath $validationResultPath) {
@@ -510,7 +577,7 @@ function Invoke-MconVerifyRun {
             passed = $false
         }
     } else {
-        $executionResult = Invoke-MconVerificationProcess -TaskId $TaskId -VerificationPaths $verificationPaths -TaskBundlePaths $taskBundlePaths
+        $executionResult = Invoke-MconVerificationProcess -TaskId $TaskId -VerificationPaths $verificationPaths -TaskBundlePaths $taskBundlePaths -Config $Config -Task $task
     }
 
     $resultingTaskStatus = if ($executionResult.passed) { 'done' } else { 'inbox' }

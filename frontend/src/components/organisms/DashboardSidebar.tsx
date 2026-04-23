@@ -6,7 +6,6 @@ import {
   Activity,
   BarChart3,
   Bot,
-  Boxes,
   CalendarClock,
   CheckCircle2,
   Folder,
@@ -14,7 +13,6 @@ import {
   LayoutGrid,
   Network,
   Settings,
-  Store,
   Tags,
 } from "lucide-react";
 
@@ -180,43 +178,6 @@ export function DashboardSidebar() {
                 </Link>
               ) : null}
             </div>
-          </div>
-
-          <div>
-            {isAdmin ? (
-              <>
-                <p className="px-3 text-[11px] font-semibold uppercase tracking-wider text-quiet">
-                  Skills
-                </p>
-                <div className="mt-1 space-y-1">
-                  <Link
-                    href="/skills/marketplace"
-                    className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-muted transition",
-                      pathname === "/skills" ||
-                        pathname.startsWith("/skills/marketplace")
-                        ? "bg-[color:var(--info-soft)] text-info font-medium"
-                        : "hover:bg-[color:var(--surface-strong)]",
-                    )}
-                  >
-                    <Store className="h-4 w-4" />
-                    Marketplace
-                  </Link>
-                  <Link
-                    href="/skills/packs"
-                    className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-muted transition",
-                      pathname.startsWith("/skills/packs")
-                        ? "bg-[color:var(--info-soft)] text-info font-medium"
-                        : "hover:bg-[color:var(--surface-strong)]",
-                    )}
-                  >
-                    <Boxes className="h-4 w-4" />
-                    Packs
-                  </Link>
-                </div>
-              </>
-            ) : null}
           </div>
 
           <div>

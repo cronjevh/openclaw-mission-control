@@ -30,8 +30,11 @@ CRONTAB_DIR = os.getenv("MC_CRONTAB_DIR", "/etc/cron.d")
 CRONTAB_PREFIX = "mission-control-job-"
 CRON_USER = os.getenv("MC_CRON_USER", "cronjev")
 LOG_DIR = os.getenv("MC_UTILITY_JOB_LOG_DIR", "/home/cronjev/.openclaw/logs/jobs")
-DEFAULT_WORKDIR = os.getenv("MC_UTILITY_JOB_WORKDIR", "/home/cronjev/mission-control-tfsmrt")
+DEFAULT_WORKDIR = os.getenv(
+    "MC_UTILITY_JOB_WORKDIR", "/home/cronjev/mission-control-tfsmrt"
+)
 SCRIPT_MAP_ENV = "MC_UTILITY_JOB_SCRIPTS_JSON"
+SCRIPT_FILE_ENV = "MC_UTILITY_JOB_SCRIPTS_FILE"
 SCRIPT_KEY_RE = re.compile(r"^[a-zA-Z0-9_.-]+$")
 
 _DEFAULT_SCRIPT_OPTIONS: dict[str, dict[str, str | None]] = {
@@ -51,16 +54,62 @@ class UtilityJobCrontabTask:
     attempts: int = 0
 
 
+def _resolve_project_root() -> Path:
+    """Resolve the project root directory.
+
+    The project root contains the `config/` directory.
+    In Docker: /app (file at /app/app/services/...)
+    Locally: /path/to/repo (file at /path/to/repo/backend/app/services/...)
+    """
+    current = Path(__file__).resolve()
+    # Check parents[2] (Docker layout: /app/app/services -> /app)
+    candidate = current.parents[2]
+    if (candidate / "config").is_dir():
+        return candidate
+    # Fallback: check parents[3] (local layout: .../backend/app/services -> repo root)
+    candidate = current.parents[3]
+    if (candidate / "config").is_dir():
+        return candidate
+    # Last resort: walk up to filesystem root
+    for parent in [current.parents[4], current.parents[5]]:
+        if (parent / "config").is_dir():
+            return parent
+    raise FileNotFoundError(
+        f"Could not locate project root (searched parents of {__file__})"
+    )
+
+
 def _load_script_options() -> dict[str, dict[str, str | None]]:
-    raw = os.getenv(SCRIPT_MAP_ENV)
-    if not raw:
-        return _DEFAULT_SCRIPT_OPTIONS
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{SCRIPT_MAP_ENV} must be valid JSON: {exc}") from exc
+    # File takes precedence over inline JSON env var
+    script_file = os.getenv(SCRIPT_FILE_ENV)
+    if script_file:
+        path = Path(script_file).expanduser()
+        # If relative, resolve against project root
+        if not path.is_absolute():
+            project_root = _resolve_project_root()
+            path = project_root / path
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Utility job scripts file not found: {script_file} (resolved to {path})"
+            )
+        try:
+            raw = path.read_text(encoding="utf-8")
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Utility job scripts file must be valid JSON: {exc}"
+            ) from exc
+    else:
+        raw = os.getenv(SCRIPT_MAP_ENV)
+        if not raw:
+            return _DEFAULT_SCRIPT_OPTIONS
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{SCRIPT_MAP_ENV} must be valid JSON: {exc}") from exc
+
     if not isinstance(parsed, dict):
-        raise ValueError(f"{SCRIPT_MAP_ENV} must be a JSON object")
+        raise ValueError("Utility job scripts must be a JSON object")
 
     options: dict[str, dict[str, str | None]] = {}
     for key, value in parsed.items():
@@ -108,7 +157,10 @@ def validate_cron_expression(expression: str) -> None:
     fields = expression.split()
     if len(fields) != 5:
         raise ValueError("Cron expression must use exactly five fields")
-    if any(any(char in field for char in [";", "&", "|", "`", "$", "\\"]) for field in fields):
+    if any(
+        any(char in field for char in [";", "&", "|", "`", "$", "\\"])
+        for field in fields
+    ):
         raise ValueError("Cron expression contains unsupported shell metacharacters")
 
 
@@ -132,26 +184,40 @@ def _crontab_file_path(job_id: UUID) -> Path:
     return Path(CRONTAB_DIR) / f"{CRONTAB_PREFIX}{str(job_id)[:8]}"
 
 
+def _to_ps_param(key: str) -> str:
+    """Convert snake_case or kebab-case to PascalCase for PowerShell parameters."""
+    return "".join(part.capitalize() for part in key.replace("-", "_").split("_"))
+
+
 def _render_command(job: UtilityJob) -> str:
     options = _load_script_options()
     command = str(options[job.script_key]["command"]).strip()
     quoted_command: list[str]
-    if command.endswith(".ps1"):
+    is_powershell = command.endswith(".ps1")
+    if is_powershell:
         quoted_command = ["pwsh", "-NoProfile", "-File", shlex.quote(command)]
     else:
         quoted_command = [shlex.quote(command)]
 
+    # Add board/agent scope args
     if job.board_id is not None:
-        quoted_command.extend(["--board-id", shlex.quote(str(job.board_id))])
+        key = "-BoardId" if is_powershell else "--board-id"
+        quoted_command.extend([key, shlex.quote(str(job.board_id))])
     if job.agent_id is not None:
-        quoted_command.extend(["--agent-id", shlex.quote(str(job.agent_id))])
+        key = "-AgentId" if is_powershell else "--agent-id"
+        quoted_command.extend([key, shlex.quote(str(job.agent_id))])
 
+    # Add custom JSON args
     for key, value in sorted((job.args or {}).items()):
         if not isinstance(key, str) or not SCRIPT_KEY_RE.match(key):
             raise ValueError(f"Invalid argument key: {key!r}")
         if value is None:
             continue
-        quoted_command.extend([f"--{key}", shlex.quote(str(value))])
+        if is_powershell:
+            param_key = f"-{_to_ps_param(key)}"
+        else:
+            param_key = f"--{key}"
+        quoted_command.extend([param_key, shlex.quote(str(value))])
 
     return " ".join(quoted_command)
 
@@ -195,7 +261,11 @@ async def sync_utility_job_crontab(job_id: UUID) -> tuple[str, Path | None]:
         await crud.save(session, job)
         logger.info(
             "utility_job_crontab.generated",
-            extra={"job_id": str(job.id), "file": str(file_path), "script_key": job.script_key},
+            extra={
+                "job_id": str(job.id),
+                "file": str(file_path),
+                "script_key": job.script_key,
+            },
         )
         return content, file_path
 

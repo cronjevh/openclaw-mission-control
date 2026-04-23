@@ -51,6 +51,10 @@ COPY --chown=appuser:appgroup backend/templates ./templates
 # In-repo these live at `scripts/`; runtime path is `/app/scripts`.
 COPY --chown=appuser:appgroup scripts ./scripts
 
+# Copy utility job script configuration.
+# In-repo this lives at `config/`; runtime path is `/app/config`.
+COPY --chown=appuser:appgroup config ./config
+
 USER appuser
 
 # Default API port

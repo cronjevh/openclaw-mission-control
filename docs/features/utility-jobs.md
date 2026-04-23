@@ -27,9 +27,19 @@ heartbeat path.
 ## Script Allowlist
 
 Jobs use a `script_key`, not an arbitrary command entered in the UI. The backend maps
-the key to a command from `MC_UTILITY_JOB_SCRIPTS_JSON`.
+the key to a command from the utility job scripts configuration.
 
-Example:
+Two configuration options:
+
+### Option A – Config file (recommended)
+
+Set `MC_UTILITY_JOB_SCRIPTS_FILE` to the path of a JSON file, e.g.:
+
+```bash
+MC_UTILITY_JOB_SCRIPTS_FILE=config/utility_job_scripts.json
+```
+
+File contents:
 
 ```json
 {
@@ -41,8 +51,17 @@ Example:
 }
 ```
 
-If `MC_UTILITY_JOB_SCRIPTS_JSON` is not set, the MVP exposes a default
-`daily_conversation_review` script key pointing at:
+### Option B – Inline JSON (legacy)
+
+Set `MC_UTILITY_JOB_SCRIPTS_JSON` to a JSON string:
+
+```bash
+MC_UTILITY_JOB_SCRIPTS_JSON='{"daily_conversation_review":{"label":"Daily conversation review","description":"...","command":"/path/to/script.ps1"}}'
+```
+
+### Default
+
+If neither variable is set, the MVP exposes a default `daily_conversation_review` script key pointing at:
 
 ```text
 /home/cronjev/mission-control-tfsmrt/scripts/jobs/daily-conversation-review.ps1

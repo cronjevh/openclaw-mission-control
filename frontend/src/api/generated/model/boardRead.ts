@@ -13,14 +13,14 @@ export interface BoardRead {
   block_status_changes_with_pending_approval?: boolean;
   board_group_id?: string | null;
   board_type?: string;
-  cadence_minutes?: number;
+  cadence_minutes?: number | null;
   comment_required_for_review?: boolean;
   created_at: string;
   description: string;
   gateway_id?: string | null;
   goal_confirmed?: boolean;
   goal_source?: string | null;
-  hide_done_after_days?: number;
+  hide_done_after_days?: number | null;
   id: string;
   /** @minimum 0 */
   max_agents?: number;

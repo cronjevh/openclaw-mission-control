@@ -4,6 +4,7 @@
  * Mission Control API
  * OpenAPI spec version: 0.1.0
  */
+import type { GatewayTemplatesSyncChange } from "./gatewayTemplatesSyncChange";
 import type { GatewayTemplatesSyncError } from "./gatewayTemplatesSyncError";
 
 /**
@@ -12,6 +13,7 @@ import type { GatewayTemplatesSyncError } from "./gatewayTemplatesSyncError";
 export interface GatewayTemplatesSyncResult {
   agents_skipped: number;
   agents_updated: number;
+  changes?: GatewayTemplatesSyncChange[];
   errors?: GatewayTemplatesSyncError[];
   gateway_id: string;
   include_main: boolean;

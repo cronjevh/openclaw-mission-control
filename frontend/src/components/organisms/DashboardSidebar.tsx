@@ -7,6 +7,7 @@ import {
   BarChart3,
   Bot,
   Boxes,
+  CalendarClock,
   CheckCircle2,
   Folder,
   Building2,
@@ -138,6 +139,20 @@ export function DashboardSidebar() {
                 <Tags className="h-4 w-4" />
                 Tags
               </Link>
+              {isAdmin ? (
+                <Link
+                  href="/jobs"
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-muted transition",
+                    pathname.startsWith("/jobs")
+                      ? "bg-[color:var(--info-soft)] text-info font-medium"
+                      : "hover:bg-[color:var(--surface-strong)]",
+                  )}
+                >
+                  <CalendarClock className="h-4 w-4" />
+                  Jobs
+                </Link>
+              ) : null}
               <Link
                 href="/approvals"
                 className={cn(

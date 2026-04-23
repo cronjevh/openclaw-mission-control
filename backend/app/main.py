@@ -39,6 +39,7 @@ from app.api.tasks import router as tasks_router
 from app.api.temp_chat import group_router as temp_chat_group_router
 from app.api.temp_chat import router as temp_chat_router
 from app.api.users import router as users_router
+from app.api.utility_jobs import router as utility_jobs_router
 from app.api.workspace_files import group_router as group_workspace_files_router
 from app.api.workspace_files import router as workspace_files_router
 from app.core.config import settings
@@ -139,6 +140,10 @@ OPENAPI_TAGS = [
         "description": "Tag catalog and task-tag association management endpoints.",
     },
     {
+        "name": "jobs",
+        "description": "GUI-managed deterministic utility jobs backed by generated cron files.",
+    },
+    {
         "name": "users",
         "description": "User profile read/update operations and user-centric settings endpoints.",
     },
@@ -191,6 +196,7 @@ _OPENAPI_EXAMPLE_TAGS = {
     "tasks",
     "custom-fields",
     "tags",
+    "jobs",
     "users",
 }
 _GENERIC_RESPONSE_DESCRIPTIONS = {"Successful Response", "Validation Error"}
@@ -276,18 +282,14 @@ def _example_from_schema(schema: dict[str, Any], *, components: dict[str, Any]) 
             for key, property_schema in properties.items():
                 if not isinstance(property_schema, dict):
                     continue
-                property_example = _example_from_schema(
-                    property_schema, components=components
-                )
+                property_example = _example_from_schema(property_schema, components=components)
                 if property_example is not None:
                     output[key] = property_example
         if output:
             return output
         additional_properties = resolved.get("additionalProperties")
         if isinstance(additional_properties, dict):
-            value_example = _example_from_schema(
-                additional_properties, components=components
-            )
+            value_example = _example_from_schema(additional_properties, components=components)
             if value_example is not None:
                 return {"key": value_example}
         return {}
@@ -373,10 +375,7 @@ def _normalize_operation_docs(
         if not isinstance(response, dict):
             continue
         existing_description = str(response.get("description", "")).strip()
-        if (
-            not existing_description
-            or existing_description in _GENERIC_RESPONSE_DESCRIPTIONS
-        ):
+        if not existing_description or existing_description in _GENERIC_RESPONSE_DESCRIPTIONS:
             response["description"] = _HTTP_RESPONSE_DESCRIPTIONS.get(
                 str(status_code),
                 "Request processed.",
@@ -410,9 +409,7 @@ def _inject_tagged_operation_openapi_docs(openapi_schema: dict[str, Any]) -> Non
             if isinstance(request_body, dict):
                 request_content = request_body.get("content")
                 if isinstance(request_content, dict):
-                    _inject_json_content_example(
-                        content=request_content, components=components
-                    )
+                    _inject_json_content_example(content=request_content, components=components)
 
             responses = operation.get("responses")
             if isinstance(responses, dict):
@@ -596,6 +593,7 @@ api_v1.include_router(tasks_router)
 api_v1.include_router(task_evidence_router)
 api_v1.include_router(task_custom_fields_router)
 api_v1.include_router(tags_router)
+api_v1.include_router(utility_jobs_router)
 api_v1.include_router(users_router)
 api_v1.include_router(workspace_files_router)
 api_v1.include_router(group_workspace_files_router)

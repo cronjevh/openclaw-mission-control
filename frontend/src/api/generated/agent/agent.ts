@@ -26,6 +26,8 @@ import type {
   AgentLeadUpdateBoardAgentParams,
   AgentNudge,
   AgentRead,
+  AgentScheduleRead,
+  AgentScheduleUpdate,
   AgentUpdate,
   ApprovalCreate,
   ApprovalRead,
@@ -66,10 +68,13 @@ import type {
   ListTasksApiV1AgentBoardsBoardIdTasksGetParams,
   OkResponse,
   SoulUpdateRequest,
+  TagRead,
   TagRef,
   TaskCommentCreate,
   TaskCommentRead,
   TaskCreate,
+  TaskEvidencePacketCreate,
+  TaskEvidencePacketRead,
   TaskRead,
   TaskUpdate,
 } from ".././model";
@@ -843,6 +848,206 @@ export function useGetBoardApiV1AgentBoardsBoardIdGet<
 }
 
 /**
+ * Retrieve all agent heartbeat schedules for a board.\n\nBoard lead only — returns a map of agent_id → schedule.
+ * @summary List all agent schedules for a board (lead only)
+ */
+export type agentLeadListAllSchedulesResponse200 = {
+  data: AgentScheduleRead[];
+  status: 200;
+};
+
+export type agentLeadListAllSchedulesResponse422 = {
+  data: HTTPValidationError;
+  status: 422;
+};
+
+export type agentLeadListAllSchedulesResponseSuccess =
+  agentLeadListAllSchedulesResponse200 & {
+    headers: Headers;
+  };
+export type agentLeadListAllSchedulesResponseError =
+  agentLeadListAllSchedulesResponse422 & {
+    headers: Headers;
+  };
+
+export type agentLeadListAllSchedulesResponse =
+  | agentLeadListAllSchedulesResponseSuccess
+  | agentLeadListAllSchedulesResponseError;
+
+export const getAgentLeadListAllSchedulesUrl = (boardId: string) => {
+  return `/api/v1/agent/boards/${boardId}/agents/schedules`;
+};
+
+export const agentLeadListAllSchedules = async (
+  boardId: string,
+  options?: RequestInit,
+): Promise<agentLeadListAllSchedulesResponse> => {
+  return customFetch<agentLeadListAllSchedulesResponse>(
+    getAgentLeadListAllSchedulesUrl(boardId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getAgentLeadListAllSchedulesQueryKey = (boardId: string) => {
+  return [`/api/v1/agent/boards/${boardId}/agents/schedules`] as const;
+};
+
+export const getAgentLeadListAllSchedulesQueryOptions = <
+  TData = Awaited<ReturnType<typeof agentLeadListAllSchedules>>,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof agentLeadListAllSchedules>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getAgentLeadListAllSchedulesQueryKey(boardId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof agentLeadListAllSchedules>>
+  > = ({ signal }) =>
+    agentLeadListAllSchedules(boardId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!boardId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof agentLeadListAllSchedules>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type AgentLeadListAllSchedulesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof agentLeadListAllSchedules>>
+>;
+export type AgentLeadListAllSchedulesQueryError = HTTPValidationError;
+
+export function useAgentLeadListAllSchedules<
+  TData = Awaited<ReturnType<typeof agentLeadListAllSchedules>>,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof agentLeadListAllSchedules>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof agentLeadListAllSchedules>>,
+          TError,
+          Awaited<ReturnType<typeof agentLeadListAllSchedules>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useAgentLeadListAllSchedules<
+  TData = Awaited<ReturnType<typeof agentLeadListAllSchedules>>,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof agentLeadListAllSchedules>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof agentLeadListAllSchedules>>,
+          TError,
+          Awaited<ReturnType<typeof agentLeadListAllSchedules>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useAgentLeadListAllSchedules<
+  TData = Awaited<ReturnType<typeof agentLeadListAllSchedules>>,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof agentLeadListAllSchedules>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary List all agent schedules for a board (lead only)
+ */
+
+export function useAgentLeadListAllSchedules<
+  TData = Awaited<ReturnType<typeof agentLeadListAllSchedules>>,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof agentLeadListAllSchedules>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getAgentLeadListAllSchedulesQueryOptions(
+    boardId,
+    options,
+  );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
  * Permanently remove a board agent and tear down associated lifecycle state.
 
 Use sparingly; prefer reassignment for continuity-sensitive teams.
@@ -1309,6 +1514,464 @@ export const useAgentLeadNudgeAgent = <
     queryClient,
   );
 };
+/**
+ * Retrieve the cron schedule configuration for a specific agent.\n\nAgents can read their own schedule; board leads can read any agent's schedule on their board.
+ * @summary Get an agent's heartbeat schedule
+ */
+export type getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetResponse200 =
+  {
+    data: AgentScheduleRead;
+    status: 200;
+  };
+
+export type getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetResponse422 =
+  {
+    data: HTTPValidationError;
+    status: 422;
+  };
+
+export type getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetResponseSuccess =
+  getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetResponse200 & {
+    headers: Headers;
+  };
+export type getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetResponseError =
+  getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetResponse422 & {
+    headers: Headers;
+  };
+
+export type getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetResponse =
+
+    | getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetResponseSuccess
+    | getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetResponseError;
+
+export const getGetAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetUrl =
+  (boardId: string, agentId: string) => {
+    return `/api/v1/agent/boards/${boardId}/agents/${agentId}/schedule`;
+  };
+
+export const getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet =
+  async (
+    boardId: string,
+    agentId: string,
+    options?: RequestInit,
+  ): Promise<getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetResponse> => {
+    return customFetch<getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetResponse>(
+      getGetAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetUrl(
+        boardId,
+        agentId,
+      ),
+      {
+        ...options,
+        method: "GET",
+      },
+    );
+  };
+
+export const getGetAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetQueryKey =
+  (boardId: string, agentId: string) => {
+    return [
+      `/api/v1/agent/boards/${boardId}/agents/${agentId}/schedule`,
+    ] as const;
+  };
+
+export const getGetAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetQueryOptions =
+  <
+    TData = Awaited<
+      ReturnType<
+        typeof getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet
+      >
+    >,
+    TError = HTTPValidationError,
+  >(
+    boardId: string,
+    agentId: string,
+    options?: {
+      query?: Partial<
+        UseQueryOptions<
+          Awaited<
+            ReturnType<
+              typeof getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet
+            >
+          >,
+          TError,
+          TData
+        >
+      >;
+      request?: SecondParameter<typeof customFetch>;
+    },
+  ) => {
+    const { query: queryOptions, request: requestOptions } = options ?? {};
+
+    const queryKey =
+      queryOptions?.queryKey ??
+      getGetAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetQueryKey(
+        boardId,
+        agentId,
+      );
+
+    const queryFn: QueryFunction<
+      Awaited<
+        ReturnType<
+          typeof getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet
+        >
+      >
+    > = ({ signal }) =>
+      getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet(
+        boardId,
+        agentId,
+        { signal, ...requestOptions },
+      );
+
+    return {
+      queryKey,
+      queryFn,
+      enabled: !!(boardId && agentId),
+      ...queryOptions,
+    } as UseQueryOptions<
+      Awaited<
+        ReturnType<
+          typeof getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet
+        >
+      >,
+      TError,
+      TData
+    > & { queryKey: DataTag<QueryKey, TData, TError> };
+  };
+
+export type GetAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetQueryResult =
+  NonNullable<
+    Awaited<
+      ReturnType<
+        typeof getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet
+      >
+    >
+  >;
+export type GetAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetQueryError =
+  HTTPValidationError;
+
+export function useGetAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet<
+  TData = Awaited<
+    ReturnType<
+      typeof getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  agentId: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet
+          >
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet<
+  TData = Awaited<
+    ReturnType<
+      typeof getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  agentId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet
+          >
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet<
+  TData = Awaited<
+    ReturnType<
+      typeof getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  agentId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet
+          >
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary Get an agent's heartbeat schedule
+ */
+
+export function useGetAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet<
+  TData = Awaited<
+    ReturnType<
+      typeof getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  agentId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof getAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGet
+          >
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions =
+    getGetAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdScheduleGetQueryOptions(
+      boardId,
+      agentId,
+      options,
+    );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Update the cron schedule for an agent's heartbeats.\n\nValid intervals: 1, 2, 5, 10, 15, 30, 60 minutes. The cron expression is generated automatically from the interval.
+ * @summary Update an agent's heartbeat schedule
+ */
+export type updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchResponse200 =
+  {
+    data: AgentScheduleRead;
+    status: 200;
+  };
+
+export type updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchResponse422 =
+  {
+    data: HTTPValidationError;
+    status: 422;
+  };
+
+export type updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchResponseSuccess =
+  updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchResponse200 & {
+    headers: Headers;
+  };
+export type updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchResponseError =
+  updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchResponse422 & {
+    headers: Headers;
+  };
+
+export type updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchResponse =
+
+    | updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchResponseSuccess
+    | updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchResponseError;
+
+export const getUpdateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchUrl =
+  (boardId: string, agentId: string) => {
+    return `/api/v1/agent/boards/${boardId}/agents/${agentId}/schedule`;
+  };
+
+export const updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatch =
+  async (
+    boardId: string,
+    agentId: string,
+    agentScheduleUpdate: AgentScheduleUpdate,
+    options?: RequestInit,
+  ): Promise<updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchResponse> => {
+    return customFetch<updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchResponse>(
+      getUpdateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchUrl(
+        boardId,
+        agentId,
+      ),
+      {
+        ...options,
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...options?.headers },
+        body: JSON.stringify(agentScheduleUpdate),
+      },
+    );
+  };
+
+export const getUpdateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchMutationOptions =
+  <TError = HTTPValidationError, TContext = unknown>(options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<
+          typeof updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatch
+        >
+      >,
+      TError,
+      { boardId: string; agentId: string; data: AgentScheduleUpdate },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  }): UseMutationOptions<
+    Awaited<
+      ReturnType<
+        typeof updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatch
+      >
+    >,
+    TError,
+    { boardId: string; agentId: string; data: AgentScheduleUpdate },
+    TContext
+  > => {
+    const mutationKey = [
+      "updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatch",
+    ];
+    const { mutation: mutationOptions, request: requestOptions } = options
+      ? options.mutation &&
+        "mutationKey" in options.mutation &&
+        options.mutation.mutationKey
+        ? options
+        : { ...options, mutation: { ...options.mutation, mutationKey } }
+      : { mutation: { mutationKey }, request: undefined };
+
+    const mutationFn: MutationFunction<
+      Awaited<
+        ReturnType<
+          typeof updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatch
+        >
+      >,
+      { boardId: string; agentId: string; data: AgentScheduleUpdate }
+    > = (props) => {
+      const { boardId, agentId, data } = props ?? {};
+
+      return updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatch(
+        boardId,
+        agentId,
+        data,
+        requestOptions,
+      );
+    };
+
+    return { mutationFn, ...mutationOptions };
+  };
+
+export type UpdateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchMutationResult =
+  NonNullable<
+    Awaited<
+      ReturnType<
+        typeof updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatch
+      >
+    >
+  >;
+export type UpdateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchMutationBody =
+  AgentScheduleUpdate;
+export type UpdateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchMutationError =
+  HTTPValidationError;
+
+/**
+ * @summary Update an agent's heartbeat schedule
+ */
+export const useUpdateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatch =
+  <TError = HTTPValidationError, TContext = unknown>(
+    options?: {
+      mutation?: UseMutationOptions<
+        Awaited<
+          ReturnType<
+            typeof updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatch
+          >
+        >,
+        TError,
+        { boardId: string; agentId: string; data: AgentScheduleUpdate },
+        TContext
+      >;
+      request?: SecondParameter<typeof customFetch>;
+    },
+    queryClient?: QueryClient,
+  ): UseMutationResult<
+    Awaited<
+      ReturnType<
+        typeof updateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatch
+      >
+    >,
+    TError,
+    { boardId: string; agentId: string; data: AgentScheduleUpdate },
+    TContext
+  > => {
+    return useMutation(
+      getUpdateAgentScheduleApiV1AgentBoardsBoardIdAgentsAgentIdSchedulePatchMutationOptions(
+        options,
+      ),
+      queryClient,
+    );
+  };
 /**
  * Fetch an agent's SOUL.md content.
 
@@ -3778,6 +4441,224 @@ export function useListTagsApiV1AgentBoardsBoardIdTagsGet<
 }
 
 /**
+ * Fetch one organization tag visible to the board agent.
+ * @summary Get Tag
+ */
+export type getTagApiV1AgentBoardsBoardIdTagsTagIdGetResponse200 = {
+  data: TagRead;
+  status: 200;
+};
+
+export type getTagApiV1AgentBoardsBoardIdTagsTagIdGetResponse422 = {
+  data: HTTPValidationError;
+  status: 422;
+};
+
+export type getTagApiV1AgentBoardsBoardIdTagsTagIdGetResponseSuccess =
+  getTagApiV1AgentBoardsBoardIdTagsTagIdGetResponse200 & {
+    headers: Headers;
+  };
+export type getTagApiV1AgentBoardsBoardIdTagsTagIdGetResponseError =
+  getTagApiV1AgentBoardsBoardIdTagsTagIdGetResponse422 & {
+    headers: Headers;
+  };
+
+export type getTagApiV1AgentBoardsBoardIdTagsTagIdGetResponse =
+  | getTagApiV1AgentBoardsBoardIdTagsTagIdGetResponseSuccess
+  | getTagApiV1AgentBoardsBoardIdTagsTagIdGetResponseError;
+
+export const getGetTagApiV1AgentBoardsBoardIdTagsTagIdGetUrl = (
+  boardId: string,
+  tagId: string,
+) => {
+  return `/api/v1/agent/boards/${boardId}/tags/${tagId}`;
+};
+
+export const getTagApiV1AgentBoardsBoardIdTagsTagIdGet = async (
+  boardId: string,
+  tagId: string,
+  options?: RequestInit,
+): Promise<getTagApiV1AgentBoardsBoardIdTagsTagIdGetResponse> => {
+  return customFetch<getTagApiV1AgentBoardsBoardIdTagsTagIdGetResponse>(
+    getGetTagApiV1AgentBoardsBoardIdTagsTagIdGetUrl(boardId, tagId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetTagApiV1AgentBoardsBoardIdTagsTagIdGetQueryKey = (
+  boardId: string,
+  tagId: string,
+) => {
+  return [`/api/v1/agent/boards/${boardId}/tags/${tagId}`] as const;
+};
+
+export const getGetTagApiV1AgentBoardsBoardIdTagsTagIdGetQueryOptions = <
+  TData = Awaited<ReturnType<typeof getTagApiV1AgentBoardsBoardIdTagsTagIdGet>>,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  tagId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getTagApiV1AgentBoardsBoardIdTagsTagIdGet>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getGetTagApiV1AgentBoardsBoardIdTagsTagIdGetQueryKey(boardId, tagId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getTagApiV1AgentBoardsBoardIdTagsTagIdGet>>
+  > = ({ signal }) =>
+    getTagApiV1AgentBoardsBoardIdTagsTagIdGet(boardId, tagId, {
+      signal,
+      ...requestOptions,
+    });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!(boardId && tagId),
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getTagApiV1AgentBoardsBoardIdTagsTagIdGet>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetTagApiV1AgentBoardsBoardIdTagsTagIdGetQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getTagApiV1AgentBoardsBoardIdTagsTagIdGet>>
+>;
+export type GetTagApiV1AgentBoardsBoardIdTagsTagIdGetQueryError =
+  HTTPValidationError;
+
+export function useGetTagApiV1AgentBoardsBoardIdTagsTagIdGet<
+  TData = Awaited<ReturnType<typeof getTagApiV1AgentBoardsBoardIdTagsTagIdGet>>,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  tagId: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getTagApiV1AgentBoardsBoardIdTagsTagIdGet>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getTagApiV1AgentBoardsBoardIdTagsTagIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof getTagApiV1AgentBoardsBoardIdTagsTagIdGet>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetTagApiV1AgentBoardsBoardIdTagsTagIdGet<
+  TData = Awaited<ReturnType<typeof getTagApiV1AgentBoardsBoardIdTagsTagIdGet>>,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  tagId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getTagApiV1AgentBoardsBoardIdTagsTagIdGet>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getTagApiV1AgentBoardsBoardIdTagsTagIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof getTagApiV1AgentBoardsBoardIdTagsTagIdGet>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetTagApiV1AgentBoardsBoardIdTagsTagIdGet<
+  TData = Awaited<ReturnType<typeof getTagApiV1AgentBoardsBoardIdTagsTagIdGet>>,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  tagId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getTagApiV1AgentBoardsBoardIdTagsTagIdGet>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary Get Tag
+ */
+
+export function useGetTagApiV1AgentBoardsBoardIdTagsTagIdGet<
+  TData = Awaited<ReturnType<typeof getTagApiV1AgentBoardsBoardIdTagsTagIdGet>>,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  tagId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getTagApiV1AgentBoardsBoardIdTagsTagIdGet>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getGetTagApiV1AgentBoardsBoardIdTagsTagIdGetQueryOptions(
+    boardId,
+    tagId,
+    options,
+  );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
  * List tasks on a board with status/assignment filters.
 
 Common patterns:
@@ -5210,6 +6091,464 @@ export const useCreateTaskCommentApiV1AgentBoardsBoardIdTasksTaskIdCommentsPost 
   > => {
     return useMutation(
       getCreateTaskCommentApiV1AgentBoardsBoardIdTasksTaskIdCommentsPostMutationOptions(
+        options,
+      ),
+      queryClient,
+    );
+  };
+/**
+ * List evidence packets for a task, visible to the authenticated agent.
+ * @summary List Task Evidence Packets For Agent
+ */
+export type listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetResponse200 =
+  {
+    data: TaskEvidencePacketRead[];
+    status: 200;
+  };
+
+export type listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetResponse422 =
+  {
+    data: HTTPValidationError;
+    status: 422;
+  };
+
+export type listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetResponseSuccess =
+  listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetResponse200 & {
+    headers: Headers;
+  };
+export type listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetResponseError =
+  listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetResponse422 & {
+    headers: Headers;
+  };
+
+export type listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetResponse =
+
+    | listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetResponseSuccess
+    | listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetResponseError;
+
+export const getListTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetUrl =
+  (boardId: string, taskId: string) => {
+    return `/api/v1/agent/boards/${boardId}/tasks/${taskId}/evidence-packets`;
+  };
+
+export const listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet =
+  async (
+    boardId: string,
+    taskId: string,
+    options?: RequestInit,
+  ): Promise<listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetResponse> => {
+    return customFetch<listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetResponse>(
+      getListTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetUrl(
+        boardId,
+        taskId,
+      ),
+      {
+        ...options,
+        method: "GET",
+      },
+    );
+  };
+
+export const getListTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetQueryKey =
+  (boardId: string, taskId: string) => {
+    return [
+      `/api/v1/agent/boards/${boardId}/tasks/${taskId}/evidence-packets`,
+    ] as const;
+  };
+
+export const getListTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetQueryOptions =
+  <
+    TData = Awaited<
+      ReturnType<
+        typeof listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet
+      >
+    >,
+    TError = HTTPValidationError,
+  >(
+    boardId: string,
+    taskId: string,
+    options?: {
+      query?: Partial<
+        UseQueryOptions<
+          Awaited<
+            ReturnType<
+              typeof listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet
+            >
+          >,
+          TError,
+          TData
+        >
+      >;
+      request?: SecondParameter<typeof customFetch>;
+    },
+  ) => {
+    const { query: queryOptions, request: requestOptions } = options ?? {};
+
+    const queryKey =
+      queryOptions?.queryKey ??
+      getListTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetQueryKey(
+        boardId,
+        taskId,
+      );
+
+    const queryFn: QueryFunction<
+      Awaited<
+        ReturnType<
+          typeof listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet
+        >
+      >
+    > = ({ signal }) =>
+      listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet(
+        boardId,
+        taskId,
+        { signal, ...requestOptions },
+      );
+
+    return {
+      queryKey,
+      queryFn,
+      enabled: !!(boardId && taskId),
+      ...queryOptions,
+    } as UseQueryOptions<
+      Awaited<
+        ReturnType<
+          typeof listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet
+        >
+      >,
+      TError,
+      TData
+    > & { queryKey: DataTag<QueryKey, TData, TError> };
+  };
+
+export type ListTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetQueryResult =
+  NonNullable<
+    Awaited<
+      ReturnType<
+        typeof listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet
+      >
+    >
+  >;
+export type ListTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetQueryError =
+  HTTPValidationError;
+
+export function useListTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet<
+  TData = Awaited<
+    ReturnType<
+      typeof listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  taskId: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet
+          >
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useListTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet<
+  TData = Awaited<
+    ReturnType<
+      typeof listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  taskId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet
+          >
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<
+            ReturnType<
+              typeof listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet
+            >
+          >,
+          TError,
+          Awaited<
+            ReturnType<
+              typeof listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet
+            >
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useListTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet<
+  TData = Awaited<
+    ReturnType<
+      typeof listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  taskId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet
+          >
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary List Task Evidence Packets For Agent
+ */
+
+export function useListTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet<
+  TData = Awaited<
+    ReturnType<
+      typeof listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet
+    >
+  >,
+  TError = HTTPValidationError,
+>(
+  boardId: string,
+  taskId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<
+            typeof listTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGet
+          >
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions =
+    getListTaskEvidencePacketsForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsGetQueryOptions(
+      boardId,
+      taskId,
+      options,
+    );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Create a new evidence packet for a task as an agent.
+ * @summary Create Task Evidence Packet For Agent
+ */
+export type createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostResponse200 =
+  {
+    data: TaskEvidencePacketRead;
+    status: 200;
+  };
+
+export type createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostResponse422 =
+  {
+    data: HTTPValidationError;
+    status: 422;
+  };
+
+export type createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostResponseSuccess =
+  createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostResponse200 & {
+    headers: Headers;
+  };
+export type createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostResponseError =
+  createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostResponse422 & {
+    headers: Headers;
+  };
+
+export type createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostResponse =
+
+    | createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostResponseSuccess
+    | createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostResponseError;
+
+export const getCreateTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostUrl =
+  (boardId: string, taskId: string) => {
+    return `/api/v1/agent/boards/${boardId}/tasks/${taskId}/evidence-packets`;
+  };
+
+export const createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPost =
+  async (
+    boardId: string,
+    taskId: string,
+    taskEvidencePacketCreate: TaskEvidencePacketCreate,
+    options?: RequestInit,
+  ): Promise<createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostResponse> => {
+    return customFetch<createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostResponse>(
+      getCreateTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostUrl(
+        boardId,
+        taskId,
+      ),
+      {
+        ...options,
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...options?.headers },
+        body: JSON.stringify(taskEvidencePacketCreate),
+      },
+    );
+  };
+
+export const getCreateTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostMutationOptions =
+  <TError = HTTPValidationError, TContext = unknown>(options?: {
+    mutation?: UseMutationOptions<
+      Awaited<
+        ReturnType<
+          typeof createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPost
+        >
+      >,
+      TError,
+      { boardId: string; taskId: string; data: TaskEvidencePacketCreate },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  }): UseMutationOptions<
+    Awaited<
+      ReturnType<
+        typeof createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPost
+      >
+    >,
+    TError,
+    { boardId: string; taskId: string; data: TaskEvidencePacketCreate },
+    TContext
+  > => {
+    const mutationKey = [
+      "createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPost",
+    ];
+    const { mutation: mutationOptions, request: requestOptions } = options
+      ? options.mutation &&
+        "mutationKey" in options.mutation &&
+        options.mutation.mutationKey
+        ? options
+        : { ...options, mutation: { ...options.mutation, mutationKey } }
+      : { mutation: { mutationKey }, request: undefined };
+
+    const mutationFn: MutationFunction<
+      Awaited<
+        ReturnType<
+          typeof createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPost
+        >
+      >,
+      { boardId: string; taskId: string; data: TaskEvidencePacketCreate }
+    > = (props) => {
+      const { boardId, taskId, data } = props ?? {};
+
+      return createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPost(
+        boardId,
+        taskId,
+        data,
+        requestOptions,
+      );
+    };
+
+    return { mutationFn, ...mutationOptions };
+  };
+
+export type CreateTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostMutationResult =
+  NonNullable<
+    Awaited<
+      ReturnType<
+        typeof createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPost
+      >
+    >
+  >;
+export type CreateTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostMutationBody =
+  TaskEvidencePacketCreate;
+export type CreateTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostMutationError =
+  HTTPValidationError;
+
+/**
+ * @summary Create Task Evidence Packet For Agent
+ */
+export const useCreateTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPost =
+  <TError = HTTPValidationError, TContext = unknown>(
+    options?: {
+      mutation?: UseMutationOptions<
+        Awaited<
+          ReturnType<
+            typeof createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPost
+          >
+        >,
+        TError,
+        { boardId: string; taskId: string; data: TaskEvidencePacketCreate },
+        TContext
+      >;
+      request?: SecondParameter<typeof customFetch>;
+    },
+    queryClient?: QueryClient,
+  ): UseMutationResult<
+    Awaited<
+      ReturnType<
+        typeof createTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPost
+      >
+    >,
+    TError,
+    { boardId: string; taskId: string; data: TaskEvidencePacketCreate },
+    TContext
+  > => {
+    return useMutation(
+      getCreateTaskEvidencePacketForAgentApiV1AgentBoardsBoardIdTasksTaskIdEvidencePacketsPostMutationOptions(
         options,
       ),
       queryClient,

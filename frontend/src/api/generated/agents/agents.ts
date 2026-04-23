@@ -26,6 +26,7 @@ import type {
   AgentHeartbeatCreate,
   AgentRead,
   AgentUpdate,
+  GetAgentSessionLogApiV1AgentsAgentIdSessionLogGetParams,
   HTTPValidationError,
   LimitOffsetPageTypeVarCustomizedAgentRead,
   ListAgentsApiV1AgentsGetParams,
@@ -1310,3 +1311,275 @@ export const useHeartbeatAgentApiV1AgentsAgentIdHeartbeatPost = <
     queryClient,
   );
 };
+/**
+ * Return latest gateway chat history for an agent as JSONL text.
+ * @summary Get Agent Session Log
+ */
+export type getAgentSessionLogApiV1AgentsAgentIdSessionLogGetResponse200 = {
+  data: string;
+  status: 200;
+};
+
+export type getAgentSessionLogApiV1AgentsAgentIdSessionLogGetResponse422 = {
+  data: HTTPValidationError;
+  status: 422;
+};
+
+export type getAgentSessionLogApiV1AgentsAgentIdSessionLogGetResponseSuccess =
+  getAgentSessionLogApiV1AgentsAgentIdSessionLogGetResponse200 & {
+    headers: Headers;
+  };
+export type getAgentSessionLogApiV1AgentsAgentIdSessionLogGetResponseError =
+  getAgentSessionLogApiV1AgentsAgentIdSessionLogGetResponse422 & {
+    headers: Headers;
+  };
+
+export type getAgentSessionLogApiV1AgentsAgentIdSessionLogGetResponse =
+  | getAgentSessionLogApiV1AgentsAgentIdSessionLogGetResponseSuccess
+  | getAgentSessionLogApiV1AgentsAgentIdSessionLogGetResponseError;
+
+export const getGetAgentSessionLogApiV1AgentsAgentIdSessionLogGetUrl = (
+  agentId: string,
+  params?: GetAgentSessionLogApiV1AgentsAgentIdSessionLogGetParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/v1/agents/${agentId}/session-log?${stringifiedParams}`
+    : `/api/v1/agents/${agentId}/session-log`;
+};
+
+export const getAgentSessionLogApiV1AgentsAgentIdSessionLogGet = async (
+  agentId: string,
+  params?: GetAgentSessionLogApiV1AgentsAgentIdSessionLogGetParams,
+  options?: RequestInit,
+): Promise<getAgentSessionLogApiV1AgentsAgentIdSessionLogGetResponse> => {
+  return customFetch<getAgentSessionLogApiV1AgentsAgentIdSessionLogGetResponse>(
+    getGetAgentSessionLogApiV1AgentsAgentIdSessionLogGetUrl(agentId, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetAgentSessionLogApiV1AgentsAgentIdSessionLogGetQueryKey = (
+  agentId: string,
+  params?: GetAgentSessionLogApiV1AgentsAgentIdSessionLogGetParams,
+) => {
+  return [
+    `/api/v1/agents/${agentId}/session-log`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetAgentSessionLogApiV1AgentsAgentIdSessionLogGetQueryOptions =
+  <
+    TData = Awaited<
+      ReturnType<typeof getAgentSessionLogApiV1AgentsAgentIdSessionLogGet>
+    >,
+    TError = HTTPValidationError,
+  >(
+    agentId: string,
+    params?: GetAgentSessionLogApiV1AgentsAgentIdSessionLogGetParams,
+    options?: {
+      query?: Partial<
+        UseQueryOptions<
+          Awaited<
+            ReturnType<typeof getAgentSessionLogApiV1AgentsAgentIdSessionLogGet>
+          >,
+          TError,
+          TData
+        >
+      >;
+      request?: SecondParameter<typeof customFetch>;
+    },
+  ) => {
+    const { query: queryOptions, request: requestOptions } = options ?? {};
+
+    const queryKey =
+      queryOptions?.queryKey ??
+      getGetAgentSessionLogApiV1AgentsAgentIdSessionLogGetQueryKey(
+        agentId,
+        params,
+      );
+
+    const queryFn: QueryFunction<
+      Awaited<
+        ReturnType<typeof getAgentSessionLogApiV1AgentsAgentIdSessionLogGet>
+      >
+    > = ({ signal }) =>
+      getAgentSessionLogApiV1AgentsAgentIdSessionLogGet(agentId, params, {
+        signal,
+        ...requestOptions,
+      });
+
+    return {
+      queryKey,
+      queryFn,
+      enabled: !!agentId,
+      ...queryOptions,
+    } as UseQueryOptions<
+      Awaited<
+        ReturnType<typeof getAgentSessionLogApiV1AgentsAgentIdSessionLogGet>
+      >,
+      TError,
+      TData
+    > & { queryKey: DataTag<QueryKey, TData, TError> };
+  };
+
+export type GetAgentSessionLogApiV1AgentsAgentIdSessionLogGetQueryResult =
+  NonNullable<
+    Awaited<
+      ReturnType<typeof getAgentSessionLogApiV1AgentsAgentIdSessionLogGet>
+    >
+  >;
+export type GetAgentSessionLogApiV1AgentsAgentIdSessionLogGetQueryError =
+  HTTPValidationError;
+
+export function useGetAgentSessionLogApiV1AgentsAgentIdSessionLogGet<
+  TData = Awaited<
+    ReturnType<typeof getAgentSessionLogApiV1AgentsAgentIdSessionLogGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  agentId: string,
+  params: undefined | GetAgentSessionLogApiV1AgentsAgentIdSessionLogGetParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof getAgentSessionLogApiV1AgentsAgentIdSessionLogGet>
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<
+            ReturnType<typeof getAgentSessionLogApiV1AgentsAgentIdSessionLogGet>
+          >,
+          TError,
+          Awaited<
+            ReturnType<typeof getAgentSessionLogApiV1AgentsAgentIdSessionLogGet>
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetAgentSessionLogApiV1AgentsAgentIdSessionLogGet<
+  TData = Awaited<
+    ReturnType<typeof getAgentSessionLogApiV1AgentsAgentIdSessionLogGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  agentId: string,
+  params?: GetAgentSessionLogApiV1AgentsAgentIdSessionLogGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof getAgentSessionLogApiV1AgentsAgentIdSessionLogGet>
+        >,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<
+            ReturnType<typeof getAgentSessionLogApiV1AgentsAgentIdSessionLogGet>
+          >,
+          TError,
+          Awaited<
+            ReturnType<typeof getAgentSessionLogApiV1AgentsAgentIdSessionLogGet>
+          >
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetAgentSessionLogApiV1AgentsAgentIdSessionLogGet<
+  TData = Awaited<
+    ReturnType<typeof getAgentSessionLogApiV1AgentsAgentIdSessionLogGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  agentId: string,
+  params?: GetAgentSessionLogApiV1AgentsAgentIdSessionLogGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof getAgentSessionLogApiV1AgentsAgentIdSessionLogGet>
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary Get Agent Session Log
+ */
+
+export function useGetAgentSessionLogApiV1AgentsAgentIdSessionLogGet<
+  TData = Awaited<
+    ReturnType<typeof getAgentSessionLogApiV1AgentsAgentIdSessionLogGet>
+  >,
+  TError = HTTPValidationError,
+>(
+  agentId: string,
+  params?: GetAgentSessionLogApiV1AgentsAgentIdSessionLogGetParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<
+          ReturnType<typeof getAgentSessionLogApiV1AgentsAgentIdSessionLogGet>
+        >,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions =
+    getGetAgentSessionLogApiV1AgentsAgentIdSessionLogGetQueryOptions(
+      agentId,
+      params,
+      options,
+    );
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}

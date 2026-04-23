@@ -16,6 +16,7 @@ This folder is the documentation home for **OpenClaw Mission Control**.
 - [OpenClaw baseline configuration](./openclaw_baseline_config.md)
 - [Agent capability policies](./features/agent-capability-policies.md)
 - [Board cadence cron integration](./features/board-cadence-cron.md)
+- [Utility jobs](./features/utility-jobs.md)
 
 ## Reference
 

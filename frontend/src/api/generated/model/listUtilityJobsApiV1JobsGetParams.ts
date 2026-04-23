@@ -5,12 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ListTasksApiV1BoardsBoardIdTasksGetParams = {
-  status?: string | null;
-  tag?: string | null;
-  include_hidden_done?: boolean;
-  assigned_agent_id?: string | null;
-  unassigned?: boolean | null;
+export type ListUtilityJobsApiV1JobsGetParams = {
   /**
    * @minimum 1
    * @maximum 200

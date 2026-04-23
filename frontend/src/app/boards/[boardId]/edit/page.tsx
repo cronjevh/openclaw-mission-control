@@ -328,8 +328,12 @@ export default function EditBoardPage() {
     boolean | undefined
   >(undefined);
   const [maxAgents, setMaxAgents] = useState<number | undefined>(undefined);
-  const [cadenceMinutes, setCadenceMinutes] = useState<number | null | undefined>(undefined);
-  const [hideDoneAfterDays, setHideDoneAfterDays] = useState<number | undefined>(undefined);
+  const [cadenceMinutes, setCadenceMinutes] = useState<
+    number | null | undefined
+  >(undefined);
+  const [hideDoneAfterDays, setHideDoneAfterDays] = useState<
+    number | undefined
+  >(undefined);
   const [successMetrics, setSuccessMetrics] = useState<string | undefined>(
     undefined,
   );
@@ -356,7 +360,8 @@ export default function EditBoardPage() {
 
   // Documents state
   const [isDocModalOpen, setIsDocModalOpen] = useState(false);
-  const [selectedDocument, setSelectedDocument] = useState<BoardDocumentRead | null>(null);
+  const [selectedDocument, setSelectedDocument] =
+    useState<BoardDocumentRead | null>(null);
 
   useEffect(() => {
     if (!isOnboardingOpen) return;
@@ -415,8 +420,6 @@ export default function EditBoardPage() {
       retry: false,
     },
   });
-
-
 
   const boardQuery = useGetBoardApiV1BoardsBoardIdGet<
     getBoardApiV1BoardsBoardIdGetResponse,
@@ -538,18 +541,15 @@ export default function EditBoardPage() {
     });
 
   const createDocumentMutation =
-    useCreateBoardDocumentApiV1BoardsBoardIdDocumentsPost<any>(
-      boardId ?? "",
-      {
-        mutation: {
-          onSuccess: () => {
-            documentsQuery.refetch();
-            setIsDocModalOpen(false);
-            setSelectedDocument(null);
-          },
+    useCreateBoardDocumentApiV1BoardsBoardIdDocumentsPost<any>(boardId ?? "", {
+      mutation: {
+        onSuccess: () => {
+          documentsQuery.refetch();
+          setIsDocModalOpen(false);
+          setSelectedDocument(null);
         },
-      }
-    );
+      },
+    });
 
   const updateDocumentMutation =
     useUpdateBoardDocumentApiV1BoardsBoardIdDocumentsDocIdPatch<any>(
@@ -563,7 +563,7 @@ export default function EditBoardPage() {
             setSelectedDocument(null);
           },
         },
-      }
+      },
     );
 
   const deleteDocumentMutation =
@@ -575,12 +575,14 @@ export default function EditBoardPage() {
             documentsQuery.refetch();
           },
         },
-      }
+      },
     );
 
   const documents = useMemo(() => {
     if (documentsQuery.data?.status !== 200) return [];
-    return (documentsQuery.data.data.items || []).sort((a: any, b: any) => a.order - b.order);
+    return (documentsQuery.data.data.items || []).sort(
+      (a: any, b: any) => a.order - b.order,
+    );
   }, [documentsQuery.data]);
 
   const handleEditDocument = (doc: BoardDocumentRead) => {
@@ -627,12 +629,21 @@ export default function EditBoardPage() {
   const baseBoard = board ?? loadedBoard;
 
   // Effective group id for heartbeat section
-  const effectiveGroupId = boardGroupId !== "none" ? (boardGroupId ?? baseBoard?.board_group_id) : undefined;
+  const effectiveGroupId =
+    boardGroupId !== "none"
+      ? (boardGroupId ?? baseBoard?.board_group_id)
+      : undefined;
 
-  const heartbeatQuery = useGetBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet(
-    effectiveGroupId ?? "",
-    { query: { enabled: Boolean(isSignedIn && effectiveGroupId), retry: false } },
-  );
+  const heartbeatQuery =
+    useGetBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatGet(
+      effectiveGroupId ?? "",
+      {
+        query: {
+          enabled: Boolean(isSignedIn && effectiveGroupId),
+          retry: false,
+        },
+      },
+    );
 
   useEffect(() => {
     if (hbSeeded || !heartbeatQuery.data) return;
@@ -643,9 +654,15 @@ export default function EditBoardPage() {
       return m ? { amount: m[1], unit: m[2] as "m" | "h" } : null;
     };
     const w = parseEvery(cfg?.worker_every);
-    if (w) { setHbWorkerAmount(w.amount); setHbWorkerUnit(w.unit); }
+    if (w) {
+      setHbWorkerAmount(w.amount);
+      setHbWorkerUnit(w.unit);
+    }
     const l = parseEvery(cfg?.lead_every);
-    if (l) { setHbLeadAmount(l.amount); setHbLeadUnit(l.unit); }
+    if (l) {
+      setHbLeadAmount(l.amount);
+      setHbLeadUnit(l.unit);
+    }
     setHbSeeded(true);
   }, [heartbeatQuery.data, hbSeeded]);
 
@@ -671,7 +688,9 @@ export default function EditBoardPage() {
     onlyLeadCanChangeStatus ?? baseBoard?.only_lead_can_change_status ?? false;
   const resolvedMaxAgents = maxAgents ?? baseBoard?.max_agents ?? 1;
   const resolvedCadenceMinutes =
-    cadenceMinutes === null ? null : (cadenceMinutes ?? baseBoard?.cadence_minutes ?? null);
+    cadenceMinutes === null
+      ? null
+      : (cadenceMinutes ?? baseBoard?.cadence_minutes ?? null);
   const resolvedHideDoneAfterDays =
     hideDoneAfterDays ?? baseBoard?.hide_done_after_days ?? null;
   const resolvedSuccessMetrics =
@@ -758,7 +777,7 @@ export default function EditBoardPage() {
     setOnlyLeadCanChangeStatus(updated.only_lead_can_change_status ?? false);
     setMaxAgents(updated.max_agents ?? 1);
     setCadenceMinutes(updated.cadence_minutes);
-    setHideDoneAfterDays(updated.hide_done_after_days);
+    setHideDoneAfterDays(updated.hide_done_after_days ?? undefined);
     setSuccessMetrics(
       updated.success_metrics
         ? JSON.stringify(updated.success_metrics, null, 2)
@@ -800,7 +819,8 @@ export default function EditBoardPage() {
     }
     if (
       resolvedHideDoneAfterDays !== null &&
-      (!Number.isInteger(resolvedHideDoneAfterDays) || resolvedHideDoneAfterDays < 0)
+      (!Number.isInteger(resolvedHideDoneAfterDays) ||
+        resolvedHideDoneAfterDays < 0)
     ) {
       setError("Hide done after days must be a non-negative integer or blank.");
       return;
@@ -1074,8 +1094,8 @@ export default function EditBoardPage() {
                     placeholder="Leave empty for no cadence"
                   />
                   <p className="text-xs text-quiet">
-                    Optional: set a default cron cadence for workers (in minutes).
-                    Leave empty to use board group heartbeat settings.
+                    Optional: set a default cron cadence for workers (in
+                    minutes). Leave empty to use board group heartbeat settings.
                   </p>
                 </div>
               </div>
@@ -1104,7 +1124,10 @@ export default function EditBoardPage() {
                   <label className="text-sm font-medium text-strong">
                     Board type
                   </label>
-                  <Select value={resolvedBoardType} onValueChange={setBoardType}>
+                  <Select
+                    value={resolvedBoardType}
+                    onValueChange={setBoardType}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="Select board type" />
                     </SelectTrigger>
@@ -1187,9 +1210,7 @@ export default function EditBoardPage() {
 
             <section className="space-y-3 border-t border-[color:var(--border)] pt-4">
               <div>
-                <h2 className="text-base font-semibold text-strong">
-                  Rules
-                </h2>
+                <h2 className="text-base font-semibold text-strong">Rules</h2>
                 <p className="text-xs text-muted">
                   Configure board-level workflow enforcement.
                 </p>
@@ -1511,7 +1532,8 @@ export default function EditBoardPage() {
                     Docs/Guides
                   </h2>
                   <p className="mt-0.5 text-sm text-quiet">
-                    Add documents and guides to provide context for agents when working on this board.
+                    Add documents and guides to provide context for agents when
+                    working on this board.
                   </p>
                 </div>
                 <button
@@ -1534,7 +1556,8 @@ export default function EditBoardPage() {
                 </div>
               ) : documents.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-[color:var(--border-strong)] px-4 py-6 text-center text-sm text-muted">
-                  No documents yet. Add guides to help agents understand the board context.
+                  No documents yet. Add guides to help agents understand the
+                  board context.
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -1556,7 +1579,8 @@ export default function EditBoardPage() {
                 onSave={handleSaveDocument}
                 onOpenChange={setIsDocModalOpen}
                 isSaving={
-                  createDocumentMutation.isPending || updateDocumentMutation.isPending
+                  createDocumentMutation.isPending ||
+                  updateDocumentMutation.isPending
                 }
               />
             </section>
@@ -1566,7 +1590,9 @@ export default function EditBoardPage() {
               <div>
                 <h2 className="text-base font-semibold text-strong">Secrets</h2>
                 <p className="mt-0.5 text-sm text-quiet">
-                  Store credentials and API keys for agents to use when accessing external tools (GitHub, etc.). Values are encrypted at rest.
+                  Store credentials and API keys for agents to use when
+                  accessing external tools (GitHub, etc.). Values are encrypted
+                  at rest.
                 </p>
               </div>
               {boardId && <BoardSecretsPanel boardId={boardId} />}
@@ -1576,43 +1602,136 @@ export default function EditBoardPage() {
             {effectiveGroupId && isAdmin && (
               <section className="space-y-4 border-t border-[color:var(--border)] pt-6">
                 <div>
-                  <h2 className="text-base font-semibold text-strong">Agent Check-in Rates</h2>
+                  <h2 className="text-base font-semibold text-strong">
+                    Agent Check-in Rates
+                  </h2>
                   <p className="mt-1 text-xs text-quiet">
-                    Configure how often agents in this board group wake up. Applies to all boards in the group.
+                    Configure how often agents in this board group wake up.
+                    Applies to all boards in the group.
                   </p>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4 space-y-3">
                     <div>
-                      <p className="text-sm font-semibold text-strong">⚙️ Worker check-in rate</p>
-                      <p className="mt-0.5 text-xs text-muted">How often worker agents wake up and pick tasks.</p>
+                      <p className="text-sm font-semibold text-strong">
+                        ⚙️ Worker check-in rate
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted">
+                        How often worker agents wake up and pick tasks.
+                      </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <input type="number" min={1} value={hbWorkerAmount} onChange={(e) => setHbWorkerAmount(e.target.value)} className="w-16 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-sm text-strong focus:outline-none" />
-                      <select value={hbWorkerUnit} onChange={(e) => setHbWorkerUnit(e.target.value as "m" | "h")} className="rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-sm text-strong focus:outline-none">
+                      <input
+                        type="number"
+                        min={1}
+                        value={hbWorkerAmount}
+                        onChange={(e) => setHbWorkerAmount(e.target.value)}
+                        className="w-16 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-sm text-strong focus:outline-none"
+                      />
+                      <select
+                        value={hbWorkerUnit}
+                        onChange={(e) =>
+                          setHbWorkerUnit(e.target.value as "m" | "h")
+                        }
+                        className="rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-sm text-strong focus:outline-none"
+                      >
                         <option value="m">minutes</option>
                         <option value="h">hours</option>
                       </select>
-                      <Button type="button" size="sm" disabled={isHbWorkerApplying} onClick={async () => { setIsHbWorkerApplying(true); setHbWorkerError(null); setHbWorkerDone(false); try { await applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost(effectiveGroupId, { every: `${hbWorkerAmount}${hbWorkerUnit}`, include_board_leads: false }); setHbWorkerDone(true); } catch (e: any) { setHbWorkerError(e?.message ?? "Failed"); } finally { setIsHbWorkerApplying(false); } }}>{isHbWorkerApplying ? "Applying…" : "Apply"}</Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={isHbWorkerApplying}
+                        onClick={async () => {
+                          setIsHbWorkerApplying(true);
+                          setHbWorkerError(null);
+                          setHbWorkerDone(false);
+                          try {
+                            await applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost(
+                              effectiveGroupId,
+                              {
+                                every: `${hbWorkerAmount}${hbWorkerUnit}`,
+                                include_board_leads: false,
+                              },
+                            );
+                            setHbWorkerDone(true);
+                          } catch (e: any) {
+                            setHbWorkerError(e?.message ?? "Failed");
+                          } finally {
+                            setIsHbWorkerApplying(false);
+                          }
+                        }}
+                      >
+                        {isHbWorkerApplying ? "Applying…" : "Apply"}
+                      </Button>
                     </div>
-                    {hbWorkerError && <p className="text-xs text-danger">{hbWorkerError}</p>}
-                    {hbWorkerDone && <p className="text-xs text-success">Applied ✓</p>}
+                    {hbWorkerError && (
+                      <p className="text-xs text-danger">{hbWorkerError}</p>
+                    )}
+                    {hbWorkerDone && (
+                      <p className="text-xs text-success">Applied ✓</p>
+                    )}
                   </div>
                   <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4 space-y-3">
                     <div>
-                      <p className="text-sm font-semibold text-strong">👑 Lead check-in rate</p>
-                      <p className="mt-0.5 text-xs text-muted">How often board leads review progress and coordinate.</p>
+                      <p className="text-sm font-semibold text-strong">
+                        👑 Lead check-in rate
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted">
+                        How often board leads review progress and coordinate.
+                      </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <input type="number" min={1} value={hbLeadAmount} onChange={(e) => setHbLeadAmount(e.target.value)} className="w-16 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-sm text-strong focus:outline-none" />
-                      <select value={hbLeadUnit} onChange={(e) => setHbLeadUnit(e.target.value as "m" | "h")} className="rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-sm text-strong focus:outline-none">
+                      <input
+                        type="number"
+                        min={1}
+                        value={hbLeadAmount}
+                        onChange={(e) => setHbLeadAmount(e.target.value)}
+                        className="w-16 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-sm text-strong focus:outline-none"
+                      />
+                      <select
+                        value={hbLeadUnit}
+                        onChange={(e) =>
+                          setHbLeadUnit(e.target.value as "m" | "h")
+                        }
+                        className="rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-sm text-strong focus:outline-none"
+                      >
                         <option value="m">minutes</option>
                         <option value="h">hours</option>
                       </select>
-                      <Button type="button" size="sm" disabled={isHbLeadApplying} onClick={async () => { setIsHbLeadApplying(true); setHbLeadError(null); setHbLeadDone(false); try { await applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost(effectiveGroupId, { every: `${hbLeadAmount}${hbLeadUnit}`, include_board_leads: true }); setHbLeadDone(true); } catch (e: any) { setHbLeadError(e?.message ?? "Failed"); } finally { setIsHbLeadApplying(false); } }}>{isHbLeadApplying ? "Applying…" : "Apply"}</Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={isHbLeadApplying}
+                        onClick={async () => {
+                          setIsHbLeadApplying(true);
+                          setHbLeadError(null);
+                          setHbLeadDone(false);
+                          try {
+                            await applyBoardGroupHeartbeatApiV1BoardGroupsGroupIdHeartbeatPost(
+                              effectiveGroupId,
+                              {
+                                every: `${hbLeadAmount}${hbLeadUnit}`,
+                                include_board_leads: true,
+                              },
+                            );
+                            setHbLeadDone(true);
+                          } catch (e: any) {
+                            setHbLeadError(e?.message ?? "Failed");
+                          } finally {
+                            setIsHbLeadApplying(false);
+                          }
+                        }}
+                      >
+                        {isHbLeadApplying ? "Applying…" : "Apply"}
+                      </Button>
                     </div>
-                    {hbLeadError && <p className="text-xs text-danger">{hbLeadError}</p>}
-                    {hbLeadDone && <p className="text-xs text-success">Applied ✓</p>}
+                    {hbLeadError && (
+                      <p className="text-xs text-danger">{hbLeadError}</p>
+                    )}
+                    {hbLeadDone && (
+                      <p className="text-xs text-success">Applied ✓</p>
+                    )}
                   </div>
                 </div>
               </section>

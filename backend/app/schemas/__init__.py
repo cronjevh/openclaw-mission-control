@@ -50,6 +50,12 @@ from app.schemas.souls_directory import (
 from app.schemas.tags import TagCreate, TagRead, TagRef, TagUpdate
 from app.schemas.tasks import TaskCreate, TaskRead, TaskUpdate
 from app.schemas.users import UserCreate, UserRead, UserUpdate
+from app.schemas.utility_jobs import (
+    UtilityJobCreate,
+    UtilityJobRead,
+    UtilityJobScriptOption,
+    UtilityJobUpdate,
+)
 
 __all__ = [
     "ActivityEventRead",
@@ -109,4 +115,8 @@ __all__ = [
     "UserCreate",
     "UserRead",
     "UserUpdate",
+    "UtilityJobCreate",
+    "UtilityJobRead",
+    "UtilityJobScriptOption",
+    "UtilityJobUpdate",
 ]

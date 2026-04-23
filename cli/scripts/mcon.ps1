@@ -75,6 +75,7 @@ Usage:
   mcon workflow assign --task <TASK_ID> --worker <AGENT_ID> [--origin-session-key <task:...|tag:...|agent:...:task:...|agent:...:tag:...>]  # assign task to worker
   mcon workflow blocker --task <TASK_ID> --message <TEXT>  # mark task blocked and escalate to lead
   mcon workflow escalate --message <TEXT> [--secret-key <KEY>] [--task <TASK_ID>]  # escalate a lead blocker to Gateway Main
+  mcon workflow gateway-reply --board <BOARD_ID> (--message <TEXT>|--message-file <PATH>) [--task <TASK_ID>] [--secret-reply]  # gateway-only: reply to board lead
   mcon workflow submitreview --task <TASK_ID> [--message <TEXT>]  # submit task for review
   mcon verify run --task <TASK_ID>    # verifier-only: execute verification and apply outcome
 
@@ -94,6 +95,7 @@ Permissions:
   workflow.dispatchboard → gateway only
   workflow.blocker     → worker, verifier
   workflow.escalate    → lead
+  workflow.gateway-reply → gateway
   workflow.submitreview → worker, verifier
   verify.run           → verifier only
 
@@ -443,7 +445,7 @@ Statuses: inbox, in_progress, review, done, blocked
 
     'workflow' {
         if ($remaining.Count -lt 1) {
-            Write-MconError -Message 'Usage: mcon workflow <action>. Actions: dispatch, dispatchboard, assign, blocker, escalate, submitreview.' -Code 'usage'
+            Write-MconError -Message 'Usage: mcon workflow <action>. Actions: dispatch, dispatchboard, assign, blocker, escalate, gateway-reply, submitreview.' -Code 'usage'
         }
 
         $wfAction = $remaining[0]
@@ -893,6 +895,89 @@ Statuses: inbox, in_progress, review, done, blocked
                 }
             }
 
+            'gateway-reply' {
+                $boardId = $null
+                $taskId = $null
+                $message = $null
+                $messageFile = $null
+                $correlationId = $null
+                $replyKind = 'user'
+                $i = 0
+                while ($i -lt $wfArgs.Count) {
+                    switch ($wfArgs[$i]) {
+                        '--board' { $boardId = $wfArgs[++$i]; break }
+                        '--task' { $taskId = $wfArgs[++$i]; break }
+                        '--message' { $message = $wfArgs[++$i]; break }
+                        '--message-file' { $messageFile = $wfArgs[++$i]; break }
+                        '--correlation-id' { $correlationId = $wfArgs[++$i]; break }
+                        '--secret-reply' { $replyKind = 'secret'; break }
+                        default { Write-MconError -Message "Unknown flag: $($wfArgs[$i])" -Code 'usage' }
+                    }
+                    $i++
+                }
+
+                if (-not $boardId) {
+                    Write-MconError -Message '--board <BOARD_ID> is required.' -Code 'usage'
+                }
+                if ($boardId -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                    Write-MconError -Message "Invalid board ID format: $boardId" -Code 'validation'
+                }
+                if ($taskId -and $taskId -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                    Write-MconError -Message "Invalid task ID format: $taskId" -Code 'validation'
+                }
+                if ($message -and $messageFile) {
+                    Write-MconError -Message 'Use either --message or --message-file, not both.' -Code 'usage'
+                }
+                if ($messageFile) {
+                    if (-not (Test-Path -LiteralPath $messageFile)) {
+                        Write-MconError -Message "Message file not found: $messageFile" -Code 'validation'
+                    }
+                    $message = Get-Content -LiteralPath $messageFile -Raw -Encoding UTF8
+                }
+                if (-not $message) {
+                    Write-MconError -Message '--message <TEXT> or --message-file <PATH> is required.' -Code 'usage'
+                }
+                if ([string]::IsNullOrWhiteSpace($message)) {
+                    Write-MconError -Message 'Message must not be empty.' -Code 'validation'
+                }
+
+                $agentConfig = Resolve-MconKeybagAgent
+                if (-not $agentConfig) {
+                    Write-MconError -Message "No agent configuration found for current directory. Run from an agent workspace or set MCON_* env vars." -Code 'config_error'
+                }
+
+                $role = Resolve-MconExecutionRole -Wsp $agentConfig.wsp -WorkspacePath $agentConfig.workspace_path
+                $actionKey = 'workflow.gateway-reply'
+                if (-not (Test-MconPermission -Action $actionKey -Role $role)) {
+                    $msg = Get-MconDeniedMessage -Action $actionKey -Role $role
+                    Write-MconError -Message $msg -Code 'forbidden'
+                }
+
+                try {
+                    $result = Invoke-MconGatewayReply `
+                        -Config $agentConfig `
+                        -BoardId $boardId `
+                        -Message $message `
+                        -TaskId $taskId `
+                        -CorrelationId $correlationId `
+                        -ReplyKind $replyKind
+
+                    if ($result.ok) {
+                        Write-MconResult -Data ([ordered]@{
+                                ok     = $true
+                                action = 'workflow.gateway-reply'
+                                result = $result
+                            })
+                    }
+                    else {
+                        Write-MconError -Message "$($result.message)" -Code $result.code
+                    }
+                }
+                catch {
+                    Write-MconError -Message $_.Exception.Message -Code 'gateway_reply_error'
+                }
+            }
+
             'submitreview' {
                 $taskId = $null
                 $message = $null
@@ -945,7 +1030,7 @@ Statuses: inbox, in_progress, review, done, blocked
             }
 
             default {
-                Write-MconError -Message "Unknown workflow action: $wfAction. Valid: dispatch, dispatchboard, assign, blocker, escalate, submitreview." -Code 'usage'
+                Write-MconError -Message "Unknown workflow action: $wfAction. Valid: dispatch, dispatchboard, assign, blocker, escalate, gateway-reply, submitreview." -Code 'usage'
             }
         }
     }

@@ -31,3 +31,4 @@ prompts/
 backend/simplified-templates/scripts/template-update.json
 backend/simplified-templates/template-update.json
 backend/simplified-templates/testmerge/
+workspaces/

@@ -35,7 +35,7 @@ Post the verdict:
 mcon task comment --task <TASK_ID> --message "Verifier verdict: FAIL
 Task type: deterministic/code
 Deliverable: deliverables/build-output.zip
-Verification artifact: deliverables/verify-<TASK_ID>.ps1
+Verification artifacts: deliverables/verify-<TASK_ID>.ps1
 Checks:
 - shape: ok
 - anti-cheat: fail
@@ -48,11 +48,17 @@ Run the actual verification after the screen passes:
 mcon verify run --task <TASK_ID>
 ```
 
+For documentation or planning tasks, treat:
+
+- `deliverables/evaluate-<TASK_ID>.json` as the worker-authored judge spec
+- `deliverables/verify-<TASK_ID>.ps1` as the verification entrypoint that should invoke the configured LLM validation path
+
 ## Tooling Rules
 
 - Use `mcon task show` to inspect task context before issuing a verdict.
 - Use `mcon task comment` to post the verifier result.
 - Use `mcon verify run` only after the bundle-shape and anti-cheat screen passes.
+- For documentation or planning tasks, do not treat `evaluate-<TASK_ID>.json` as the executable verifier by itself; the required runnable entrypoint is `verify-<TASK_ID>.ps1`.
 - `mcon verify run` also performs its own anti-cheat preflight against the verification script and related deliverables. It can reject static-only or disconnected verification even if the verifier comment said `PASS`.
 - If a non-comment workflow action is needed, use an approved script from the workspace workflow folder.
 - If `mcon` denies an action, do not work around it with raw API calls.

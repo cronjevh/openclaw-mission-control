@@ -256,25 +256,33 @@ Your responsibility is to submit a validation bundle, not narrative claims.
 For tasks that produce a deliverable, create:
 
 - one primary artifact in `deliverables/`
-- one separate verification artifact in `deliverables/`
+- the task-appropriate verification artifact set in `deliverables/`
 
 Use these defaults:
 
-- deterministic tasks: `verify-<TASK_ID>.ps1`
-- documentation or planning tasks: `evaluate-<TASK_ID>.json`
+- deterministic tasks:
+  - `verify-<TASK_ID>.ps1`
+- documentation or planning tasks:
+  - `evaluate-<TASK_ID>.json`
+  - `verify-<TASK_ID>.ps1`
 
 Rules:
 
-- The verification artifact must reference the real task deliverable.
-- It must be separate from the main artifact.
-- It must not hardcode success or ignore the acceptance criteria.
-- Prefer PowerShell for deterministic verification scripts unless the task clearly requires another language.
+- Every verification artifact must reference the real task deliverable.
+- Verification artifacts must stay separate from the main artifact.
+- Documentation and planning tasks require both files:
+  - `evaluate-<TASK_ID>.json` is the worker-authored judge spec
+  - `verify-<TASK_ID>.ps1` is the standard wrapper that loads the judge spec, invokes the configured LLM validation path, and returns pass/fail
+- For documentation and planning tasks, the judge spec alone is not a complete verification submission.
+- Keep task-specific criteria in `evaluate-<TASK_ID>.json`. Do not hide bespoke validation logic inside the wrapper.
+- Verification artifacts must not hardcode success or ignore the acceptance criteria.
+- Prefer PowerShell for verification entrypoints unless the task clearly requires another language.
 
 ### Task Completion Steps
 
 1. Save the primary deliverable to `$DELIVERABLES_DIR/`.
-2. Save the verification artifact to `$DELIVERABLES_DIR/` using the fixed task-based name.
-3. Post a task comment that explicitly names both files.
+2. Save the required verification artifact set to `$DELIVERABLES_DIR/` using the fixed task-based names.
+3. Post a task comment that explicitly names the deliverable and every verification artifact.
 4. State that the task is ready for verification.
 5. Stop. Do not create evidence packets or close the task yourself.
 

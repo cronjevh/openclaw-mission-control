@@ -1,12 +1,12 @@
 # Simplified Templates
 
-This folder contains a lightweight template system for reverse-engineering and replaying board agent workspace files.
+This folder contains the simplified board-agent template sources.
 
 The goal is simple:
 
-1. Extract template variables from the current `BOARD_*.md` copies.
-2. Fetch live agent data from the board API.
-3. Render those templates back into the agent workspaces.
+1. Keep the worker, verifier, and lead prompt contracts in one place.
+2. Evolve those contracts without editing rendered workspace copies by hand.
+3. Preserve the design history that informed the current board-role split.
 
 ## What lives here
 
@@ -25,54 +25,18 @@ The goal is simple:
 
 ## Current workflow
 
-### 1. Extract template variables
+Edit the `BOARD_*.md` files in this directory directly.
 
-`scripts/extract-vars.ps1` scans the template copies for templated values and writes the merged variable list to:
+- `BOARD_WORKER_*.md` define the worker contract.
+- `BOARD_VERIFIER_*.md` define the verifier contract.
+- `BOARD_LEAD_*.md` define the lead contract.
 
-- `backend/simplified-templates/.env`
-
-### 2. Fetch agent details
-
-`scripts/fetch-agents.ps1` reads `LOCAL_AUTH_TOKEN` from `backend/.env`, calls:
-
-- `http://localhost:8002/api/v1/agents`
-
-It then fetches each agent detail record and stores a JSON snapshot at:
-
-- `backend/simplified-templates/template-update.json`
-
-### 3. Render templates
-
-The script classifies each agent into one of three template families:
-
-- worker agents -> `BOARD_WORKER_*.md`
-- verifier agents with role `verifier` -> `BOARD_VERIFIER_*.md`
-- lead agents -> `BOARD_LEAD_*.md`
-
-It renders the matching template set into the live workspace root:
-
-- `/home/cronjev/.openclaw`
-
-Worker output paths:
-
-- `/home/cronjev/.openclaw/workspace-mc-<agent_id>/`
-
-Verifier output paths:
-
-- `/home/cronjev/.openclaw/workspace-mc-<agent_id>/`
-
-Lead output paths:
-
-- `/home/cronjev/.openclaw/workspace-lead-<board_id>/`
-
-Agents without a clear render target are skipped.
+There is currently no repo-supported script in this directory for fetching live agent state or replaying these templates into `.openclaw` workspaces.
 
 ## Template variables
 
-The render script uses agent data plus derived values such as:
+Some templates still contain placeholder variables such as:
 
-- `{{base_url}}`
-- `{{auth_token}}`
 - `{{board_id}}`
 - `{{name}}`
 - `{{id}}`
@@ -81,22 +45,19 @@ The render script uses agent data plus derived values such as:
 - `{{identity_profile.role}}`
 - `{{identity_template}}`
 
+They remain part of the template source format. No supported renderer currently lives in this folder.
+
 ## Notes
 
-- The script is intentionally lightweight and local-first.
-- It is safe to use for validation because it only writes to the configured render root.
-- The live workspace is the source of truth for reverse-engineering template values.
+- The older local render/sync helpers under `backend/simplified-templates/scripts/` have been removed.
+- Treat these files as source templates and design references unless a new supported render path is introduced later.
 - The `testmerge/` folder is useful as a temporary sandbox if you want to redirect output during experiments.
 
 ## Common changes
 
-- Add new template variables by updating `scripts/fetch-agents.ps1`.
 - Add new template files by following the existing `BOARD_WORKER_*.md` and `BOARD_LEAD_*.md` naming pattern.
-- If the board API shape changes, update the fetch/normalization logic before touching the templates.
+- If a new workspace render path is introduced later, document it here instead of reviving stale instructions.
 
 ## Related files
 
 - `backend/.env`
-- `backend/simplified-templates/scripts/extract-vars.ps1`
-- `backend/simplified-templates/scripts/fetch-agents.ps1`
-- `backend/simplified-templates/template-update.json`

@@ -16,6 +16,7 @@ $script:Permissions = @{
     'workflow.dispatchboard'  = @('gateway')
     'workflow.blocker'        = @('worker', 'verifier')
     'workflow.escalate'    = @('lead')
+    'workflow.gateway-reply' = @('gateway')
     'workflow.submitreview' = @('worker', 'verifier')
     'verify.run'           = @('verifier')
 }

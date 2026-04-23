@@ -47,6 +47,12 @@ Post a handoff:
 mcon task comment --task <TASK_ID> --message "Deliverable: tasks/<TASK_ID>/deliverables/output.md\nVerification: tasks/<TASK_ID>/deliverables/verify-<TASK_ID>.ps1"
 ```
 
+For documentation or planning tasks, name both verification files:
+
+```bash
+mcon task comment --task <TASK_ID> --message "Deliverable: tasks/<TASK_ID>/deliverables/output.md\nEvaluation spec: tasks/<TASK_ID>/deliverables/evaluate-<TASK_ID>.json\nVerification: tasks/<TASK_ID>/deliverables/verify-<TASK_ID>.ps1"
+```
+
 Submit the completed task for review:
 
 ```bash

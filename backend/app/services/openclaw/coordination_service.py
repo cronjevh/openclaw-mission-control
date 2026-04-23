@@ -443,6 +443,9 @@ class GatewayCoordinationService(AbstractGatewayMessagingService):
         tags_json = json.dumps(tags)
         reply_source = payload.reply_source or "user_via_gateway_main"
         base_url = settings.base_url
+        reply_command = f"mcon workflow gateway-reply --board {board.id}"
+        if correlation:
+            reply_command += f" --correlation-id {correlation}"
         message = (
             "LEAD REQUEST: ASK USER\n"
             f"Board: {board.name}\n"
@@ -459,7 +462,8 @@ class GatewayCoordinationService(AbstractGatewayMessagingService):
             "NON-chat memory item on this board:\n"
             f"POST {base_url}/api/v1/agent/boards/{board.id}/memory\n"
             f'Body: {{"content":"<answer>","tags":{tags_json},"source":"{reply_source}"}}\n'
-            "Do NOT reply in OpenClaw chat."
+            "\nAlso deliver the answer directly to the originating lead by running:\n"
+            f'{reply_command} --message "<answer>"'
         )
         try:
             await self._dispatch_gateway_message(
@@ -570,6 +574,9 @@ class GatewayCoordinationService(AbstractGatewayMessagingService):
         tags_json = json.dumps(tags)
         reply_source = payload.reply_source or "secret_request_via_gateway_main"
         base_url = settings.base_url
+        reply_command = f"mcon workflow gateway-reply --board {board.id}"
+        if correlation:
+            reply_command += f" --correlation-id {correlation}"
         message = (
             "LEAD REQUEST: SECRET ACCESS\n"
             f"Board: {board.name}\n"
@@ -583,7 +590,10 @@ class GatewayCoordinationService(AbstractGatewayMessagingService):
             "When resolved (or rejected), write a NON-chat memory item with status and next steps:\n"
             f"POST {base_url}/api/v1/agent/boards/{board.id}/memory\n"
             f'Body: {{"content":"<status/update>","tags":{tags_json},"source":"{reply_source}"}}\n'
-            "Do NOT reply in OpenClaw chat."
+            "\nAlso deliver the response directly to the originating lead by running:\n"
+            f"{reply_command} --secret-reply --message-file "
+            "<PATH_CONTAINING_STATUS_OR_SECRET_RESPONSE>\n"
+            "Use --message-file for secrets; do not put secret values directly in shell arguments."
         )
         try:
             await self._dispatch_gateway_message(

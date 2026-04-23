@@ -235,3 +235,106 @@ async def test_send_agent_message_blocks_when_paused_with_session_inferred_board
         assert sent == []
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_send_agent_message_verifies_delivered_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = GatewayDispatchService(session=object())
+
+    async def _fake_ensure_session(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        _ = args, kwargs
+        return {"ok": True}
+
+    async def _fake_send_message(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        _ = args, kwargs
+        return {"status": "started"}
+
+    async def _fake_get_chat_history(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        _ = args, kwargs
+        return {"messages": [{"content": [{"type": "text", "text": "Please continue working"}]}]}
+
+    async def _fake_resolve_board(*args: Any, **kwargs: Any) -> None:
+        _ = args, kwargs
+        return None
+
+    async def _fake_should_skip(*args: Any, **kwargs: Any) -> bool:
+        _ = args, kwargs
+        return False
+
+    monkeypatch.setattr(gateway_dispatch, "ensure_session", _fake_ensure_session)
+    monkeypatch.setattr(gateway_dispatch, "send_message", _fake_send_message)
+    monkeypatch.setattr(gateway_dispatch, "get_chat_history", _fake_get_chat_history)
+    monkeypatch.setattr(
+        gateway_dispatch.GatewayDispatchService,
+        "_resolve_board_for_pause_check",
+        _fake_resolve_board,
+    )
+    monkeypatch.setattr(
+        gateway_dispatch.GatewayDispatchService,
+        "_should_skip_for_paused_board",
+        _fake_should_skip,
+    )
+
+    await service.send_agent_message(
+        session_key="agent:session",
+        config=GatewayClientConfig(url="ws://gateway.local/ws"),
+        agent_name="Worker",
+        message="Please continue working",
+        deliver=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_send_agent_message_raises_when_delivered_message_missing_from_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = GatewayDispatchService(session=object())
+
+    async def _fake_ensure_session(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        _ = args, kwargs
+        return {"ok": True}
+
+    async def _fake_send_message(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        _ = args, kwargs
+        return {"status": "started"}
+
+    async def _fake_get_chat_history(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        _ = args, kwargs
+        return {"messages": [{"content": [{"type": "text", "text": "Different message"}]}]}
+
+    async def _fake_sleep(_seconds: float) -> None:
+        return None
+
+    async def _fake_resolve_board(*args: Any, **kwargs: Any) -> None:
+        _ = args, kwargs
+        return None
+
+    async def _fake_should_skip(*args: Any, **kwargs: Any) -> bool:
+        _ = args, kwargs
+        return False
+
+    monkeypatch.setattr(gateway_dispatch, "ensure_session", _fake_ensure_session)
+    monkeypatch.setattr(gateway_dispatch, "send_message", _fake_send_message)
+    monkeypatch.setattr(gateway_dispatch, "get_chat_history", _fake_get_chat_history)
+    monkeypatch.setattr(gateway_dispatch.asyncio, "sleep", _fake_sleep)
+    monkeypatch.setattr(
+        gateway_dispatch.GatewayDispatchService,
+        "_resolve_board_for_pause_check",
+        _fake_resolve_board,
+    )
+    monkeypatch.setattr(
+        gateway_dispatch.GatewayDispatchService,
+        "_should_skip_for_paused_board",
+        _fake_should_skip,
+    )
+
+    with pytest.raises(OpenClawGatewayError, match="not present in recent chat history"):
+        await service.send_agent_message(
+            session_key="agent:session",
+            config=GatewayClientConfig(url="ws://gateway.local/ws"),
+            agent_name="Worker",
+            message="Please continue working",
+            deliver=True,
+        )

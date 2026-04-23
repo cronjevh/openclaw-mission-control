@@ -25,6 +25,245 @@ function New-MconEscalationTaskCommentMessage {
     return ($lines -join "`n")
 }
 
+function Get-MconGatewayMainSessionKey {
+    param(
+        [Parameter(Mandatory)][string]$GatewayId
+    )
+
+    return "agent:mc-gateway-${GatewayId}:main"
+}
+
+function Get-MconEscalationInvocationAgent {
+    param(
+        [Parameter(Mandatory)][hashtable]$Config
+    )
+
+    if ($Config.ContainsKey('workspace_path') -and -not [string]::IsNullOrWhiteSpace([string]$Config.workspace_path)) {
+        $workspaceLeaf = Split-Path -Leaf ([string]$Config.workspace_path)
+        if ($workspaceLeaf -match '^workspace-(.+)$') {
+            return $matches[1]
+        }
+    }
+
+    if ($Config.ContainsKey('wsp') -and -not [string]::IsNullOrWhiteSpace([string]$Config.wsp)) {
+        $workspaceName = [string]$Config.wsp
+        if ($workspaceName -match '^workspace-(.+)$') {
+            return $matches[1]
+        }
+    }
+
+    throw 'Unable to resolve invocation agent id from workspace configuration.'
+}
+
+function Get-MconEscalationLeadAgent {
+    param(
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [Parameter(Mandatory)][string]$Token,
+        [Parameter(Mandatory)][string]$BoardId
+    )
+
+    $encodedBoardId = [uri]::EscapeDataString($BoardId)
+    $rosterResponse = Invoke-MconApi -Method Get -Uri "$BaseUrl/api/v1/agent/agents?board_id=$encodedBoardId&limit=100" -Token $Token
+    $agents = @(Get-MconResponseItems -Response $rosterResponse)
+    $lead = @($agents | Where-Object { $_ -and $_.is_board_lead } | Select-Object -First 1)
+    if ($lead.Count -eq 0 -or -not $lead[0]) {
+        throw "No board lead agent found for board $BoardId."
+    }
+
+    return $lead[0]
+}
+
+function New-MconGatewayReplyMessage {
+    param(
+        [Parameter(Mandatory)][string]$BoardId,
+        [Parameter(Mandatory)][string]$BoardName,
+        [Parameter(Mandatory)][string]$GatewayName,
+        [Parameter(Mandatory)][string]$Message,
+        [string]$CorrelationId,
+        [string]$TaskId
+    )
+
+    $correlationLine = if ([string]::IsNullOrWhiteSpace($CorrelationId)) { '' } else { "Correlation ID: $($CorrelationId.Trim())`n" }
+    $taskLine = if ([string]::IsNullOrWhiteSpace($TaskId)) { '' } else { "Task ID: $($TaskId.Trim())`n" }
+
+    return @"
+GATEWAY MAIN REPLY
+Board: $BoardName
+Board ID: $BoardId
+From gateway: $GatewayName
+$correlationLine$taskLine
+$($Message.Trim())
+"@
+}
+
+function New-MconGatewayMainEscalationMessage {
+    param(
+        [Parameter(Mandatory)][string]$Mode,
+        [Parameter(Mandatory)][string]$BoardId,
+        [Parameter(Mandatory)][string]$BoardName,
+        [Parameter(Mandatory)][string]$LeadName,
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [Parameter(Mandatory)][string]$MconReplyCommand,
+        [Parameter(Mandatory)][string]$Message,
+        [string]$TaskId,
+        [string]$CorrelationId,
+        [string]$PreferredChannel,
+        [string]$SecretKey,
+        [string]$TargetAgentId,
+        [string]$TargetAgentName
+    )
+
+    $normalizedMessage = $Message.Trim()
+    $correlation = if ([string]::IsNullOrWhiteSpace($CorrelationId)) { $null } else { $CorrelationId.Trim() }
+    $correlationLine = if ($correlation) { "Correlation ID: $correlation`n" } else { '' }
+
+    if ($Mode -eq 'request_secret') {
+        $secret = $SecretKey.Trim().ToUpperInvariant()
+        $requestedFor = if (-not [string]::IsNullOrWhiteSpace($TargetAgentName)) {
+            "Requested for agent: $($TargetAgentName.Trim())"
+        } elseif (-not [string]::IsNullOrWhiteSpace($TargetAgentId)) {
+            "Requested for agent id: $($TargetAgentId.Trim())"
+        } else {
+            'Requested for agent: Board lead'
+        }
+        $secretLine = "Secret key needed: $secret"
+
+        return @"
+LEAD REQUEST: SECRET ACCESS
+Board: $BoardName
+Board ID: $BoardId
+From lead: $LeadName
+$correlationLine$secretLine
+$requestedFor
+
+$normalizedMessage
+
+Please coordinate with the operator/user to provide or grant this secret.
+When resolved (or rejected), deliver the response to the originating lead in BOTH ways:
+1. Run this command so the lead receives a direct OpenClaw session message:
+$MconReplyCommand --secret-reply --message-file <PATH_CONTAINING_STATUS_OR_SECRET_RESPONSE>
+Use --message-file for secrets; do not put secret values directly in shell arguments.
+2. Write a NON-chat memory item with status and next steps:
+POST $BaseUrl/api/v1/agent/boards/$BoardId/memory
+Body: {"content":"<status/update>","tags":["gateway_main","secret_request_reply"],"source":"secret_request_via_gateway_main"}
+"@
+    }
+
+    $channelLine = if ([string]::IsNullOrWhiteSpace($PreferredChannel)) {
+        ''
+    } else {
+        "Preferred channel: $($PreferredChannel.Trim())`n"
+    }
+
+    return @"
+LEAD REQUEST: ASK USER
+Board: $BoardName
+Board ID: $BoardId
+From lead: $LeadName
+$correlationLine$channelLine
+$normalizedMessage
+
+Please reach the user via your configured OpenClaw channel(s) (Slack/SMS/etc).
+If you cannot reach them there, post the question in Mission Control board chat as a fallback.
+
+When you receive the answer, reply in Mission Control by writing a NON-chat memory item on this board:
+POST $BaseUrl/api/v1/agent/boards/$BoardId/memory
+Body: {"content":"<answer>","tags":["gateway_main","user_reply"],"source":"user_via_gateway_main"}
+
+Also deliver the answer directly to the originating lead by running:
+$MconReplyCommand --message "<answer>"
+"@
+}
+
+function Invoke-MconGatewayReply {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$Config,
+        [Parameter(Mandatory)][string]$BoardId,
+        [Parameter(Mandatory)][string]$Message,
+        [string]$TaskId,
+        [string]$CorrelationId,
+        [ValidateSet('user', 'secret')]
+        [string]$ReplyKind = 'user'
+    )
+
+    $baseUrl = $Config.base_url.TrimEnd('/')
+    $authToken = $Config.auth_token
+    $workspacePath = [string]$Config.workspace_path
+    $mconScriptPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'mcon.ps1'
+    $encodedBoardId = [uri]::EscapeDataString($BoardId)
+
+    $board = Invoke-MconApi -Method Get -Uri "$baseUrl/api/v1/agent/boards/$encodedBoardId" -Token $authToken
+    $boardName = if ($board.PSObject.Properties.Name -contains 'name' -and $board.name) { [string]$board.name } else { $BoardId }
+    $lead = Get-MconEscalationLeadAgent -BaseUrl $baseUrl -Token $authToken -BoardId $BoardId
+    $leadSessionKey = if ($lead.PSObject.Properties.Name -contains 'openclaw_session_id') { [string]$lead.openclaw_session_id } else { $null }
+    if ([string]::IsNullOrWhiteSpace($leadSessionKey)) {
+        throw "Board lead for board $BoardId has no openclaw_session_id. Cannot deliver gateway reply."
+    }
+
+    $gatewayName = Resolve-MconOpenClawAgentName -WorkspacePath $workspacePath
+    $invocationAgent = Get-MconEscalationInvocationAgent -Config $Config
+    $replyMessage = New-MconGatewayReplyMessage `
+        -BoardId $BoardId `
+        -BoardName $boardName `
+        -GatewayName $gatewayName `
+        -Message $Message `
+        -CorrelationId $CorrelationId `
+        -TaskId $TaskId
+
+    if ($ReplyKind -eq 'secret') {
+        $tags = @('gateway_main', 'secret_request_reply')
+        $source = 'secret_request_via_gateway_main'
+    } else {
+        $tags = @('gateway_main', 'user_reply')
+        $source = 'gateway_main_reply'
+    }
+    $memoryBody = [ordered]@{
+        content = $Message.Trim()
+        tags    = $tags
+        source  = $source
+    }
+    $memory = Invoke-MconApi -Method Post -Uri "$baseUrl/api/v1/agent/boards/$encodedBoardId/memory" -Token $authToken -Body $memoryBody
+
+    $diagnosticsDir = if (-not [string]::IsNullOrWhiteSpace($TaskId)) {
+        Join-Path (Join-Path (Join-Path $workspacePath 'tasks') $TaskId) 'evidence/session-dispatch-gateway-reply'
+    } else {
+        Join-Path $workspacePath '.openclaw/workflows/gateway-reply'
+    }
+    $dispatchTaskId = if (-not [string]::IsNullOrWhiteSpace($TaskId)) { $TaskId } else { [guid]::NewGuid().Guid }
+    $dispatchType = 'gateway_reply'
+    $deferredPayload = [ordered]@{
+        workspace_path        = $workspacePath
+        invocation_agent      = $invocationAgent
+        session_key           = $leadSessionKey
+        message               = $replyMessage
+        task_id               = $TaskId
+        dispatch_type         = $dispatchType
+        timeout_seconds       = 120
+        temperature           = 0
+        initial_delay_seconds = 0
+    }
+    $dispatch = Start-MconDeferredSessionDispatch `
+        -WorkspacePath $workspacePath `
+        -MconScriptPath $mconScriptPath `
+        -DiagnosticsDir $diagnosticsDir `
+        -TaskId $dispatchTaskId `
+        -Payload $deferredPayload
+
+    return [ordered]@{
+        ok               = $true
+        board_id         = $BoardId
+        board_name       = $boardName
+        lead_agent_id    = if ($lead.PSObject.Properties.Name -contains 'id') { [string]$lead.id } else { $null }
+        lead_agent_name  = if ($lead.PSObject.Properties.Name -contains 'name') { [string]$lead.name } else { $null }
+        lead_session_key = $leadSessionKey
+        correlation_id   = $CorrelationId
+        task_id          = $TaskId
+        memory           = $memory
+        dispatch         = $dispatch
+    }
+}
+
 function Invoke-MconEscalate {
     [CmdletBinding()]
     param(
@@ -42,36 +281,68 @@ function Invoke-MconEscalate {
     $authToken = $Config.auth_token
     $boardId = $Config.board_id
     $encodedBoardId = [uri]::EscapeDataString($boardId)
+    $workspacePath = [string]$Config.workspace_path
+    $mconScriptPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'mcon.ps1'
 
     $isSecretRequest = -not [string]::IsNullOrWhiteSpace($SecretKey)
     $mode = if ($isSecretRequest) { 'request_secret' } else { 'ask_user' }
-    $uri = if ($isSecretRequest) {
-        "$baseUrl/api/v1/agent/boards/$encodedBoardId/gateway/main/request-secret"
-    } else {
-        "$baseUrl/api/v1/agent/boards/$encodedBoardId/gateway/main/ask-user"
+
+    $board = Invoke-MconApi -Method Get -Uri "$baseUrl/api/v1/agent/boards/$encodedBoardId" -Token $authToken
+    $gatewayId = if ($board.PSObject.Properties.Name -contains 'gateway_id') { [string]$board.gateway_id } else { $null }
+    if ([string]::IsNullOrWhiteSpace($gatewayId)) {
+        throw "Board $boardId has no gateway_id. Cannot resolve Gateway Main session."
     }
 
-    $body = [ordered]@{
-        content = $Message.Trim()
+    $boardName = if ($board.PSObject.Properties.Name -contains 'name' -and $board.name) { [string]$board.name } else { $boardId }
+    $leadName = Resolve-MconOpenClawAgentName -WorkspacePath $workspacePath
+    $invocationAgent = Get-MconEscalationInvocationAgent -Config $Config
+    $sessionKey = Get-MconGatewayMainSessionKey -GatewayId $gatewayId
+    $replyCommandParts = @('mcon', 'workflow', 'gateway-reply', '--board', $boardId)
+    if (-not [string]::IsNullOrWhiteSpace($TaskId)) {
+        $replyCommandParts += @('--task', $TaskId)
     }
-
     if (-not [string]::IsNullOrWhiteSpace($CorrelationId)) {
-        $body.correlation_id = $CorrelationId
+        $replyCommandParts += @('--correlation-id', $CorrelationId)
     }
+    $replyCommand = $replyCommandParts -join ' '
+    $messageText = New-MconGatewayMainEscalationMessage `
+        -Mode $mode `
+        -BoardId $boardId `
+        -BoardName $boardName `
+        -LeadName $leadName `
+        -BaseUrl $baseUrl `
+        -MconReplyCommand $replyCommand `
+        -Message $Message `
+        -TaskId $TaskId `
+        -CorrelationId $CorrelationId `
+        -PreferredChannel $PreferredChannel `
+        -SecretKey $SecretKey `
+        -TargetAgentId $TargetAgentId `
+        -TargetAgentName $TargetAgentName
 
-    if ($isSecretRequest) {
-        $body.secret_key = $SecretKey.Trim().ToUpperInvariant()
-        if (-not [string]::IsNullOrWhiteSpace($TargetAgentId)) {
-            $body.target_agent_id = $TargetAgentId
-        }
-        if (-not [string]::IsNullOrWhiteSpace($TargetAgentName)) {
-            $body.target_agent_name = $TargetAgentName.Trim()
-        }
-    } elseif (-not [string]::IsNullOrWhiteSpace($PreferredChannel)) {
-        $body.preferred_channel = $PreferredChannel.Trim()
+    $diagnosticsDir = if (-not [string]::IsNullOrWhiteSpace($TaskId)) {
+        Join-Path (Join-Path (Join-Path $workspacePath 'tasks') $TaskId) 'evidence/session-dispatch-escalate'
+    } else {
+        Join-Path $workspacePath '.openclaw/workflows/escalate'
     }
-
-    $response = Invoke-MconApi -Method Post -Uri $uri -Token $authToken -Body $body
+    $dispatchType = "escalate_$mode"
+    $deferredPayload = [ordered]@{
+        workspace_path        = $workspacePath
+        invocation_agent      = $invocationAgent
+        session_key           = $sessionKey
+        message               = $messageText
+        task_id               = $TaskId
+        dispatch_type         = $dispatchType
+        timeout_seconds       = 120
+        temperature           = 0
+        initial_delay_seconds = 0
+    }
+    $response = Start-MconDeferredSessionDispatch `
+        -WorkspacePath $workspacePath `
+        -MconScriptPath $mconScriptPath `
+        -DiagnosticsDir $diagnosticsDir `
+        -TaskId $(if (-not [string]::IsNullOrWhiteSpace($TaskId)) { $TaskId } else { [guid]::NewGuid().Guid }) `
+        -Payload $deferredPayload
 
     $taskComment = $null
     $taskCommentError = $null
@@ -95,11 +366,15 @@ function Invoke-MconEscalate {
         details = [ordered]@{
             mode              = $mode
             task_id           = $TaskId
-            secret_key        = if ($isSecretRequest) { $body.secret_key } else { $null }
+            secret_key        = if ($isSecretRequest) { $SecretKey.Trim().ToUpperInvariant() } else { $null }
             target_agent_id   = $TargetAgentId
             target_agent_name = $TargetAgentName
             preferred_channel = $PreferredChannel
             correlation_id    = $CorrelationId
+            gateway_id        = $gatewayId
+            session_key       = $sessionKey
+            queued            = $true
+            dispatch_type     = $dispatchType
         }
         response           = $response
         task_comment       = $taskComment
@@ -107,4 +382,4 @@ function Invoke-MconEscalate {
     }
 }
 
-Export-ModuleMember -Function Invoke-MconEscalate
+Export-ModuleMember -Function Invoke-MconEscalate, Invoke-MconGatewayReply

@@ -2576,6 +2576,7 @@ def _lead_requested_fields(update: _TaskUpdateInput) -> set[str]:
 def _validate_lead_update_request(update: _TaskUpdateInput) -> None:
     allowed_fields = {
         "assigned_agent_id",
+        "description",
         "status",
         "depends_on_task_ids",
         "tag_ids",
@@ -2882,6 +2883,9 @@ async def _apply_lead_task_update(
             task_id=update.task.id,
             custom_field_values=update.custom_field_values,
         )
+
+    if "description" in update.updates:
+        update.task.description = update.updates["description"]
 
     update.task.updated_at = utcnow()
     session.add(update.task)

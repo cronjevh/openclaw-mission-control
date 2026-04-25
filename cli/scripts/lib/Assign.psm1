@@ -1016,8 +1016,10 @@ function Invoke-MconDeferredAssignRecoverySweep {
 
     $payloadFiles = @(
         Get-ChildItem -LiteralPath $paths.jobs_dir -Filter '*-payload.json' -File -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTimeUtc
+            Sort-Object LastWriteTimeUtc -Descending
     )
+
+    $seenTaskIds = @{}
 
     foreach ($payloadFile in $payloadFiles) {
         if ($ExcludePayloadPath -and $payloadFile.FullName -eq $ExcludePayloadPath) {
@@ -1027,11 +1029,20 @@ function Invoke-MconDeferredAssignRecoverySweep {
             continue
         }
 
-        $payload = $null
+        $taskId = $null
         try {
             $payload = Get-Content -LiteralPath $payloadFile.FullName -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
+            $taskId = if ($payload.PSObject.Properties.Name -contains 'task_id') { [string]$payload.task_id } else { $null }
         } catch {
             continue
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($taskId) -and $seenTaskIds.ContainsKey($taskId)) {
+            continue
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($taskId)) {
+            $seenTaskIds[$taskId] = $true
         }
 
         $resultPath = if ($payload -and ($payload.PSObject.Properties.Name -contains 'result_path')) { [string]$payload.result_path } else { $null }
@@ -1040,14 +1051,13 @@ function Invoke-MconDeferredAssignRecoverySweep {
         }
 
         $jobId = if ($payload -and ($payload.PSObject.Properties.Name -contains 'job_id')) { [string]$payload.job_id } else { $null }
-        $taskId = if ($payload -and ($payload.PSObject.Properties.Name -contains 'task_id')) { [string]$payload.task_id } else { $null }
-        $pid = if ($payload -and ($payload.PSObject.Properties.Name -contains 'pid')) { [int]$payload.pid } else { 0 }
-        if (Test-MconProcessAlive -ProcessId $pid) {
+        $processId = if ($payload -and ($payload.PSObject.Properties.Name -contains 'pid')) { [int]$payload.pid } else { 0 }
+        if (Test-MconProcessAlive -ProcessId $processId) {
             Write-MconAssignWorkflowState -WorkspacePath $WorkspacePath -State 'recovery_skipped_process_alive' -Fields @{
                 task_id      = $taskId
                 job_id       = $jobId
                 phase        = 'recovery_sweep'
-                reason       = "deferred assign worker pid $pid is still running"
+                reason       = "deferred assign worker pid $processId is still running"
                 payload_path = $payloadFile.FullName
                 result_path  = $resultPath
             } | Out-Null

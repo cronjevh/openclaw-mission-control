@@ -63,8 +63,8 @@ Usage:
   mcon task show        --tags <TAG_ID|SLUG|NAME,...>
    mcon task comment    --task <TASK_ID> (--message <TEXT>|--message-file <PATH>)
   mcon task move       --task <TASK_ID> --status <STATUS>
-  mcon task create     --title <TITLE> [--description <TEXT>] [--priority <LEVEL>] [--backlog <true|false>] [--tags <TAG_ID,...>] [--depends-on <TASK_ID,...>]
-  mcon task update     --task <TASK_ID> [--title <TITLE>] [--description <TEXT>] [--priority <LEVEL>] [--backlog <true|false>] [--tags <TAG_ID,...>] [--depends-on <TASK_ID,...>]
+  mcon task create     --title <TITLE> [--description <TEXT>|--message-file <PATH>] [--priority <LEVEL>] [--backlog <true|false>] [--tags <TAG_ID,...>] [--depends-on <TASK_ID,...>]
+  mcon task update     --task <TASK_ID> [--title <TITLE>] [--description <TEXT>|--message-file <PATH>] [--priority <LEVEL>] [--backlog <true|false>] [--tags <TAG_ID,...>] [--depends-on <TASK_ID,...>]
   mcon admin gettokens      # gateway-only: fetch agents, derive tokens, encrypt keybag
   mcon admin decrypt-keybag # gateway-only: decrypt .agent-tokens.json.enc → .agent-tokens.json
   mcon admin templatedist --templates-dir <DIR> [--output <FILE>] [--render-root <DIR>] [--reverse]  # distribute templates
@@ -254,6 +254,15 @@ Statuses: inbox, in_progress, review, done, blocked
                 }
             }
             'create' {
+                if ($null -ne $messageFile) {
+                    if ($null -ne $description) {
+                        Write-MconError -Message 'Use either --description <TEXT> or --message-file <PATH>, not both.' -Code 'usage'
+                    }
+                    if (-not (Test-Path -LiteralPath $messageFile)) {
+                        Write-MconError -Message "Message file not found: $messageFile" -Code 'validation'
+                    }
+                    $description = Get-Content -LiteralPath $messageFile -Raw -Encoding UTF8
+                }
                 if ($null -ne $backlog) {
                     switch (($backlog.ToString()).ToLowerInvariant()) {
                         'true' { $backlog = $true; break }
@@ -286,6 +295,15 @@ Statuses: inbox, in_progress, review, done, blocked
                 }
             }
             'update' {
+                if ($null -ne $messageFile) {
+                    if ($null -ne $description) {
+                        Write-MconError -Message 'Use either --description <TEXT> or --message-file <PATH>, not both.' -Code 'usage'
+                    }
+                    if (-not (Test-Path -LiteralPath $messageFile)) {
+                        Write-MconError -Message "Message file not found: $messageFile" -Code 'validation'
+                    }
+                    $description = Get-Content -LiteralPath $messageFile -Raw -Encoding UTF8
+                }
                 if ($null -eq $title -and $null -eq $description -and $null -eq $priority -and $null -eq $backlog -and $null -eq $tags -and $null -eq $dependsOn) {
                     Write-MconError -Message 'At least one update field is required (--title, --description, --priority, --backlog, --tags, --depends-on).' -Code 'usage'
                 }
@@ -1095,6 +1113,7 @@ Statuses: inbox, in_progress, review, done, blocked
 
         $verifyAction = $remaining[0]
         $verifyArgs = @($remaining | Select-Object -Skip 1)
+        $messageFile = $null
 
         switch ($verifyAction) {
             'run' {

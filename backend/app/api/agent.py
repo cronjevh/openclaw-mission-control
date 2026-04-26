@@ -18,6 +18,7 @@ from app.api import board_onboarding as onboarding_api
 from app.api import tasks as tasks_api
 from app.api.deps import ActorContext, get_board_or_404
 from app.core.agent_auth import AgentAuthContext, get_agent_auth_context
+from app.core.config import settings
 from app.db.pagination import paginate
 from app.db.session import get_session
 from app.models.agents import Agent
@@ -59,7 +60,7 @@ from app.schemas.gateway_coordination import (
 from app.schemas.health import AgentHealthStatusResponse
 from app.schemas.pagination import DefaultLimitOffsetPage
 from app.schemas.tags import TagRead, TagRef
-from app.schemas.tasks import TaskCommentCreate, TaskCommentRead, TaskCreate, TaskRead, TaskUpdate
+from app.schemas.tasks import TaskCommentCreate, TaskCommentRead, TaskCreate, TaskMoveBetweenBoardsRequest, TaskMoveBetweenBoardsResponse, TaskRead, TaskUpdate
 from app.api.tasks import apply_default_evidence_closure_for_okr_tasks
 from app.services.task_evidence import list_task_evidence_packets
 from app.schemas.task_evidence import TaskEvidencePacketCreate, TaskEvidencePacketRead
@@ -1381,6 +1382,156 @@ async def create_task_comment(
         task=task,
         session=session,
         actor=_actor(agent_ctx),
+    )
+
+
+@router.post(
+    "/boards/{board_id}/tasks/move-from-board",
+    response_model=TaskMoveBetweenBoardsResponse,
+    tags=AGENT_LEAD_TAGS,
+    summary="Move an inbox task from another board to this board",
+    description=(
+        "Cross-board task move for gateway and lead agents.\n\n"
+        "Reads the source task, creates a new inbox task on the target board, "
+        "adds the mandatory comment, then deletes the original task.\n\n"
+        "Only inbox tasks can be moved. The caller must be a gateway agent "
+        "or a board lead."
+    ),
+    responses={
+        200: {"description": "Task moved successfully"},
+        403: {"description": "Caller is not gateway or board lead"},
+        404: {"description": "Source task or board not found"},
+        409: {"description": "Task is not in inbox status"},
+    },
+)
+async def move_task_between_boards(
+    board_id: UUID,
+    payload: TaskMoveBetweenBoardsRequest,
+    session: AsyncSession = SESSION_DEP,
+    agent_ctx: AgentAuthContext = AGENT_CTX_DEP,
+) -> TaskMoveBetweenBoardsResponse:
+    """Move an inbox task from another board to this board.
+
+    Gateway agents can move from any board. Lead agents can move from their
+    own board only. The task must be in inbox status.
+    """
+    agent = agent_ctx.agent
+    is_gateway = not agent.board_id or agent.name and "gateway" in agent.name.lower()
+    is_lead = agent.is_board_lead
+
+    if not is_gateway and not is_lead:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only gateway or board lead agents can move tasks between boards.",
+        )
+
+    if is_lead and not is_gateway:
+        if not agent.board_id or agent.board_id != payload.source_board_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Lead agents can only move tasks from their own board.",
+            )
+
+    # Get target board manually (don't use BOARD_DEP to avoid access control for cross-board moves)
+    target_board = await Board.objects.by_id(board_id).first(session)
+    if target_board is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Target board not found.",
+        )
+
+    source_board = await Board.objects.by_id(payload.source_board_id).first(session)
+    if source_board is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Source board not found.",
+        )
+
+    source_task = await Task.objects.by_id(payload.task_id).first(session)
+    if source_task is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Source task not found.",
+        )
+
+    if source_task.board_id != payload.source_board_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task does not belong to the specified source board.",
+        )
+
+    if source_task.status != "inbox":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Task is not in inbox status (current: {source_task.status}). Only inbox tasks can be moved.",
+        )
+
+    # Create task directly to bypass pause check for administrative cross-board moves
+    from app.core.time import utcnow
+    from app.services.activity_log import record_activity
+    from app.models.activity_events import ActivityEvent
+
+    new_task = Task(
+        title=source_task.title,
+        description=source_task.description,
+        status="inbox",
+        priority=source_task.priority,
+        board_id=target_board.id,
+        auto_created=True,
+        auto_reason=f"moved_from_board:{payload.source_board_id}:by_agent:{agent.id}",
+        created_at=utcnow(),
+        updated_at=utcnow(),
+    )
+    session.add(new_task)
+    await session.flush()
+
+    record_activity(
+        session,
+        event_type="task.created",
+        task_id=new_task.id,
+        message=f"Task moved from board {source_board.name}: {new_task.title}.",
+        agent_id=agent.id,
+        board_id=target_board.id,
+    )
+
+    # Create comment as ActivityEvent to bypass pause check
+    comment_event = ActivityEvent(
+        event_type="task.comment",
+        message=payload.comment,
+        task_id=new_task.id,
+        board_id=target_board.id,
+        agent_id=agent.id,
+        created_at=utcnow(),
+    )
+    session.add(comment_event)
+    await session.flush()
+
+    record_activity(
+        session,
+        event_type="task.deleted",
+        task_id=source_task.id,
+        message=f"Task moved to board {target_board.name}: {source_task.title}.",
+        agent_id=agent.id,
+        board_id=payload.source_board_id,
+    )
+
+    await tasks_api.delete_task_and_related_records(session, task=source_task)
+
+    await session.commit()
+    await session.refresh(new_task)
+
+    new_task_read = await tasks_api._task_read_response(
+        session,
+        task=new_task,
+        board_id=target_board.id,
+    )
+
+    return TaskMoveBetweenBoardsResponse(
+        source_task_id=source_task.id,
+        new_task_id=new_task.id,
+        source_board_id=payload.source_board_id,
+        target_board_id=target_board.id,
+        task=new_task_read,
     )
 
 

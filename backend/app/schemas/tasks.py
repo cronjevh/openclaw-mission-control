@@ -120,6 +120,25 @@ class TaskRead(TaskBase):
     custom_field_values: TaskCustomFieldValues | None = None
 
 
+class TaskMoveBetweenBoardsRequest(SQLModel):
+    """Payload for moving a task from one board to another."""
+
+    task_id: UUID
+    source_board_id: UUID
+    comment: NonEmptyStr
+
+
+class TaskMoveBetweenBoardsResponse(SQLModel):
+    """Response payload for cross-board task move."""
+
+    ok: bool = True
+    source_task_id: UUID
+    new_task_id: UUID
+    source_board_id: UUID
+    target_board_id: UUID
+    task: TaskRead
+
+
 class TaskCommentCreate(SQLModel):
     """Payload for creating a task comment."""
 

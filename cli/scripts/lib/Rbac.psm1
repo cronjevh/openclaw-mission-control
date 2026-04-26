@@ -5,7 +5,9 @@ $script:RoleMap = @{
 }
 
 $script:Permissions = @{
+    'task.list'            = @('lead', 'gateway', 'worker', 'verifier')
     'task.move'            = @('gateway')
+    'task.movetoboard'     = @('gateway', 'lead')
     'task.update'          = @('lead', 'gateway')
     'admin.gettokens'      = @('gateway')
     'admin.decrypt-keybag' = @('gateway')

@@ -59,10 +59,12 @@ switch ($subcommand) {
 mcon - Mission Control CLI
 
 Usage:
+   mcon task list        [--board <BOARD_ID>] [--status <STATUS>] [--tag <TAG>] [--assigned <AGENT_ID>] [--unassigned]
   mcon task show        --task <TASK_ID>
   mcon task show        --tags <TAG_ID|SLUG|NAME,...>
    mcon task comment    --task <TASK_ID> (--message <TEXT>|--message-file <PATH>)
-  mcon task move       --task <TASK_ID> --status <STATUS>
+   mcon task move       --task <TASK_ID> --status <STATUS>
+   mcon task move       --task <TASK_ID> --board <BOARD_ID> --comment <TEXT> [--source-board <BOARD_ID>]
   mcon task create     --title <TITLE> [--description <TEXT>|--message-file <PATH>] [--priority <LEVEL>] [--backlog <true|false>] [--tags <TAG_ID,...>] [--depends-on <TASK_ID,...>]
   mcon task update     --task <TASK_ID> [--title <TITLE>] [--description <TEXT>|--message-file <PATH>] [--priority <LEVEL>] [--backlog <true|false>] [--tags <TAG_ID,...>] [--depends-on <TASK_ID,...>]
   mcon admin gettokens      # gateway-only: fetch agents, derive tokens, encrypt keybag
@@ -85,7 +87,9 @@ Roles (derived from MCON_WSP):
   workspace-mc-*       = worker or verifier (detected from workspace contract)
 
 Permissions:
+  task.list            → all
   task.move            → gateway only
+  task.movetoboard     → gateway, lead only
   task.update          → lead, gateway only
   admin.gettokens      → gateway only
   admin.decrypt-keybag → gateway only
@@ -160,7 +164,7 @@ Statuses: inbox, in_progress, review, done, blocked
         }
 
         if ($remaining.Count -lt 1) {
-            Write-MconError -Message 'Usage: mcon task <action> [options]. Actions: show, comment, move, create, update.' -Code 'usage'
+            Write-MconError -Message 'Usage: mcon task <action> [options]. Actions: list, show, comment, move, create, update.' -Code 'usage'
         }
 
         $action = $remaining[0]
@@ -176,6 +180,12 @@ Statuses: inbox, in_progress, review, done, blocked
         $tags = $null
         $dependsOn = $null
         $messageFile = $null
+        $targetBoard = $null
+        $sourceBoard = $null
+        $moveComment = $null
+        $listTag = $null
+        $listAssigned = $null
+        $listUnassigned = $null
 
         $i = 0
         while ($i -lt $actionArgs.Count) {
@@ -184,6 +194,12 @@ Statuses: inbox, in_progress, review, done, blocked
                 '--message' { $message = $actionArgs[++$i]; break }
                 '--message-file' { $messageFile = $actionArgs[++$i]; break }
                 '--status' { $status = $actionArgs[++$i]; break }
+                '--board' { $targetBoard = $actionArgs[++$i]; break }
+                '--source-board' { $sourceBoard = $actionArgs[++$i]; break }
+                '--tag' { $listTag = $actionArgs[++$i]; break }
+                '--assigned' { $listAssigned = $actionArgs[++$i]; break }
+                '--unassigned' { $listUnassigned = $true; break }
+                '--comment' { $moveComment = $actionArgs[++$i]; break }
                 '--title' { $title = $actionArgs[++$i]; break }
                 '--description' { $description = $actionArgs[++$i]; break }
                 '--priority' { $priority = $actionArgs[++$i]; break }
@@ -212,7 +228,7 @@ Statuses: inbox, in_progress, review, done, blocked
                 }
             }
         }
-        elseif ($action -ne 'create') {
+        elseif ($action -ne 'create' -and $action -ne 'list') {
             if (-not $task) {
                 Write-MconError -Message '--task <TASK_ID> is required.' -Code 'usage'
             }
@@ -221,7 +237,18 @@ Statuses: inbox, in_progress, review, done, blocked
                 Write-MconError -Message "Invalid task ID format: $task" -Code 'validation'
             }
         }
-        else {
+        if ($action -eq 'list') {
+            if ($targetBoard -and $targetBoard -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                Write-MconError -Message "Invalid board ID format: $targetBoard" -Code 'validation'
+            }
+            if ($listAssigned -and $listAssigned -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                Write-MconError -Message "Invalid assigned agent ID format: $listAssigned" -Code 'validation'
+            }
+            if ($listAssigned -and $listUnassigned) {
+                Write-MconError -Message 'Use either --assigned <AGENT_ID> or --unassigned, not both.' -Code 'usage'
+            }
+        }
+        elseif ($action -eq 'create') {
             if (-not $title) {
                 Write-MconError -Message '--title <TITLE> is required for task creation.' -Code 'usage'
             }
@@ -244,13 +271,32 @@ Statuses: inbox, in_progress, review, done, blocked
                 }
             }
             'move' {
-                if (-not $status) {
-                    Write-MconError -Message '--status <STATUS> is required.' -Code 'usage'
+                if ($status -and $targetBoard) {
+                    Write-MconError -Message 'Use either --status <STATUS> for status change or --board <BOARD_ID> for board move, not both.' -Code 'usage'
                 }
-                $status = $status.ToLowerInvariant()
-                if (-not (Test-MconValidStatus -Status $status)) {
-                    $valid = (Get-MconValidStatuses) -join ', '
-                    Write-MconError -Message "Invalid status '$status'. Valid: $valid" -Code 'validation'
+                if ($status) {
+                    $status = $status.ToLowerInvariant()
+                    if (-not (Test-MconValidStatus -Status $status)) {
+                        $valid = (Get-MconValidStatuses) -join ', '
+                        Write-MconError -Message "Invalid status '$status'. Valid: $valid" -Code 'validation'
+                    }
+                }
+                elseif ($targetBoard) {
+                    if ($targetBoard -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                        Write-MconError -Message "Invalid target board ID format: $targetBoard" -Code 'validation'
+                    }
+                    if ($sourceBoard -and $sourceBoard -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                        Write-MconError -Message "Invalid source board ID format: $sourceBoard" -Code 'validation'
+                    }
+                    if (-not $moveComment) {
+                        Write-MconError -Message '--comment <TEXT> is required when moving a task to another board.' -Code 'usage'
+                    }
+                    if ([string]::IsNullOrWhiteSpace($moveComment)) {
+                        Write-MconError -Message 'Comment must not be empty.' -Code 'validation'
+                    }
+                }
+                else {
+                    Write-MconError -Message 'task move requires either --status <STATUS> or --board <BOARD_ID> --comment <TEXT>.' -Code 'usage'
                 }
             }
             'create' {
@@ -348,13 +394,52 @@ Statuses: inbox, in_progress, review, done, blocked
             Write-MconError -Message $_.Exception.Message -Code 'config_error'
         }
 
-        $actionKey = "task.$action"
+        $actionKey = if ($action -eq 'move' -and $targetBoard) { 'task.movetoboard' } else { "task.$action" }
         if (-not (Test-MconPermission -Action $actionKey -Role $role)) {
             $msg = Get-MconDeniedMessage -Action $actionKey -Role $role
             Write-MconError -Message $msg -Code 'forbidden'
         }
 
         switch ($action) {
+            'list' {
+                try {
+                    $effectiveBoard = if ($targetBoard) { $targetBoard } else { $config.board_id }
+                    if (-not $effectiveBoard) {
+                        Write-MconError -Message 'No board context available. Use --board <BOARD_ID> to specify a board.' -Code 'usage'
+                    }
+                    if ($effectiveBoard -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                        Write-MconError -Message "Invalid board ID format: $effectiveBoard" -Code 'validation'
+                    }
+                    $taskParams = @{
+                        BaseUrl = $config.base_url
+                        Token   = $config.auth_token
+                        BoardId = $effectiveBoard
+                    }
+                    if ($status) { $taskParams.Status = $status }
+                    if ($listTag) { $taskParams.Tag = $listTag }
+                    if ($listAssigned) { $taskParams.AssignedAgentId = $listAssigned }
+                    if ($listUnassigned) { $taskParams.Unassigned = $true }
+                    $tasks = Get-MconBoardTasks @taskParams
+
+                    # Filter tasks to ensure they belong to the correct board (defensive programming)
+                    $tasks = @($tasks | Where-Object { $_.board_id -eq $effectiveBoard })
+
+                    # Filter out done tasks unless explicitly requested
+                    if (-not $status -or $status -notmatch 'done') {
+                        $tasks = @($tasks | Where-Object { $_.status -ne 'done' })
+                    }
+
+                    Write-MconResult -Data ([ordered]@{
+                        ok      = $true
+                        board   = $effectiveBoard
+                        tasks   = $tasks
+                        count   = $tasks.Count
+                    })
+                }
+                catch {
+                    Write-MconError -Message $_.Exception.Message -Code (Get-MconErrorCodeFromException -Exception $_.Exception)
+                }
+            }
             'show' {
                 try {
                     if ($task) {
@@ -391,8 +476,28 @@ Statuses: inbox, in_progress, review, done, blocked
             }
             'move' {
                 try {
-                    $result = Set-MconTaskStatus -BaseUrl $config.base_url -Token $config.auth_token -BoardId $config.board_id -TaskId $task -Status $status
-                    Write-MconResult -Data ([ordered]@{ ok = $true; task = $result })
+                    if ($targetBoard) {
+                        $effectiveSourceBoard = if ($sourceBoard) { $sourceBoard } else { $config.board_id }
+                        if (-not $effectiveSourceBoard) {
+                            Write-MconError -Message '--source-board <BOARD_ID> is required (no board context from workspace).' -Code 'usage'
+                        }
+
+                        $result = Move-MconTaskBetweenBoards -BaseUrl $config.base_url -Token $config.auth_token -TargetBoardId $targetBoard -SourceBoardId $effectiveSourceBoard -TaskId $task -Comment $moveComment
+
+                        Write-MconResult -Data ([ordered]@{
+                            ok            = $true
+                            action        = 'task.movetoboard'
+                            source_board  = $result.source_board_id
+                            target_board  = $result.target_board_id
+                            source_task   = $result.source_task_id
+                            new_task      = $result.new_task_id
+                            task          = $result.task
+                        })
+                    }
+                    else {
+                        $result = Set-MconTaskStatus -BaseUrl $config.base_url -Token $config.auth_token -BoardId $config.board_id -TaskId $task -Status $status
+                        Write-MconResult -Data ([ordered]@{ ok = $true; task = $result })
+                    }
                 }
                 catch {
                     Write-MconError -Message $_.Exception.Message -Code (Get-MconErrorCodeFromException -Exception $_.Exception)

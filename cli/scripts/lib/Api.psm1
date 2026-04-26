@@ -291,4 +291,40 @@ function Get-MconBoardTasks {
     return @($response)
 }
 
-Export-ModuleMember -Function Invoke-MconApi, Get-MconTask, Get-MconTaskComments, Get-MconBoardTags, Get-MconBoardTag, Get-MconBoardTasks, Send-MconComment, Set-MconTaskStatus, New-MconTask, Set-MconTask
+function Remove-MconTask {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [Parameter(Mandatory)][string]$Token,
+        [Parameter(Mandatory)][string]$BoardId,
+        [Parameter(Mandatory)][string]$TaskId
+    )
+
+    $encodedBoard = [uri]::EscapeDataString($BoardId)
+    $encodedTask = [uri]::EscapeDataString($TaskId)
+    $uri = "$BaseUrl/api/v1/agent/boards/$encodedBoard/tasks/$encodedTask"
+    return Invoke-MconApi -Method Delete -Uri $uri -Token $Token
+}
+
+function Move-MconTaskBetweenBoards {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [Parameter(Mandatory)][string]$Token,
+        [Parameter(Mandatory)][string]$TargetBoardId,
+        [Parameter(Mandatory)][string]$SourceBoardId,
+        [Parameter(Mandatory)][string]$TaskId,
+        [Parameter(Mandatory)][string]$Comment
+    )
+
+    $encodedTargetBoard = [uri]::EscapeDataString($TargetBoardId)
+    $uri = "$BaseUrl/api/v1/agent/boards/$encodedTargetBoard/tasks/move-from-board"
+    $body = @{
+        task_id         = $TaskId
+        source_board_id = $SourceBoardId
+        comment         = $Comment
+    }
+    return Invoke-MconApi -Method Post -Uri $uri -Token $Token -Body $body
+}
+
+Export-ModuleMember -Function Invoke-MconApi, Get-MconTask, Get-MconTaskComments, Get-MconBoardTags, Get-MconBoardTag, Get-MconBoardTasks, Send-MconComment, Set-MconTaskStatus, New-MconTask, Set-MconTask, Remove-MconTask, Move-MconTaskBetweenBoards

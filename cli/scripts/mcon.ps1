@@ -147,6 +147,42 @@ Statuses: inbox, in_progress, review, done, blocked
             }
 
             if (-not $matchingAgent) {
+                # Try resolving symlinks - Get the real path if current path is a symlink
+                try {
+                    $item = Get-Item -LiteralPath $path -ErrorAction Stop
+                    $realPath = if ($item.LinkType -eq 'SymbolicLink' -and $item.Target) {
+                        $item.Target
+                    } else {
+                        $path
+                    }
+                    foreach ($agentId in $keybag.agents.PSObject.Properties.Name) {
+                        $agent = $keybag.agents.$agentId
+                        if ($agent.workspace_path -eq $realPath) {
+                            $matchingAgent = $agent
+                            break
+                        }
+                    }
+                }
+                catch {
+                    # Ignore resolution errors, fall through to leaf-name matching
+                }
+            }
+
+            if (-not $matchingAgent) {
+                # Fall back to matching by agent name based on directory leaf
+                # Extract the leaf directory name from the current path
+                $leafName = Split-Path -Leaf $path
+                foreach ($agentId in $keybag.agents.PSObject.Properties.Name) {
+                    $agent = $keybag.agents.$agentId
+                    $agentLeafName = Split-Path -Leaf $agent.workspace_path
+                    if ($leafName -eq $agentLeafName) {
+                        $matchingAgent = $agent
+                        break
+                    }
+                }
+            }
+
+            if (-not $matchingAgent) {
                 Write-Host "No agent configuration found for workspace path: $path"
                 exit 1
             }

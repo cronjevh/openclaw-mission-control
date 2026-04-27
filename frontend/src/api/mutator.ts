@@ -38,7 +38,7 @@ const resolveClerkToken = async (): Promise<string | null> => {
 
 export const customFetch = async <T>(
   url: string,
-  options: RequestInit,
+  options: RequestInit = {},
 ): Promise<T> => {
   const baseUrl = getApiBaseUrl();
 

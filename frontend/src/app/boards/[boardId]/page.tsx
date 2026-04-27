@@ -656,6 +656,11 @@ const formatActionError = (err: unknown, fallback: string) => {
   return fallback;
 };
 
+const isAbortError = (err: unknown) =>
+  err instanceof DOMException
+    ? err.name === "AbortError"
+    : err instanceof Error && err.name === "AbortError";
+
 const resolveBoardAccess = (
   member: OrganizationMemberRead | null,
   boardId?: string | null,
@@ -950,6 +955,7 @@ export default function BoardDetailPage() {
   } | null>(null);
   const selectedTaskIdRef = useRef<string | null>(null);
   const openedTaskIdFromUrlRef = useRef<string | null>(null);
+  const taskDetailAbortRef = useRef<AbortController | null>(null);
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [liveFeed, setLiveFeed] = useState<LiveFeedItem[]>([]);
   const liveFeedRef = useRef<LiveFeedItem[]>([]);
@@ -1522,6 +1528,12 @@ export default function BoardDetailPage() {
   useEffect(() => {
     selectedTaskIdRef.current = selectedTask?.id ?? null;
   }, [selectedTask?.id]);
+
+  useEffect(() => {
+    return () => {
+      taskDetailAbortRef.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     chatMessagesRef.current = chatMessages;
@@ -2572,7 +2584,7 @@ export default function BoardDetailPage() {
   const isBoardLeadProvisioning = boardLead?.status === "provisioning";
 
   const loadComments = useCallback(
-    async (taskId: string) => {
+    async (taskId: string, options?: RequestInit) => {
       if (!isSignedIn || !boardId) return;
       setIsCommentsLoading(true);
       setCommentsError(null);
@@ -2581,22 +2593,30 @@ export default function BoardDetailPage() {
           await listTaskCommentsApiV1BoardsBoardIdTasksTaskIdCommentsGet(
             boardId,
             taskId,
+            undefined,
+            options,
           );
         if (result.status !== 200) throw new Error("Unable to load comments.");
-        setComments(mergeCommentsById(result.data.items ?? []));
+        if (selectedTaskIdRef.current === taskId) {
+          setComments(mergeCommentsById(result.data.items ?? []));
+        }
       } catch (err) {
-        setCommentsError(
-          err instanceof Error ? err.message : "Something went wrong.",
-        );
+        if (!isAbortError(err) && selectedTaskIdRef.current === taskId) {
+          setCommentsError(
+            err instanceof Error ? err.message : "Something went wrong.",
+          );
+        }
       } finally {
-        setIsCommentsLoading(false);
+        if (selectedTaskIdRef.current === taskId) {
+          setIsCommentsLoading(false);
+        }
       }
     },
     [boardId, isSignedIn],
   );
 
   const loadTaskMemory = useCallback(
-    async (taskId: string) => {
+    async (taskId: string, options?: RequestInit) => {
       if (!isSignedIn || !boardId) return;
       setIsTaskMemoryLoading(true);
       try {
@@ -2611,53 +2631,69 @@ export default function BoardDetailPage() {
           };
         }>(
           `/api/v1/boards/${boardId}/memory?task_id=${encodeURIComponent(taskId)}&is_chat=false&limit=50`,
-          { method: "GET" },
+          { ...options, method: "GET" },
         );
-        setTaskMemoryEntries(res.data?.items ?? []);
-      } catch {
-        setTaskMemoryEntries([]);
+        if (selectedTaskIdRef.current === taskId) {
+          setTaskMemoryEntries(res.data?.items ?? []);
+        }
+      } catch (err) {
+        if (!isAbortError(err) && selectedTaskIdRef.current === taskId) {
+          setTaskMemoryEntries([]);
+        }
       } finally {
-        setIsTaskMemoryLoading(false);
+        if (selectedTaskIdRef.current === taskId) {
+          setIsTaskMemoryLoading(false);
+        }
       }
     },
     [boardId, isSignedIn],
   );
 
   const loadTaskEvidence = useCallback(
-    async (taskId: string) => {
+    async (taskId: string, options?: RequestInit) => {
       if (!isSignedIn || !boardId) return;
       setIsTaskEvidenceLoading(true);
       setTaskEvidenceError(null);
       try {
         const res = await customFetch<{ data: TaskEvidencePacket[] }>(
           `/api/v1/boards/${boardId}/tasks/${taskId}/evidence-packets`,
-          { method: "GET" },
+          { ...options, method: "GET" },
         );
-        setTaskEvidencePackets(res.data ?? []);
+        if (selectedTaskIdRef.current === taskId) {
+          setTaskEvidencePackets(res.data ?? []);
+        }
       } catch (err) {
-        setTaskEvidencePackets([]);
-        setTaskEvidenceError(
-          formatActionError(err, "Failed to load evidence."),
-        );
+        if (!isAbortError(err) && selectedTaskIdRef.current === taskId) {
+          setTaskEvidencePackets([]);
+          setTaskEvidenceError(
+            formatActionError(err, "Failed to load evidence."),
+          );
+        }
       } finally {
-        setIsTaskEvidenceLoading(false);
+        if (selectedTaskIdRef.current === taskId) {
+          setIsTaskEvidenceLoading(false);
+        }
       }
     },
     [boardId, isSignedIn],
   );
 
   const loadWorkspaceFiles = useCallback(
-    async (taskId?: string) => {
+    async (taskId?: string, options?: RequestInit) => {
       if (!isSignedIn || !boardId) return;
       try {
         const qs = taskId ? `?task_id=${encodeURIComponent(taskId)}` : "";
         const res = await customFetch<{ data: WorkspaceFile[] }>(
           `/api/v1/boards/${boardId}/workspace/files${qs}`,
-          { method: "GET" },
+          { ...options, method: "GET" },
         );
-        setWorkspaceFiles(res.data ?? []);
-      } catch {
-        setWorkspaceFiles([]);
+        if (!taskId || selectedTaskIdRef.current === taskId) {
+          setWorkspaceFiles(res.data ?? []);
+        }
+      } catch (err) {
+        if (!isAbortError(err) && (!taskId || selectedTaskIdRef.current === taskId)) {
+          setWorkspaceFiles([]);
+        }
       }
     },
     [boardId, isSignedIn],
@@ -2740,7 +2776,11 @@ export default function BoardDetailPage() {
       setIsLiveFeedOpen(false);
       const fullTask = tasksRef.current.find((item) => item.id === task.id);
       if (!fullTask) return;
+      taskDetailAbortRef.current?.abort();
+      const abortController = new AbortController();
+      taskDetailAbortRef.current = abortController;
       const currentTaskIdFromUrl = searchParams.get("taskId");
+      openedTaskIdFromUrlRef.current = fullTask.id;
       if (currentTaskIdFromUrl !== fullTask.id) {
         router.replace(
           buildUrlWithTaskId(pathname, searchParams, fullTask.id),
@@ -2752,10 +2792,18 @@ export default function BoardDetailPage() {
       selectedTaskIdRef.current = fullTask.id;
       setSelectedTask(fullTask);
       setIsDetailOpen(true);
-      void loadComments(task.id);
-      void loadTaskEvidence(task.id);
-      void loadWorkspaceFiles(task.id);
-      void loadTaskMemory(task.id);
+      void (async () => {
+        await loadComments(task.id, { signal: abortController.signal });
+        if (
+          abortController.signal.aborted ||
+          selectedTaskIdRef.current !== task.id
+        ) {
+          return;
+        }
+        void loadTaskEvidence(task.id, { signal: abortController.signal });
+        void loadWorkspaceFiles(task.id, { signal: abortController.signal });
+        void loadTaskMemory(task.id, { signal: abortController.signal });
+      })();
     },
     [
       loadComments,
@@ -2845,6 +2893,8 @@ export default function BoardDetailPage() {
   ]);
 
   const closeComments = () => {
+    taskDetailAbortRef.current?.abort();
+    taskDetailAbortRef.current = null;
     openedTaskIdFromUrlRef.current = null;
     if (searchParams.get("taskId")) {
       router.replace(buildUrlWithTaskId(pathname, searchParams, null), {

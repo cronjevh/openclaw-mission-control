@@ -23,6 +23,7 @@ Import-Module (Join-Path $libDir 'Dispatch.psm1') -Force
 Import-Module (Join-Path $libDir 'OpenClawSession.psm1') -Force
 Import-Module (Join-Path $libDir 'Heartbeat.psm1') -Force
 Import-Module (Join-Path $libDir 'Assign.psm1') -Force
+Import-Module (Join-Path $libDir 'SyncAllowAgents.psm1') -Force
 Import-Module (Join-Path $libDir 'Blocker.psm1') -Force
 Import-Module (Join-Path $libDir 'Escalate.psm1') -Force
 Import-Module (Join-Path $libDir 'SubmitReview.psm1') -Force
@@ -69,6 +70,7 @@ Usage:
   mcon task update     --task <TASK_ID> [--title <TITLE>] [--description <TEXT>|--message-file <PATH>] [--priority <LEVEL>] [--backlog <true|false>] [--tags <TAG_ID,...>] [--depends-on <TASK_ID,...>]
   mcon admin gettokens      # gateway-only: fetch agents, derive tokens, encrypt keybag
   mcon admin decrypt-keybag # gateway-only: decrypt .agent-tokens.json.enc → .agent-tokens.json
+  mcon admin sync-allowagents # gateway-only: sync lead allowAgents in openclaw.json to match board assignments
   mcon admin templatedist --templates-dir <DIR> [--output <FILE>] [--render-root <DIR>] [--reverse]  # distribute templates
   mcon admin cron --board-id <BOARD_ID> --cadence-minutes <INT> [--dry-run] [--crontab-dir <DIR>]  # set board cadence and update crontab
   mcon workflow dispatch              # evaluate board state, enqueue heartbeat
@@ -93,6 +95,7 @@ Permissions:
   task.update          → lead, gateway only
   admin.gettokens      → gateway only
   admin.decrypt-keybag → gateway only
+  admin.sync-allowagents → gateway only
   admin.templatedist   → gateway only
   admin.cron           → gateway only
   workflow.dispatch    → lead, worker, verifier
@@ -1319,7 +1322,7 @@ Statuses: inbox, in_progress, review, done, blocked
 
     'admin' {
         if ($remaining.Count -lt 1) {
-            Write-MconError -Message 'Usage: mcon admin <action>. Actions: gettokens, decrypt-keybag, templatedist, cron.' -Code 'usage'
+            Write-MconError -Message 'Usage: mcon admin <action>. Actions: gettokens, decrypt-keybag, sync-allowagents, templatedist, cron.' -Code 'usage'
         }
         $adminAction = $remaining[0]
         $adminArgs = @($remaining | Select-Object -Skip 1)
@@ -1374,6 +1377,14 @@ Statuses: inbox, in_progress, review, done, blocked
                 }
                 catch {
                     Write-MconError -Message $_.Exception.Message -Code 'crypto_error'
+                }
+            }
+            'sync-allowagents' {
+                try {
+                    Sync-MconAllowAgents
+                }
+                catch {
+                    Write-MconError -Message $_.Exception.Message -Code 'sync_error'
                 }
             }
             'templatedist' {

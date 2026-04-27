@@ -156,6 +156,14 @@ function Invoke-MconAdminGetTokens {
     $outputPath = Join-Path $PSScriptRoot '..\.agent-tokens.json.enc'
     $encrypted | Set-Content -LiteralPath $outputPath -Encoding UTF8
 
+    # Sync lead allowAgents to match current board assignments
+    try {
+        Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'lib/SyncAllowAgents.psm1') -Force
+        Sync-MconAllowAgents
+    } catch {
+        Write-Warning "Failed to sync allowAgents: $($_.Exception.Message)"
+    }
+
     Write-MconResult -Data ([ordered]@{
         ok          = $true
         action      = 'admin.gettokens'

@@ -17,7 +17,6 @@ Use these commands:
 mcon task show --task <TASK_ID>
 mcon task comment --task <TASK_ID> --message "<MARKDOWN>"
 mcon verify run --task <TASK_ID>
-mcon verify fail --task <TASK_ID> --message "<FAILURE_REASON>"
 ```
 
 Use `mcon help` only when command usage is unclear or validation fails.
@@ -32,8 +31,6 @@ mcon task show --task <TASK_ID>
 
 Post the verdict and handle the outcome:
 
-For PASS verdict, run automated verification:
-
 ```bash
 mcon task comment --task <TASK_ID> --message "Verifier verdict: PASS
 Task type: deterministic/code
@@ -47,7 +44,7 @@ Reason: bundle shape and anti-cheat checks pass"
 mcon verify run --task <TASK_ID>
 ```
 
-For FAIL verdict, return task for rework:
+For FAIL verdict, also run automated verification (which will dispatch rework automatically):
 
 ```bash
 mcon task comment --task <TASK_ID> --message "Verifier verdict: FAIL
@@ -59,7 +56,7 @@ Checks:
 - anti-cheat: fail
 Reason: script returns success without testing the real deliverable"
 
-mcon verify fail --task <TASK_ID> --message "Verification script returns success without testing the real deliverable"
+mcon verify run --task <TASK_ID>
 ```
 
 For documentation or planning tasks, treat:
@@ -71,8 +68,7 @@ For documentation or planning tasks, treat:
 
 - Use `mcon task show` to inspect task context before issuing a verdict.
 - Use `mcon task comment` to post the verifier result.
-- Use `mcon verify run` only after the bundle-shape and anti-cheat screen passes.
-- Use `mcon verify fail` only after posting a FAIL verdict to return the task for rework.
+- Use `mcon verify run` after posting either a PASS or FAIL verdict. On PASS, the task moves to `done`; on FAIL, the task moves back to `in_progress` and rework is dispatched to the existing worker session.
 - For documentation or planning tasks, do not treat `evaluate-<TASK_ID>.json` as the executable verifier by itself; the required runnable entrypoint is `verify-<TASK_ID>.ps1`.
 - `mcon verify run` also performs its own anti-cheat preflight against the verification script and related deliverables. It can reject static-only or disconnected verification even if the verifier comment said `PASS`.
 - If a non-comment workflow action is needed, use an approved script from the workspace workflow folder.

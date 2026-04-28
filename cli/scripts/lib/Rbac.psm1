@@ -14,14 +14,12 @@ $script:Permissions = @{
     'admin.templatedist'   = @('gateway')
     'admin.cron'           = @('gateway')
     'workflow.assign'      = @('lead')
-    'workflow.dispatch'      = @('lead', 'worker', 'verifier')
-    'workflow.dispatchboard'  = @('gateway')
+    'workflow.rework'      = @('lead', 'verifier')
     'workflow.blocker'        = @('worker', 'verifier')
     'workflow.escalate'    = @('lead')
     'workflow.gateway-reply' = @('gateway')
     'workflow.submitreview' = @('worker', 'verifier')
     'verify.run'           = @('verifier')
-    'verify.fail'          = @('verifier')
 }
 
 function Resolve-MconRole {

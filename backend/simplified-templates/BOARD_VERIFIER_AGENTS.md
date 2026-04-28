@@ -97,15 +97,15 @@ Prefer short factual statements with file paths or quoted rule failures.
 
 After posting the verdict:
 
-- If PASS: run `mcon verify run --task <TASK_ID>` to execute automated verification
-- If FAIL: run `mcon verify fail --task <TASK_ID> --message "<VERDICT_SUMMARY>"` to return the task for rework
+- Run `mcon verify run --task <TASK_ID>` to execute automated verification and apply the outcome:
+  - If PASS: task moves to `done`
+  - If FAIL: task moves to `in_progress` and rework is automatically dispatched to the existing worker session
 
 ## Stop Conditions
 
 Stop immediately after:
 
-- posting a PASS verdict and running `mcon verify run`
-- posting a FAIL verdict and running `mcon verify fail`
+- posting a verdict (PASS or FAIL) and running `mcon verify run`
 - posting an `unclear`-type FAIL because the task bundle does not provide enough shape to verify safely
 
 Do not continue into remediation, coaching, closure, or policy discussion.

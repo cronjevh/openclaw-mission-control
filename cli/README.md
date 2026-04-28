@@ -43,9 +43,9 @@ mcon task create --title "New task" [--backlog false] [--tags <ID,...>]   # Crea
 mcon task update --task <UUID> --title "Renamed"       # Update task fields (lead/gateway only)
 mcon workflow dispatch                  # Evaluate board state, enqueue heartbeat
 mcon workflow submitreview --task <UUID>  # Submit completed task for review
+mcon workflow rework --task <UUID> --worker <UUID> --message <TEXT>  # Send task back to existing worker for rework
 mcon admin gettokens                   # Fetch and encrypt agent credentials
 mcon verify run --task <ID>           # Execute verification and apply outcome (verifier only)
-mcon verify fail --task <ID> --message <TEXT>    # Fail verification and return to inbox (verifier only)
 ```
 
 The CLI auto-detects the workspace from `$PWD`, decrypts the keybag, and executes with the correct role and permissions.
@@ -68,12 +68,12 @@ The CLI auto-detects the workspace from `$PWD`, decrypts the keybag, and execute
 | `mcon workflow dispatch` | Evaluate board state, enqueue heartbeat items | lead, worker, verifier |
 | `mcon workflow dispatch --process-queue` | Process queued heartbeat items | lead, worker, verifier |
 | `mcon workflow dispatchboard --board <ID> [--delay <SECONDS>]` | Sequential dispatch for all board agents (lead, workers, verifiers) with configurable delay between each | gateway |
-| `mcon workflow assign --task <ID> --worker <ID> --origin-session-key <task:...|tag:...|agent:...:task:...|agent:...:tag:...>` | Assign task to worker agent; accepts the heartbeat sessionKey or the normalized claim key | lead |
+| `mcon workflow assign --task <ID> --worker <ID> --origin-session-key <task:...\|tag:...\|agent:...:task:...\|agent:...:tag:...>` | Assign task to worker agent; accepts the heartbeat sessionKey or the normalized claim key | lead |
+| `mcon workflow rework --task <ID> --worker <ID> (--message <TEXT>\|--message-file <PATH>)` | Send task back to existing worker subagent session with rework feedback; posts message as task comment and moves task to in_progress | lead, verifier |
 | `mcon workflow blocker --task <ID> --message <TEXT>` | Mark task blocked and escalate to lead | worker, verifier |
 | `mcon workflow escalate --message <TEXT> [--secret-key <KEY>]` | Escalate a lead blocker to Gateway Main | lead |
 | `mcon workflow submitreview --task <ID>` | Submit task for review with deliverables | worker, verifier |
 | `mcon verify run --task <ID>` | Execute verification and apply outcome | verifier |
-| `mcon verify fail --task <ID> --message <TEXT>` | Fail verification and return task to inbox | verifier |
 
 ### Dispatch Queue Contract
 
@@ -104,6 +104,7 @@ The CLI auto-detects the workspace from `$PWD`, decrypts the keybag, and execute
 | `DispatchBoard.psm1` | Sequential board-wide dispatch with ordered agent sequencing |
 | `Heartbeat.psm1` | Heartbeat queue management and OpenClaw gateway integration |
 | `Assign.psm1` | Worker handoff: bootstrap bundle, spawn, task assignment |
+| `Rework.psm1` | Verification failure rework: revive existing worker session with feedback |
 | `Blocker.psm1` | Worker/verifier blocker escalation and blocked-state transition |
 | `Escalate.psm1` | Lead escalation workflow for Gateway Main ask-user and request-secret routes |
 | `SubmitReview.psm1` | Task review submission with deliverable validation |
@@ -136,6 +137,7 @@ Permissions matrix:
 | `workflow.dispatch` | yes | | yes | yes |
 | `workflow.dispatchboard` | | yes | | |
 | `workflow.assign` | yes | | | |
+| `workflow.rework` | yes | | | yes |
 | `workflow.blocker` | | | yes | yes |
 | `workflow.escalate` | yes | | | |
 | `workflow.submitreview` | | | yes | yes |
@@ -236,6 +238,7 @@ mcon-cli/
       DispatchBoard.psm1
       Heartbeat.psm1
       Assign.psm1
+      Rework.psm1
       Blocker.psm1
       Escalate.psm1
       SubmitReview.psm1

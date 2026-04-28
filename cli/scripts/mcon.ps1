@@ -23,6 +23,7 @@ Import-Module (Join-Path $libDir 'Dispatch.psm1') -Force
 Import-Module (Join-Path $libDir 'OpenClawSession.psm1') -Force
 Import-Module (Join-Path $libDir 'Heartbeat.psm1') -Force
 Import-Module (Join-Path $libDir 'Assign.psm1') -Force
+Import-Module (Join-Path $libDir 'Rework.psm1') -Force
 Import-Module (Join-Path $libDir 'SyncAllowAgents.psm1') -Force
 Import-Module (Join-Path $libDir 'Blocker.psm1') -Force
 Import-Module (Join-Path $libDir 'Escalate.psm1') -Force
@@ -76,13 +77,13 @@ Usage:
   mcon workflow dispatch              # evaluate board state, enqueue heartbeat
   mcon workflow dispatch --process-queue  # process queued heartbeat items
   mcon workflow dispatchboard --board <BOARD_ID> [--delay <SECONDS>]  # sequential dispatch for all board agents
-  mcon workflow assign --task <TASK_ID> --worker <AGENT_ID> [--origin-session-key <task:...|tag:...|agent:...:task:...|agent:...:tag:...>]  # assign task to worker
-   mcon workflow blocker --task <TASK_ID> (--message <TEXT>|--message-file <PATH>)  # mark task blocked and escalate to lead
+   mcon workflow assign --task <TASK_ID> --worker <AGENT_ID> [--origin-session-key <task:...|tag:...|agent:...:task:...|agent:...:tag:...>]  # assign task to worker
+   mcon workflow rework  --task <TASK_ID> --worker <AGENT_ID> (--message <TEXT>|--message-file <PATH>)  # rework task with existing worker session
+    mcon workflow blocker --task <TASK_ID> (--message <TEXT>|--message-file <PATH>)  # mark task blocked and escalate to lead
    mcon workflow escalate (--message <TEXT>|--message-file <PATH>) [--secret-key <KEY>] [--task <TASK_ID>]  # escalate a lead blocker to Gateway Main
   mcon workflow gateway-reply --board <BOARD_ID> (--message <TEXT>|--message-file <PATH>) [--task <TASK_ID>] [--secret-reply]  # gateway-only: reply to board lead
    mcon workflow submitreview --task <TASK_ID> (--message <TEXT>|--message-file <PATH>)  # submit task for review
-   mcon verify run --task <TASK_ID>    # verifier-only: execute verification and apply outcome
-   mcon verify fail --task <TASK_ID> --message <TEXT>    # verifier-only: fail verification and return to inbox
+    mcon verify run --task <TASK_ID>    # verifier-only: execute verification and apply outcome
 
 Roles (derived from MCON_WSP):
   workspace-lead-*     = lead
@@ -101,12 +102,12 @@ Permissions:
   admin.cron           → gateway only
   workflow.dispatch    → lead, worker, verifier
   workflow.dispatchboard → gateway only
+  workflow.rework      → lead, verifier only
   workflow.blocker     → worker, verifier
   workflow.escalate    → lead
   workflow.gateway-reply → gateway
   workflow.submitreview → worker, verifier
    verify.run           → verifier only
-   verify.fail          → verifier only
 
 Keybag (encrypted JSON):
   Generated:  mcon admin gettokens  → writes .agent-tokens.json.enc
@@ -611,7 +612,7 @@ Statuses: inbox, in_progress, review, done, blocked
 
     'workflow' {
         if ($remaining.Count -lt 1) {
-            Write-MconError -Message 'Usage: mcon workflow <action>. Actions: dispatch, dispatchboard, assign, blocker, escalate, gateway-reply, submitreview.' -Code 'usage'
+            Write-MconError -Message 'Usage: mcon workflow <action>. Actions: dispatch, dispatchboard, assign, rework, blocker, escalate, gateway-reply, submitreview.' -Code 'usage'
         }
 
         $wfAction = $remaining[0]
@@ -891,6 +892,83 @@ Statuses: inbox, in_progress, review, done, blocked
                 }
                 catch {
                     Write-MconError -Message $_.Exception.Message -Code 'assign_error'
+                }
+            }
+
+            'rework' {
+                $taskId = $null
+                $workerAgentId = $null
+                $message = $null
+                $messageFile = $null
+                $i = 0
+                while ($i -lt $wfArgs.Count) {
+                    switch ($wfArgs[$i]) {
+                        '--task' { $taskId = $wfArgs[++$i]; break }
+                        '--worker' { $workerAgentId = $wfArgs[++$i]; break }
+                        '--message' { $message = $wfArgs[++$i]; break }
+                        '--message-file' { $messageFile = $wfArgs[++$i]; break }
+                        default { Write-MconError -Message "Unknown flag: $($wfArgs[$i])" -Code 'usage' }
+                    }
+                    $i++
+                }
+
+                if ($messageFile) {
+                    if ($message) {
+                        Write-MconError -Message 'Use either --message <TEXT> or --message-file <PATH>, not both.' -Code 'usage'
+                    }
+                    if (-not (Test-Path -LiteralPath $messageFile)) {
+                        Write-MconError -Message "Message file not found: $messageFile" -Code 'validation'
+                    }
+                    $message = Get-Content -LiteralPath $messageFile -Raw -Encoding UTF8
+                }
+
+                if (-not $taskId) {
+                    Write-MconError -Message '--task <TASK_ID> is required.' -Code 'usage'
+                }
+                if (-not $workerAgentId) {
+                    Write-MconError -Message '--worker <AGENT_ID> is required.' -Code 'usage'
+                }
+                if (-not $message) {
+                    Write-MconError -Message '--message <TEXT> is required for rework.' -Code 'usage'
+                }
+                if ([string]::IsNullOrWhiteSpace($message)) {
+                    Write-MconError -Message 'Message must not be empty.' -Code 'validation'
+                }
+                if ($taskId -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                    Write-MconError -Message "Invalid task ID format: $taskId" -Code 'validation'
+                }
+                if ($workerAgentId -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                    Write-MconError -Message "Invalid worker agent ID format: $workerAgentId" -Code 'validation'
+                }
+
+                $agentConfig = Resolve-MconKeybagAgent
+                if (-not $agentConfig) {
+                    Write-MconError -Message "No agent configuration found for current directory. Run from an agent workspace or set MCON_* env vars." -Code 'config_error'
+                }
+
+                $role = Resolve-MconExecutionRole -Wsp $agentConfig.wsp -WorkspacePath $agentConfig.workspace_path
+                $actionKey = 'workflow.rework'
+                if (-not (Test-MconPermission -Action $actionKey -Role $role)) {
+                    $msg = Get-MconDeniedMessage -Action $actionKey -Role $role
+                    Write-MconError -Message $msg -Code 'forbidden'
+                }
+
+                try {
+                    $result = Invoke-MconRework -Config $agentConfig -TaskId $taskId -WorkerAgentId $workerAgentId -Message $message -MconScriptPath $PSCommandPath
+
+                    if ($result.ok) {
+                        Write-MconResult -Data ([ordered]@{
+                                ok     = $true
+                                action = 'workflow.rework'
+                                result = $result
+                            })
+                    }
+                    else {
+                        Write-MconError -Message "$($result.phase): $($result.error)" -Code 'rework_error'
+                    }
+                }
+                catch {
+                    Write-MconError -Message $_.Exception.Message -Code 'rework_error'
                 }
             }
 
@@ -1247,14 +1325,14 @@ Statuses: inbox, in_progress, review, done, blocked
             }
 
             default {
-                Write-MconError -Message "Unknown workflow action: $wfAction. Valid: dispatch, dispatchboard, assign, blocker, escalate, gateway-reply, submitreview." -Code 'usage'
+                Write-MconError -Message "Unknown workflow action: $wfAction. Valid: dispatch, dispatchboard, assign, rework, blocker, escalate, gateway-reply, submitreview." -Code 'usage'
             }
         }
     }
 
     'verify' {
         if ($remaining.Count -lt 1) {
-            Write-MconError -Message 'Usage: mcon verify <action>. Actions: run, fail.' -Code 'usage'
+            Write-MconError -Message 'Usage: mcon verify run --task <TASK_ID>' -Code 'usage'
         }
 
         $verifyAction = $remaining[0]
@@ -1316,72 +1394,8 @@ Statuses: inbox, in_progress, review, done, blocked
                 }
             }
 
-            'fail' {
-                $taskId = $null
-                $message = $null
-                $messageFile = $null
-                $i = 0
-                while ($i -lt $verifyArgs.Count) {
-                    switch ($verifyArgs[$i]) {
-                        '--task' { $taskId = $verifyArgs[++$i]; break }
-                        '--message' { $message = $verifyArgs[++$i]; break }
-                        '--message-file' { $messageFile = $verifyArgs[++$i]; break }
-                        default { Write-MconError -Message "Unknown flag: $($verifyArgs[$i])" -Code 'usage' }
-                    }
-                    $i++
-                }
-
-                # Handle --message-file for verify commands (read message from file)
-                if ($messageFile) {
-                    if ($message) {
-                        Write-MconError -Message 'Use either --message <TEXT> or --message-file <PATH>, not both.' -Code 'usage'
-                    }
-                    if (-not (Test-Path -LiteralPath $messageFile)) {
-                        Write-MconError -Message \"Message file not found: $messageFile\" -Code 'validation'
-                    }
-                    $message = Get-Content -LiteralPath $messageFile -Raw -Encoding UTF8
-                }
-
-                if (-not $taskId) {
-                    Write-MconError -Message '--task <TASK_ID> is required.' -Code 'usage'
-                }
-                if ($taskId -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
-                    Write-MconError -Message "Invalid task ID format: $taskId" -Code 'validation'
-                }
-                if (-not $message) {
-                    Write-MconError -Message '--message <TEXT> is required.' -Code 'usage'
-                }
-                if ([string]::IsNullOrWhiteSpace($message)) {
-                    Write-MconError -Message 'Message must not be empty.' -Code 'validation'
-                }
-
-                $agentConfig = Resolve-MconKeybagAgent
-                if (-not $agentConfig) {
-                    Write-MconError -Message "No agent configuration found for current directory. Run from an agent workspace or set MCON_* env vars." -Code 'config_error'
-                }
-
-                $role = Resolve-MconExecutionRole -Wsp $agentConfig.wsp -WorkspacePath $agentConfig.workspace_path
-                $actionKey = 'verify.fail'
-                if (-not (Test-MconPermission -Action $actionKey -Role $role)) {
-                    $msg = Get-MconDeniedMessage -Action $actionKey -Role $role
-                    Write-MconError -Message $msg -Code 'forbidden'
-                }
-
-                try {
-                    $result = Invoke-MconVerifyFail -Config $agentConfig -TaskId $taskId -Message $message
-                    Write-MconResult -Data ([ordered]@{
-                            ok     = $true
-                            action = 'verify.fail'
-                            result = $result
-                        })
-                }
-                catch {
-                    Write-MconError -Message $_.Exception.Message -Code 'verify_error'
-                }
-            }
-
             default {
-                Write-MconError -Message "Unknown verify action: $verifyAction. Valid: run, fail." -Code 'usage'
+                Write-MconError -Message "Unknown verify action: $verifyAction. Valid: run." -Code 'usage'
             }
         }
     }

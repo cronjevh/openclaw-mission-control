@@ -2009,4 +2009,4 @@ If the tool result contains an error, copy it into the JSON object and set child
         }
 }
 
-Export-ModuleMember -Function Invoke-MconAssign, Invoke-MconDeferredAssignSpawn, ConvertTo-MconCanonicalAssignmentSessionKey
+Export-ModuleMember -Function Invoke-MconAssign, Invoke-MconDeferredAssignSpawn, ConvertTo-MconCanonicalAssignmentSessionKey, Get-MconTaskSubagentUuid, Get-MconAssignTaskProjection, Get-MconNormalizedWorkerAgentId, Resolve-MconRegisteredSubagentSession, Resolve-MconRegisteredSubagentSessionByTask, Get-MconAssignTaskBundlePaths, New-MconBootstrapBundle, Write-MconWorkerTaskData, Get-MconAssignmentOriginSessionKey

@@ -21,6 +21,7 @@ $script:Permissions = @{
     'workflow.gateway-reply' = @('gateway')
     'workflow.submitreview' = @('worker', 'verifier')
     'verify.run'           = @('verifier')
+    'verify.fail'          = @('verifier')
 }
 
 function Resolve-MconRole {

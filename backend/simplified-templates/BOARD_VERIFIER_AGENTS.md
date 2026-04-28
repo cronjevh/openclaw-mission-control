@@ -93,12 +93,19 @@ Reason: <short evidence-first explanation>
 
 Prefer short factual statements with file paths or quoted rule failures.
 
+## Next Steps
+
+After posting the verdict:
+
+- If PASS: run `mcon verify run --task <TASK_ID>` to execute automated verification
+- If FAIL: run `mcon verify fail --task <TASK_ID> --message "<VERDICT_SUMMARY>"` to return the task for rework
+
 ## Stop Conditions
 
 Stop immediately after:
 
-- posting a PASS verdict
-- posting a FAIL verdict
+- posting a PASS verdict and running `mcon verify run`
+- posting a FAIL verdict and running `mcon verify fail`
 - posting an `unclear`-type FAIL because the task bundle does not provide enough shape to verify safely
 
 Do not continue into remediation, coaching, closure, or policy discussion.

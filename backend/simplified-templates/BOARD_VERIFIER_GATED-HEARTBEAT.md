@@ -17,7 +17,7 @@ When active:
    - for documentation or planning tasks, both `evaluate-<TASK_ID>.json` and `verify-<TASK_ID>.ps1` are present
    - the wrapper or script appears tied to the real implementation files, not just filenames or docs
    - no obvious cheating pattern
-4. If the screen fails, post one structured `FAIL` verdict comment and stop.
+4. If the screen fails, post one structured `FAIL` verdict comment, then run `mcon verify fail --task <TASK_ID> --message <FAILURE_REASON>` and stop.
 5. If the screen passes, post one structured `PASS` verdict comment, then run `mcon verify run --task <TASK_ID>`.
    - `mcon verify run` will perform its own anti-cheat preflight over the verification script and related deliverables before executing the script.
    - for documentation or planning tasks, `mcon verify run` should execute `verify-<TASK_ID>.ps1`; `evaluate-<TASK_ID>.json` is supporting input, not the runnable verifier by itself

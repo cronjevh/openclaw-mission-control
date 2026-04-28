@@ -676,4 +676,41 @@ function Invoke-MconVerifyRun {
     }
 }
 
-Export-ModuleMember -Function Invoke-MconVerifyRun
+function Invoke-MconVerifyFail {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$Config,
+        [Parameter(Mandatory)][string]$TaskId,
+        [Parameter(Mandatory)][string]$Message
+    )
+
+    $baseUrl = $Config.base_url.TrimEnd('/')
+    $authToken = $Config.auth_token
+    $boardId = $Config.board_id
+
+    $leadConfig = Resolve-MconLeadAgentConfig -BoardId $boardId
+    if (-not $leadConfig) {
+        throw "Board lead credentials are required for verifier outcome routing but were not found in the local keybag."
+    }
+
+    $task = Get-MconTask -BaseUrl $baseUrl -Token $authToken -BoardId $boardId -TaskId $TaskId
+    if ($task.status -ne 'review') {
+        throw "Task must be in review before verifier can fail it. Current status: $($task.status)"
+    }
+
+    # Add comment with the failure message
+    $comment = Send-MconComment -BaseUrl $baseUrl -Token $authToken -BoardId $boardId -TaskId $TaskId -Message $Message
+
+    # Set status to inbox using lead token
+    $updatedTask = Set-MconTaskStatus -BaseUrl $leadConfig.base_url -Token $leadConfig.auth_token -BoardId $boardId -TaskId $TaskId -Status 'inbox'
+
+    return [ordered]@{
+        ok = $true
+        task_id = $TaskId
+        resulting_task_status = $updatedTask.status
+        comment_id = if ($comment.PSObject.Properties.Name -contains 'id') { $comment.id } else { $null }
+        task = $updatedTask
+    }
+}
+
+Export-ModuleMember -Function Invoke-MconVerifyRun, Invoke-MconVerifyFail

@@ -44,6 +44,8 @@ mcon task update --task <UUID> --title "Renamed"       # Update task fields (lea
 mcon workflow dispatch                  # Evaluate board state, enqueue heartbeat
 mcon workflow submitreview --task <UUID>  # Submit completed task for review
 mcon admin gettokens                   # Fetch and encrypt agent credentials
+mcon verify run --task <ID>           # Execute verification and apply outcome (verifier only)
+mcon verify fail --task <ID> --message <TEXT>    # Fail verification and return to inbox (verifier only)
 ```
 
 The CLI auto-detects the workspace from `$PWD`, decrypts the keybag, and executes with the correct role and permissions.
@@ -71,6 +73,7 @@ The CLI auto-detects the workspace from `$PWD`, decrypts the keybag, and execute
 | `mcon workflow escalate --message <TEXT> [--secret-key <KEY>]` | Escalate a lead blocker to Gateway Main | lead |
 | `mcon workflow submitreview --task <ID>` | Submit task for review with deliverables | worker, verifier |
 | `mcon verify run --task <ID>` | Execute verification and apply outcome | verifier |
+| `mcon verify fail --task <ID> --message <TEXT>` | Fail verification and return task to inbox | verifier |
 
 ### Dispatch Queue Contract
 

@@ -92,7 +92,16 @@ function Invoke-MconAdminCron {
 
     $schedule = "*/$CadenceMinutes * * * *"
     $gatewayWorkspace = "/home/cronjev/.openclaw/workspace-gateway-$resolvedGatewayId"
-    $crontabEntry = "$schedule cronjev cd $gatewayWorkspace && /home/cronjev/bin/mcon workflow dispatchboard --board $BoardId"
+    $logDir = '/home/cronjev/.openclaw/logs'
+    $logFile = "$logDir/dispatchboard-$($BoardId.Substring(0, 8)).`$(date +\%Y\%m\%d).log"
+    $runner = if ($env:MC_CRON_GATE_RUNNER) {
+        $env:MC_CRON_GATE_RUNNER
+    } else {
+        '/home/cronjev/mission-control-tfsmrt/scripts/cron/mission-control-cron-runner.sh'
+    }
+    $shellCommand = "cd '$gatewayWorkspace' && /home/cronjev/bin/mcon workflow dispatchboard --board '$BoardId'"
+    $escapedShellCommand = $shellCommand.Replace('"', '\"')
+    $crontabEntry = "$schedule cronjev mkdir -p '$logDir' && '$runner' -- bash -lc `"$escapedShellCommand`" >> $logFile 2>&1"
 
     $crontabContent = @(
         '# Mission Control board automation'

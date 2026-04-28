@@ -17,6 +17,7 @@ from app.core.time import utcnow
 from app.db import crud
 from app.db.session import async_session_maker
 from app.models.utility_jobs import UtilityJob
+from app.services.cron_gate import render_gated_cron_command
 from app.services.queue import (
     QueuedTask,
     enqueue_task,
@@ -30,9 +31,7 @@ CRONTAB_DIR = os.getenv("MC_CRONTAB_DIR", "/etc/cron.d")
 CRONTAB_PREFIX = "mission-control-job-"
 CRON_USER = os.getenv("MC_CRON_USER", "cronjev")
 LOG_DIR = os.getenv("MC_UTILITY_JOB_LOG_DIR", "/home/cronjev/.openclaw/logs/jobs")
-DEFAULT_WORKDIR = os.getenv(
-    "MC_UTILITY_JOB_WORKDIR", "/home/cronjev/mission-control-tfsmrt"
-)
+DEFAULT_WORKDIR = os.getenv("MC_UTILITY_JOB_WORKDIR", "/home/cronjev/mission-control-tfsmrt")
 SCRIPT_MAP_ENV = "MC_UTILITY_JOB_SCRIPTS_JSON"
 SCRIPT_FILE_ENV = "MC_UTILITY_JOB_SCRIPTS_FILE"
 SCRIPT_KEY_RE = re.compile(r"^[a-zA-Z0-9_.-]+$")
@@ -74,9 +73,7 @@ def _resolve_project_root() -> Path:
     for parent in [current.parents[4], current.parents[5]]:
         if (parent / "config").is_dir():
             return parent
-    raise FileNotFoundError(
-        f"Could not locate project root (searched parents of {__file__})"
-    )
+    raise FileNotFoundError(f"Could not locate project root (searched parents of {__file__})")
 
 
 def _load_script_options() -> dict[str, dict[str, str | None]]:
@@ -96,9 +93,7 @@ def _load_script_options() -> dict[str, dict[str, str | None]]:
             raw = path.read_text(encoding="utf-8")
             parsed = json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise ValueError(
-                f"Utility job scripts file must be valid JSON: {exc}"
-            ) from exc
+            raise ValueError(f"Utility job scripts file must be valid JSON: {exc}") from exc
     else:
         raw = os.getenv(SCRIPT_MAP_ENV)
         if not raw:
@@ -157,10 +152,7 @@ def validate_cron_expression(expression: str) -> None:
     fields = expression.split()
     if len(fields) != 5:
         raise ValueError("Cron expression must use exactly five fields")
-    if any(
-        any(char in field for char in [";", "&", "|", "`", "$", "\\"])
-        for field in fields
-    ):
+    if any(any(char in field for char in [";", "&", "|", "`", "$", "\\"]) for field in fields):
         raise ValueError("Cron expression contains unsupported shell metacharacters")
 
 
@@ -228,10 +220,13 @@ def _build_crontab_content(job: UtilityJob) -> str:
     log_file = f"{LOG_DIR}/job-{str(job.id)[:8]}.$(date +\\%Y\\%m\\%d).log"
     command = _render_command(job)
     enabled_prefix = "" if job.enabled else "# disabled: "
-    cron_line = (
-        f"{enabled_prefix}{job.cron_expression} {CRON_USER} mkdir -p {shlex.quote(LOG_DIR)} "
-        f"&& cd {shlex.quote(DEFAULT_WORKDIR)} && {command} >> {log_file} 2>&1"
+    cron_command = render_gated_cron_command(
+        workdir=DEFAULT_WORKDIR,
+        command=command,
+        log_dir=LOG_DIR,
+        log_file=log_file,
     )
+    cron_line = f"{enabled_prefix}{job.cron_expression} {CRON_USER} {cron_command}"
     return "\n".join(
         [
             "# Mission Control utility job",

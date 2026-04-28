@@ -58,6 +58,11 @@ def test_build_crontab_content_for_board_agent_job(
     content = _build_crontab_content(job)
 
     assert "0 8 * * * cronjev" in content
+    assert (
+        "/home/cronjev/mission-control-tfsmrt/scripts/cron/mission-control-cron-runner.sh"
+        in content
+    )
+    assert "-- bash -lc" in content
     assert "pwsh -NoProfile -File /home/cronjev/jobs/daily-review.ps1" in content
     # PowerShell uses -BoardId/-AgentId (PascalCase, single dash)
     assert "-BoardId 00000000-0000-0000-0000-000000000003" in content
@@ -65,9 +70,7 @@ def test_build_crontab_content_for_board_agent_job(
     assert "-Tag daily-review" in content
 
 
-def test_script_options_load_from_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_script_options_load_from_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     config = tmp_path / "scripts.json"
     config.write_text(
         '{"nightly":{"label":"Nightly job","description":"Runs at night","command":"/tmp/nightly.sh"}}'

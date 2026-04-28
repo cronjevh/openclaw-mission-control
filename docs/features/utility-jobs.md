@@ -87,3 +87,25 @@ Generated cron entries append stdout/stderr to:
 ```
 
 Override the log directory with `MC_UTILITY_JOB_LOG_DIR`.
+
+## Local API Gate
+
+Generated utility cron entries run through:
+
+```text
+/home/cronjev/mission-control-tfsmrt/scripts/cron/mission-control-cron-runner.sh
+```
+
+The runner serializes API-touching cron work with a local `flock`, adds small jitter,
+and retries commands that fail with HTTP 429 / `Too Many Requests`. This keeps
+minute-aligned jobs from stampeding the backend agent-auth rate limiter while still
+using system cron as the scheduler.
+
+Tuning environment variables:
+
+- `MC_CRON_GATE_LOCK_FILE` defaults to `/tmp/mission-control-api-cron.lock`
+- `MC_CRON_GATE_LOCK_WAIT_SECONDS` defaults to `3600`
+- `MC_CRON_GATE_JITTER_MAX_SECONDS` defaults to `20`
+- `MC_CRON_GATE_RETRY_COUNT` defaults to `3`
+- `MC_CRON_GATE_RETRY_BASE_SECONDS` defaults to `30`
+- `MC_CRON_GATE_COOLDOWN_SECONDS` defaults to `10`

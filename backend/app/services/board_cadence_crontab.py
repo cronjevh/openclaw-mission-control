@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ from app.core.logging import get_logger
 from app.db import crud
 from app.models.boards import Board
 from app.db.session import async_session_maker
+from app.services.cron_gate import render_gated_cron_command
 from app.services.queue import (
     QueuedTask,
     enqueue_task,
@@ -74,18 +76,24 @@ def _build_crontab_content(board: Board, cadence_minutes: int) -> str:
         return "\n".join(lines)
 
     if not board.gateway_id:
-        lines.append(
-            f"# ERROR: board has no gateway_id, cannot generate dispatch entry"
-        )
+        lines.append(f"# ERROR: board has no gateway_id, cannot generate dispatch entry")
         lines.append("")
         return "\n".join(lines)
 
     schedule = _format_crontab_schedule(cadence_minutes)
     gateway_workspace = f"{WORKSPACE_BASE_DIR}/workspace-gateway-{board.gateway_id}"
     log_dir = DISPATCH_LOG_DIR
-    lines.append(
-        f"{schedule} {CRON_USER} mkdir -p {log_dir} && cd {gateway_workspace} && {MCON_PATH} workflow dispatchboard --board {board.id} >> {log_dir}/dispatchboard-{str(board.id)[:8]}.$(date +\\%Y\\%m\\%d).log 2>&1"
+    log_file = f"{log_dir}/dispatchboard-{str(board.id)[:8]}.$(date +\\%Y\\%m\\%d).log"
+    command = (
+        f"{shlex.quote(MCON_PATH)} workflow dispatchboard --board " f"{shlex.quote(str(board.id))}"
     )
+    cron_command = render_gated_cron_command(
+        workdir=gateway_workspace,
+        command=command,
+        log_dir=log_dir,
+        log_file=log_file,
+    )
+    lines.append(f"{schedule} {CRON_USER} {cron_command}")
 
     lines.append("")
     return "\n".join(lines)
@@ -190,9 +198,7 @@ async def process_board_cadence_crontab_task(task: QueuedTask) -> None:
         from app.db.session import async_session_maker
 
         async with async_session_maker() as session:
-            content, file_path = await generate_board_crontab(
-                session, board_task.board_id
-            )
+            content, file_path = await generate_board_crontab(session, board_task.board_id)
         logger.info(
             "board_cadence_crontab.task.complete",
             extra={
@@ -208,9 +214,7 @@ async def process_board_cadence_crontab_task(task: QueuedTask) -> None:
         raise
 
 
-def enqueue_board_cadence_crontab(
-    board_id: UUID, changed_at: datetime | None = None
-) -> bool:
+def enqueue_board_cadence_crontab(board_id: UUID, changed_at: datetime | None = None) -> bool:
     payload = BoardCadenceCrontabTask(
         board_id=board_id,
         changed_at=changed_at or datetime.now(UTC),

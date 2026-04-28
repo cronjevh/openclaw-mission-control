@@ -72,3 +72,16 @@ on the host-visible cron directory.
 
 The frontend sets board intent only. The backend owns the actual scheduling outcome
 and regenerates the board-level cron file from the saved board record.
+
+## Local API Gate
+
+Generated board cadence entries run through:
+
+```text
+/home/cronjev/mission-control-tfsmrt/scripts/cron/mission-control-cron-runner.sh
+```
+
+The runner serializes API-touching cron work with a local `flock`, adds small jitter,
+and retries commands that fail with HTTP 429 / `Too Many Requests`. This prevents
+multiple minute-aligned board and utility jobs from sharing the same backend
+agent-auth rate-limit window at the same time.

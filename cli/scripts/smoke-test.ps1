@@ -282,6 +282,28 @@ try {
         $failCount++
     }
 
+    Remove-Item -LiteralPath (Join-Path $queuePaths.pending "$queueTaskId.json") -Force
+    $recentFailurePath = Join-Path $queuePaths.failed "$queueTaskId-failure-recent.json"
+    Set-Content -LiteralPath $recentFailurePath -Value '{"error":"recent failure"}' -Encoding UTF8
+    (Get-Item -LiteralPath $recentFailurePath).LastWriteTime = Get-Date
+
+    $cooldownQueueResult = Add-MconHeartbeatQueueItem -WorkspacePath $queueSmokeWorkspace -InvocationAgent 'mc-abc123' -DispatchState $queueDispatchState
+    if ($cooldownQueueResult -eq 'cooldown') {
+        $passCount++
+    } else {
+        Write-Host "FAIL: queue-cooldown-gate - expected 'cooldown', got '$cooldownQueueResult'"
+        $failCount++
+    }
+
+    (Get-Item -LiteralPath $recentFailurePath).LastWriteTime = (Get-Date).AddMinutes(-20)
+    $retryQueueResult = Add-MconHeartbeatQueueItem -WorkspacePath $queueSmokeWorkspace -InvocationAgent 'mc-abc123' -DispatchState $queueDispatchState
+    if ($retryQueueResult -eq 'queued') {
+        $passCount++
+    } else {
+        Write-Host "FAIL: queue-cooldown-expiry - expected 'queued', got '$retryQueueResult'"
+        $failCount++
+    }
+
     $restoredSource = Join-Path $queuePaths.processing 'stale.json'
     Set-Content -LiteralPath $restoredSource -Value '{}' -Encoding UTF8
     Restore-MconHeartbeatProcessingQueue -QueuePaths $queuePaths

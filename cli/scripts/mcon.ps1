@@ -684,7 +684,7 @@ Statuses: inbox, in_progress, review, done, blocked
 
                     $queued = 0
                     $skipped = 0
-                    $retired = @()
+                    $cooldown = @()
                     if ($dispatchResult.act -eq $true) {
                         $dispatchStates = @(Get-MconHeartbeatDispatchStates -DispatchResult $dispatchResult)
                         foreach ($ds in $dispatchStates) {
@@ -693,10 +693,10 @@ Statuses: inbox, in_progress, review, done, blocked
                                 'queued' {
                                     $queued++
                                 }
-                                'retired' {
+                                'cooldown' {
                                     $skipped++
                                     $taskId = Get-MconHeartbeatQueueItemId -DispatchState $ds
-                                    $retired += $taskId
+                                    $cooldown += $taskId
                                 }
                                 default {
                                     $skipped++
@@ -714,7 +714,7 @@ Statuses: inbox, in_progress, review, done, blocked
                             queue    = [ordered]@{
                                 queued             = $queued
                                 skipped            = $skipped
-                                retired            = $retired
+                                cooldown           = $cooldown
                                 processing_started = [bool]($processingStart.confirmed_started)
                                 processing         = $processingStart
                             }

@@ -203,7 +203,7 @@ function Initialize-MconHeartbeatQueue {
     )
 
     $paths = Get-MconHeartbeatQueuePaths -WorkspacePath $WorkspacePath
-    foreach ($dir in @($paths.workflow, $paths.root, $paths.pending, $paths.processing, $paths.failed, $paths.retired, $paths.processorRuns)) {
+    foreach ($dir in @($paths.workflow, $paths.root, $paths.pending, $paths.processing, $paths.failed, $paths.processorRuns)) {
         if (-not (Test-Path -LiteralPath $dir)) {
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
         }
@@ -634,6 +634,93 @@ function Get-MconHeartbeatQueueItemId {
     return "dispatch-$safeReason"
 }
 
+function Get-MconHeartbeatQueueFailureFiles {
+    param(
+        [Parameter(Mandatory)]$QueuePaths,
+        [Parameter(Mandatory)][string]$QueueItemId
+    )
+
+    return @(
+        Get-ChildItem -LiteralPath $QueuePaths.failed -Filter "$QueueItemId-*.json" -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime, Name
+    )
+}
+
+function Get-MconHeartbeatQueueRetryBackoffMinutes {
+    param(
+        [Parameter(Mandatory)][int]$FailureCount,
+        [int]$BaseMinutes = 15,
+        [int]$MaxMinutes = 360
+    )
+
+    if ($FailureCount -le 0) {
+        return 0
+    }
+
+    $exponent = [Math]::Min([int]($FailureCount - 1), 30)
+    $backoffMinutes = [int][Math]::Round([double]$BaseMinutes * [Math]::Pow(2, $exponent))
+    return [int][Math]::Min($backoffMinutes, $MaxMinutes)
+}
+
+function Get-MconHeartbeatQueueCooldownState {
+    param(
+        [Parameter(Mandatory)]$QueuePaths,
+        [Parameter(Mandatory)][string]$QueueItemId,
+        [int]$RetryBackoffMinutes = 15,
+        [int]$MaxRetryBackoffMinutes = 360
+    )
+
+    $failedFiles = @(Get-MconHeartbeatQueueFailureFiles -QueuePaths $QueuePaths -QueueItemId $QueueItemId)
+    if ($failedFiles.Count -eq 0) {
+        return [pscustomobject]@{
+            active            = $false
+            failure_count     = 0
+            backoff_minutes   = 0
+            last_failure_at   = $null
+            next_attempt_at   = $null
+            remaining_minutes = 0
+        }
+    }
+
+    $lastFailure = $failedFiles[$failedFiles.Count - 1]
+    $lastFailureAt = $lastFailure.LastWriteTime.ToUniversalTime()
+    $backoffMinutes = Get-MconHeartbeatQueueRetryBackoffMinutes `
+        -FailureCount $failedFiles.Count `
+        -BaseMinutes $RetryBackoffMinutes `
+        -MaxMinutes $MaxRetryBackoffMinutes
+    $nextAttemptAt = $lastFailureAt.AddMinutes($backoffMinutes)
+    $remainingMinutes = [int][Math]::Ceiling(($nextAttemptAt - (Get-Date).ToUniversalTime()).TotalMinutes)
+
+    return [pscustomobject]@{
+        active            = $remainingMinutes -gt 0
+        failure_count     = $failedFiles.Count
+        backoff_minutes   = $backoffMinutes
+        last_failure_at   = $lastFailureAt.ToString('o')
+        next_attempt_at   = $nextAttemptAt.ToString('o')
+        remaining_minutes = [int][Math]::Max(0, $remainingMinutes)
+    }
+}
+
+function Clear-MconHeartbeatQueueFailureHistory {
+    param(
+        [Parameter(Mandatory)]$QueuePaths,
+        [Parameter(Mandatory)][string]$QueueItemId
+    )
+
+    $removedCount = 0
+    foreach ($failedFile in @(Get-MconHeartbeatQueueFailureFiles -QueuePaths $QueuePaths -QueueItemId $QueueItemId)) {
+        Remove-Item -LiteralPath $failedFile.FullName -Force -ErrorAction SilentlyContinue
+        $removedCount++
+    }
+
+    $retiredPath = Join-Path $QueuePaths.retired "$QueueItemId.json"
+    if (Test-Path -LiteralPath $retiredPath) {
+        Remove-Item -LiteralPath $retiredPath -Force -ErrorAction SilentlyContinue
+    }
+
+    return $removedCount
+}
+
 function Write-MconQueueLog {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -722,7 +809,9 @@ function Add-MconHeartbeatQueueItem {
         [Parameter(Mandatory)][string]$WorkspacePath,
         [Parameter(Mandatory)][string]$InvocationAgent,
         [Parameter(Mandatory)]$DispatchState,
-        [int]$MaxFailures = 3
+        [int]$RetryBackoffMinutes = 15,
+        [int]$MaxRetryBackoffMinutes = 360,
+        [int]$MaxFailures = 0
     )
 
     $paths = Initialize-MconHeartbeatQueue -WorkspacePath $WorkspacePath
@@ -740,49 +829,37 @@ function Add-MconHeartbeatQueueItem {
         return 'already_processing'
     }
 
-    $failedFiles = @(Get-ChildItem -LiteralPath $paths.failed -Filter "$queueItemId*.json" -File -ErrorAction SilentlyContinue)
-    $failureCount = $failedFiles.Count
+    $cooldownState = Get-MconHeartbeatQueueCooldownState `
+        -QueuePaths $paths `
+        -QueueItemId $queueItemId `
+        -RetryBackoffMinutes $RetryBackoffMinutes `
+        -MaxRetryBackoffMinutes $MaxRetryBackoffMinutes
 
-    if ($failureCount -ge $MaxFailures) {
-        $retiredPath = Join-Path $paths.retired "$queueItemId.json"
-        if (-not (Test-Path -LiteralPath $retiredPath)) {
-            $firstTask = @($DispatchState.tasks | Where-Object { $_ -and $_.id }) | Select-Object -First 1
-            $failureReasons = @()
-            foreach ($ff in ($failedFiles | Sort-Object LastWriteTime | Select-Object -Last 3)) {
-                try {
-                    $fd = Get-Content -LiteralPath $ff.FullName -Raw | ConvertFrom-Json -Depth 10
-                    $failureReasons += if ($fd.error) { $fd.error } elseif ($fd.command_output) { $fd.command_output } elseif ($fd.output) { $fd.output } else { $null }
-                } catch {}
-            }
-            $retiredRecord = [ordered]@{
-                queue_item_id    = $queueItemId
-                retired_at       = (Get-Date).ToUniversalTime().ToString('o')
-                total_failures   = $failureCount
-                last_errors      = $failureReasons
-                invocation_agent = $InvocationAgent
-                task_id          = if ($firstTask -and $firstTask.id) { $firstTask.id } else { $null }
-                task_title       = if ($firstTask -and $firstTask.title) { $firstTask.title } else { $null }
-                task_status      = if ($firstTask -and $firstTask.status) { $firstTask.status } else { $null }
-            }
-            $retiredRecord | ConvertTo-Json -Depth 50 | Set-Content -LiteralPath $retiredPath -Encoding UTF8
-            Write-MconQueueLog -Path $paths.stdoutLog -Message "RETIRED $($queueItemId): $failureCount failures, task=$($retiredRecord.task_id) ($($retiredRecord.task_title))"
-        }
-        Write-MconQueueLog -Path $paths.stdoutLog -Message "SKIP retired $queueItemId"
-        return 'retired'
+    if ($cooldownState.active) {
+        Write-MconQueueLog `
+            -Path $paths.stdoutLog `
+            -Message "SKIP cooldown $queueItemId failures=$($cooldownState.failure_count) remaining_minutes=$($cooldownState.remaining_minutes) next_attempt_at=$($cooldownState.next_attempt_at)"
+        return 'cooldown'
     }
 
     $firstTask = @($DispatchState.tasks | Where-Object { $_ -and $_.id }) | Select-Object -First 1
     $queueItem = [ordered]@{
-        queue_item_id   = $queueItemId
-        enqueued_at     = (Get-Date).ToUniversalTime().ToString('o')
+        queue_item_id    = $queueItemId
+        enqueued_at      = (Get-Date).ToUniversalTime().ToString('o')
         invocation_agent = $InvocationAgent
-        session_key     = Get-MconTaskSessionKey -InvocationAgent $InvocationAgent -DispatchState $DispatchState
-        dispatch_state  = $DispatchState
+        session_key      = Get-MconTaskSessionKey -InvocationAgent $InvocationAgent -DispatchState $DispatchState
+        dispatch_state   = $DispatchState
     }
 
     if ($firstTask -and $firstTask.id) {
         $queueItem.task_id = $firstTask.id
         $queueItem.task_status = $firstTask.status
+    }
+    if ($cooldownState.failure_count -gt 0) {
+        $queueItem.consecutive_failures = $cooldownState.failure_count
+        Write-MconQueueLog `
+            -Path $paths.stdoutLog `
+            -Message "REQUEUE $queueItemId after_failures=$($cooldownState.failure_count) last_failure_at=$($cooldownState.last_failure_at)"
     }
 
     $queueItem | ConvertTo-Json -Depth 50 | Set-Content -LiteralPath $pendingPath -Encoding UTF8
@@ -1428,6 +1505,16 @@ function Invoke-MconHeartbeatQueueProcessor {
                         Write-MconQueueLog -Path $stdoutLogPath -Message "processing item already absent after successful command=$commandName queue_item=$($pendingItem.Name)"
                     }
                 }
+                try {
+                    $clearedFailureCount = Clear-MconHeartbeatQueueFailureHistory `
+                        -QueuePaths $lockState.paths `
+                        -QueueItemId $pendingItem.BaseName
+                    if ($clearedFailureCount -gt 0) {
+                        Write-MconQueueLog -Path $stdoutLogPath -Message "cleared failure history queue_item=$($pendingItem.Name) count=$clearedFailureCount"
+                    }
+                } catch {
+                    Write-MconQueueLog -Path $stderrLogPath -Message "failed to clear failure history queue_item=$($pendingItem.Name): $($_.Exception.Message)"
+                }
                 $itemsProcessed++
                 Write-MconQueueLog -Path $stdoutLogPath -Message "completed task=$taskId command=$commandName"
             } catch {
@@ -1435,14 +1522,21 @@ function Invoke-MconHeartbeatQueueProcessor {
                 $ts = (Get-Date).ToString('yyyyMMdd-HHmmss')
                 $failureName = "$($pendingItem.BaseName)-failure-$ts.json"
                 $failurePath = Join-Path $lockState.paths.failed $failureName
+                $consecutiveFailures = @(Get-MconHeartbeatQueueFailureFiles -QueuePaths $lockState.paths -QueueItemId $pendingItem.BaseName).Count + 1
+                $retryBackoffMinutes = Get-MconHeartbeatQueueRetryBackoffMinutes -FailureCount $consecutiveFailures
+                $nextAttemptAt = (Get-Date).ToUniversalTime().AddMinutes($retryBackoffMinutes).ToString('o')
                 $failureRecord = [ordered]@{
-                    failed_at   = (Get-Date).ToUniversalTime().ToString('o')
-                    error       = ($_ | Out-String).Trim()
-                    queue_item_id = $pendingItem.Name
-                    command     = $commandName
-                    command_exit_code = $commandExitCode
-                    command_output = $commandOutput
-                    queue_item  = $queueItem
+                    failed_at             = (Get-Date).ToUniversalTime().ToString('o')
+                    error                 = ($_ | Out-String).Trim()
+                    queue_item_id         = $pendingItem.BaseName
+                    queue_item_file       = $pendingItem.Name
+                    command               = $commandName
+                    command_exit_code     = $commandExitCode
+                    command_output        = $commandOutput
+                    consecutive_failures  = $consecutiveFailures
+                    retry_backoff_minutes = $retryBackoffMinutes
+                    next_attempt_at       = $nextAttemptAt
+                    queue_item            = $queueItem
                 }
                 $failureRecord | ConvertTo-Json -Depth 50 | Set-Content -LiteralPath $failurePath -Encoding UTF8
                 Write-MconQueueLog -Path $stderrLogPath -Message "FAILED task=$($pendingItem.Name) command=$commandName failure_path=$failurePath"
@@ -1450,6 +1544,7 @@ function Invoke-MconHeartbeatQueueProcessor {
                 if (-not [string]::IsNullOrWhiteSpace([string]$commandOutput)) {
                     Write-MconQueueOutput -Path $stderrLogPath -Prefix "failure output:" -Text ([string]$commandOutput)
                 }
+                Write-MconQueueLog -Path $stderrLogPath -Message "retry cooldown queue_item=$($pendingItem.Name) consecutive_failures=$consecutiveFailures next_attempt_at=$nextAttemptAt"
 
                 if (Test-Path -LiteralPath $processingPath) {
                     Remove-Item -LiteralPath $processingPath -Force

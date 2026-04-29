@@ -155,7 +155,7 @@ function Invoke-MconDispatchBoard {
             $queueInfo = [ordered]@{
                 queued             = 0
                 skipped            = 0
-                retired            = @()
+                cooldown           = @()
                 processing_started = $false
             }
             if ($dispatchResult.act -eq $true) {
@@ -167,10 +167,10 @@ function Invoke-MconDispatchBoard {
                             $queueInfo.queued++
                             break
                         }
-                        'retired' {
+                        'cooldown' {
                             $queueInfo.skipped++
                             $taskId = Get-MconHeartbeatQueueItemId -DispatchState $ds
-                            $queueInfo.retired += $taskId
+                            $queueInfo.cooldown += $taskId
                             break
                         }
                         default {

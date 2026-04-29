@@ -187,6 +187,16 @@ function Test-MconVerificationPreflight {
         $reasons += 'Verification relies on file presence/content checks only for a multi-file implementation task.'
     }
 
+    # HYBRID DETECTION: Task looks like documentation but contains executable files
+    $looksLikeDocs = Test-MconVerificationTaskLooksLikeDocs -Task $Task
+    $hasExecutableFiles = ($implementationFiles.Count -gt 0)
+
+    if ($looksLikeDocs -and $hasExecutableFiles) {
+        $executableNames = @($implementationFiles | Select-Object -ExpandProperty Name)
+        $conflictMsg = "Task appears to be documentation but includes executable files: $($executableNames -join ', '). Either remove executables for a pure documentation task, or reclassify the task as hybrid/code and adjust verification accordingly."
+        $reasons += $conflictMsg
+    }
+
     if ($runtimeSignalCount -gt 0) {
         $notes += "Detected runtime signals: $runtimeSignalCount"
     }

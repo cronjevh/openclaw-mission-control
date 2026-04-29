@@ -1,15 +1,41 @@
+function Get-MconResponseItems {
+    param($Response)
+
+    if ($null -eq $Response) { return @() }
+    if ($Response.PSObject.Properties.Name -contains 'items') { return @($Response.items) }
+    return @($Response)
+}
+
+function Read-MconAgentRoster {
+    param(
+        [Parameter(Mandatory)][string]$BoardId
+    )
+    $leadWorkspace = "/home/cronjev/.openclaw/workspace-lead-$BoardId"
+    $rosterPath = Join-Path $leadWorkspace '.openclaw/workflows/agent-roster.json'
+    if (-not (Test-Path -LiteralPath $rosterPath)) {
+        return $null
+    }
+    $roster = Get-Content -LiteralPath $rosterPath -Raw | ConvertFrom-Json -Depth 20
+    return @(Get-MconResponseItems -Response $roster.agents)
+}
+
 function Get-MconBoardAgentsOrdered {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$BaseUrl,
         [Parameter(Mandatory)][string]$Token,
-        [Parameter(Mandatory)][string]$BoardId
+        [Parameter(Mandatory)][string]$BoardId,
+        $BoardRoster = $null
     )
 
-    $encodedBoardId = [uri]::EscapeDataString($BoardId)
-    $rosterUri = "$BaseUrl/api/v1/agent/agents?board_id=$encodedBoardId&limit=100"
-    $rosterResponse = Invoke-MconApi -Method Get -Uri $rosterUri -Token $Token
-    $agents = @(Get-MconResponseItems -Response $rosterResponse)
+    if ($BoardRoster) {
+        $agents = @($BoardRoster)
+    } else {
+        $encodedBoardId = [uri]::EscapeDataString($BoardId)
+        $rosterUri = "$BaseUrl/api/v1/agent/agents?board_id=$encodedBoardId&limit=100"
+        $rosterResponse = Invoke-MconApi -Method Get -Uri $rosterUri -Token $Token
+        $agents = @(Get-MconResponseItems -Response $rosterResponse)
+    }
 
     $lead = $null
     $verifiers = @()
@@ -65,7 +91,13 @@ function Invoke-MconDispatchBoard {
     $authToken = $Config.auth_token
     $boardId = $Config.board_id
 
-    $orderedAgents = Get-MconBoardAgentsOrdered -BaseUrl $baseUrl -Token $authToken -BoardId $boardId
+    # Load cached agent roster if available
+    $boardRoster = Read-MconAgentRoster -BoardId $boardId
+    if (-not $boardRoster) {
+        Write-Warning "agent-roster.json not found for board $boardId; falling back to API. Run 'mcon admin gettokens' to cache the roster."
+    }
+
+    $orderedAgents = Get-MconBoardAgentsOrdered -BaseUrl $baseUrl -Token $authToken -BoardId $boardId -BoardRoster $boardRoster
 
     if ($orderedAgents.Count -eq 0) {
         return [ordered]@{

@@ -1549,8 +1549,27 @@ function Invoke-MconAssign {
         }
     }
 
+    $task = $null
+    $dispatchStatePath = Get-MconDispatchStatePath -WorkspacePath $workspacePath
+    if (Test-Path -LiteralPath $dispatchStatePath) {
+        try {
+            $dispatchState = Get-Content -LiteralPath $dispatchStatePath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 50
+            foreach ($dsTask in @($dispatchState.tasks)) {
+                if ($dsTask -and $dsTask.id -eq $TaskId -and $dsTask.task_data -and $dsTask.task_data.task) {
+                    $task = $dsTask.task_data.task
+                    break
+                }
+            }
+        } catch {
+            $task = $null
+        }
+    }
+
+    $commentsResponse = $null
     try {
-        $task = Invoke-MconApi -Method Get -Uri $taskUri -Token $authToken
+        if (-not $task) {
+            $task = Invoke-MconApi -Method Get -Uri $taskUri -Token $authToken
+        }
         $commentsResponse = Invoke-MconApi -Method Get -Uri $commentsUri -Token $authToken
     } catch {
         return [ordered]@{

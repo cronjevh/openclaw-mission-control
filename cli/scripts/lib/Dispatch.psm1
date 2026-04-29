@@ -56,6 +56,19 @@ function Get-MconLeadWorkspacePath {
     return "/home/cronjev/.openclaw/workspace-lead-$BoardId"
 }
 
+function Read-MconAgentRoster {
+    param(
+        [Parameter(Mandatory)][string]$BoardId
+    )
+    $leadWorkspace = Get-MconLeadWorkspacePath -BoardId $BoardId
+    $rosterPath = Join-Path $leadWorkspace '.openclaw/workflows/agent-roster.json'
+    if (-not (Test-Path -LiteralPath $rosterPath)) {
+        return $null
+    }
+    $roster = Get-Content -LiteralPath $rosterPath -Raw | ConvertFrom-Json -Depth 20
+    return @(Get-MconResponseItems -Response $roster.agents)
+}
+
 function Get-MconCommentsProjection {
     param($Comments = $null)
 
@@ -132,7 +145,8 @@ function Write-MconTaskContextBundle {
         [Parameter(Mandatory)][string]$BaseUrl,
         [Parameter(Mandatory)][string]$AuthToken,
         [Parameter(Mandatory)]$TaskSummary,
-        [string]$TaskBundleWorkspacePath
+        [string]$TaskBundleWorkspacePath,
+        $BoardRoster = $null
     )
 
     if (-not $TaskSummary -or -not $TaskSummary.id) { return $null }
@@ -156,22 +170,22 @@ function Write-MconTaskContextBundle {
     }
 
     $encodedBoardId = [uri]::EscapeDataString($BoardId)
-    $encodedTaskId = [uri]::EscapeDataString($TaskSummary.id)
 
-    $taskUri = "$BaseUrl/api/v1/agent/boards/$encodedBoardId/tasks/$encodedTaskId"
-    $taskDetail = Invoke-MconApi -Method Get -Uri $taskUri -Token $AuthToken
-
-    $commentsUri = "$BaseUrl/api/v1/agent/boards/$encodedBoardId/tasks/$encodedTaskId/comments?limit=200"
-    $commentsResponse = Invoke-MconApi -Method Get -Uri $commentsUri -Token $AuthToken
-    $taskComments = Get-MconCommentsProjection -Comments (Get-MconResponseItems -Response $commentsResponse)
-
-    $rosterUri = "$BaseUrl/api/v1/agent/agents?board_id=$encodedBoardId&limit=100"
-    $rosterResponse = Invoke-MconApi -Method Get -Uri $rosterUri -Token $AuthToken
-    $workerAgents = @(
-        Get-MconResponseItems -Response $rosterResponse |
-            Where-Object { $_ -and -not $_.is_board_lead } |
-            ForEach-Object { ConvertTo-MconWorkerAgentContext -Agent $_ }
-    )
+    if ($BoardRoster) {
+        $workerAgents = @(
+            $BoardRoster |
+                Where-Object { $_ -and -not $_.is_board_lead } |
+                ForEach-Object { ConvertTo-MconWorkerAgentContext -Agent $_ }
+        )
+    } else {
+        $rosterUri = "$BaseUrl/api/v1/agent/agents?board_id=$encodedBoardId&limit=100"
+        $rosterResponse = Invoke-MconApi -Method Get -Uri $rosterUri -Token $AuthToken
+        $workerAgents = @(
+            Get-MconResponseItems -Response $rosterResponse |
+                Where-Object { $_ -and -not $_.is_board_lead } |
+                ForEach-Object { ConvertTo-MconWorkerAgentContext -Agent $_ }
+        )
+    }
 
     $taskDataPath = Join-Path $taskContextDir 'taskData.json'
     $taskData = [ordered]@{
@@ -182,8 +196,7 @@ function Write-MconTaskContextBundle {
         task_directory        = $taskDir
         deliverables_directory = $taskDeliverablesDir
         evidence_directory    = $taskEvidenceDir
-        task                  = $taskDetail
-        comments              = $taskComments
+        task                  = $TaskSummary
         boardWorkers          = $workerAgents
     }
 
@@ -193,7 +206,6 @@ function Write-MconTaskContextBundle {
         task_directory = $taskDir
         deliverables_directory = $taskDeliverablesDir
         evidence_directory = $taskEvidenceDir
-        comments = $taskComments
         task_data = $taskData
     }
 }
@@ -266,7 +278,8 @@ function Get-MconDispatchArrayValue {
 function Write-MconDispatchState {
     param(
         [Parameter(Mandatory)][string]$WorkspacePath,
-        [Parameter(Mandatory)]$DispatchResult
+        [Parameter(Mandatory)]$DispatchResult,
+        $BoardRoster = $null
     )
 
     $dispatchStatePath = Get-MconDispatchStatePath -WorkspacePath $WorkspacePath
@@ -287,7 +300,6 @@ function Write-MconDispatchState {
             task_directory         = Get-MconDispatchFieldValue -Item $task -Name 'task_directory'
             deliverables_directory = Get-MconDispatchFieldValue -Item $task -Name 'deliverables_directory'
             evidence_directory     = Get-MconDispatchFieldValue -Item $task -Name 'evidence_directory'
-            comments               = Get-MconDispatchArrayValue -Item $task -Name 'comments'
             task_data              = Get-MconDispatchFieldValue -Item $task -Name 'task_data'
         }
     }
@@ -302,6 +314,7 @@ function Write-MconDispatchState {
         act          = [bool]$DispatchResult.act
         reason       = $DispatchResult.reason
         tasks        = $tasks
+        board_roster = $BoardRoster
     }
 
     $tmpPath = Join-Path $dispatchStateDir ('.dispatch-state-latest.' + [guid]::NewGuid().Guid + '.tmp')
@@ -316,13 +329,18 @@ function Get-MconBoardVerifierAgents {
     param(
         [Parameter(Mandatory)][string]$BaseUrl,
         [Parameter(Mandatory)][string]$Token,
-        [Parameter(Mandatory)][string]$BoardId
+        [Parameter(Mandatory)][string]$BoardId,
+        $BoardRoster = $null
     )
 
-    $encodedBoardId = [uri]::EscapeDataString($BoardId)
-    $rosterUri = "$BaseUrl/api/v1/agent/agents?board_id=$encodedBoardId&limit=100"
-    $rosterResponse = Invoke-MconApi -Method Get -Uri $rosterUri -Token $Token
-    $agents = @(Get-MconResponseItems -Response $rosterResponse)
+    if ($BoardRoster) {
+        $agents = @($BoardRoster)
+    } else {
+        $encodedBoardId = [uri]::EscapeDataString($BoardId)
+        $rosterUri = "$BaseUrl/api/v1/agent/agents?board_id=$encodedBoardId&limit=100"
+        $rosterResponse = Invoke-MconApi -Method Get -Uri $rosterUri -Token $Token
+        $agents = @(Get-MconResponseItems -Response $rosterResponse)
+    }
 
     return @(
         $agents | Where-Object {
@@ -391,6 +409,11 @@ function Invoke-MconDispatch {
 
     switch ($role) {
         'lead' {
+            $boardRoster = Read-MconAgentRoster -BoardId $boardId
+            if (-not $boardRoster) {
+                Write-Warning "agent-roster.json not found for board $boardId; falling back to API. Run 'mcon admin gettokens' to cache the roster."
+            }
+
             $reviewUri = "$baseUrl/api/v1/agent/boards/$encodedBoardId/tasks?status=review"
             $inboxUri = "$baseUrl/api/v1/agent/boards/$encodedBoardId/tasks?status=inbox"
 
@@ -406,18 +429,18 @@ function Invoke-MconDispatch {
             $summary.inbox = ($inboxCount -gt 0)
 
             if ($summary.review) {
-                $verifierAgents = @(Get-MconBoardVerifierAgents -BaseUrl $baseUrl -Token $authToken -BoardId $boardId)
+                $verifierAgents = @(Get-MconBoardVerifierAgents -BaseUrl $baseUrl -Token $authToken -BoardId $boardId -BoardRoster $boardRoster)
                 if ($verifierAgents.Count -eq 0) {
-                    $dispatchResult = New-MconDispatchResult -Act $false -Reason 'review_tasks_no_verifier' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary
-                    Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult | Out-Null
-                    return $dispatchResult
+                $dispatchResult = New-MconDispatchResult -Act $false -Reason 'review_tasks_no_verifier' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary
+                Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult -BoardRoster $boardRoster | Out-Null
+                return $dispatchResult
                 }
             }
 
             $allTasks = @()
             if ($summary.inbox) {
                 foreach ($task in $inboxTasks) {
-                    $taskContext = Write-MconTaskContextBundle -WorkspacePath $workspacePath -BoardId $boardId -LeadAgentId $agentId -InvocationAgentId $invocationAgentId -BaseUrl $baseUrl -AuthToken $authToken -TaskSummary $task
+                    $taskContext = Write-MconTaskContextBundle -WorkspacePath $workspacePath -BoardId $boardId -LeadAgentId $agentId -InvocationAgentId $invocationAgentId -BaseUrl $baseUrl -AuthToken $authToken -TaskSummary $task -BoardRoster $boardRoster
                     $allTasks += [ordered]@{
                         id            = $task.id
                         status        = 'inbox'
@@ -427,7 +450,6 @@ function Invoke-MconDispatch {
                         task_directory = $taskContext.task_directory
                         deliverables_directory = $taskContext.deliverables_directory
                         evidence_directory = $taskContext.evidence_directory
-                        comments      = $taskContext.comments
                         task_data     = $taskContext.task_data
                     }
                 }
@@ -436,16 +458,21 @@ function Invoke-MconDispatch {
             if ($summary.inbox) {
                 $reason = 'lead_inbox'
                 $dispatchResult = New-MconDispatchResult -Act $true -Reason $reason -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary -Tasks $allTasks
-                Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult | Out-Null
+                Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult -BoardRoster $boardRoster | Out-Null
                 return $dispatchResult
             }
 
             $dispatchResult = New-MconDispatchResult -Act $false -Reason 'idle' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary
-            Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult | Out-Null
+            Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult -BoardRoster $boardRoster | Out-Null
             return $dispatchResult
         }
 
         'verifier' {
+            $boardRoster = Read-MconAgentRoster -BoardId $boardId
+            if (-not $boardRoster) {
+                Write-Warning "agent-roster.json not found for board $boardId; falling back to API. Run 'mcon admin gettokens' to cache the roster."
+            }
+
             $reviewUri = "$baseUrl/api/v1/agent/boards/$encodedBoardId/tasks?status=review"
             $reviewResponse = Invoke-MconApi -Method Get -Uri $reviewUri -Token $authToken
             $reviewTasks = @(Get-MconResponseItems -Response $reviewResponse)
@@ -453,7 +480,7 @@ function Invoke-MconDispatch {
             $summary.review = ($reviewTasks.Count -gt 0)
             if (-not $summary.review) {
                 $dispatchResult = New-MconDispatchResult -Act $false -Reason 'idle' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary
-                Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult | Out-Null
+                Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult -BoardRoster $boardRoster | Out-Null
                 return $dispatchResult
             }
 
@@ -468,7 +495,8 @@ function Invoke-MconDispatch {
                     -BaseUrl $baseUrl `
                     -AuthToken $authToken `
                     -TaskSummary $task `
-                    -TaskBundleWorkspacePath $leadWorkspacePath
+                    -TaskBundleWorkspacePath $leadWorkspacePath `
+                    -BoardRoster $boardRoster
                     $allTasks += [ordered]@{
                         id            = $task.id
                         status        = 'review'
@@ -478,13 +506,12 @@ function Invoke-MconDispatch {
                         task_directory = $taskContext.task_directory
                         deliverables_directory = $taskContext.deliverables_directory
                         evidence_directory = $taskContext.evidence_directory
-                        comments      = $taskContext.comments
                         task_data     = $taskContext.task_data
                     }
                 }
 
             $dispatchResult = New-MconDispatchResult -Act $true -Reason 'verifier_review' -AgentRole $role -BoardId $boardId -AgentId $agentId -Summary $summary -Tasks $allTasks
-            Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult | Out-Null
+            Write-MconDispatchState -WorkspacePath $workspacePath -DispatchResult $dispatchResult -BoardRoster $boardRoster | Out-Null
             return $dispatchResult
         }
 
@@ -514,7 +541,6 @@ function Invoke-MconDispatch {
                         task_directory = $taskContext.task_directory
                         deliverables_directory = $taskContext.deliverables_directory
                         evidence_directory = $taskContext.evidence_directory
-                        comments      = $taskContext.comments
                         task_data     = $taskContext.task_data
                     }
                 }
@@ -535,7 +561,6 @@ function Invoke-MconDispatch {
                         task_directory = $taskContext.task_directory
                         deliverables_directory = $taskContext.deliverables_directory
                         evidence_directory = $taskContext.evidence_directory
-                        comments      = $taskContext.comments
                         task_data     = $taskContext.task_data
                     }
                 }
@@ -555,4 +580,4 @@ function Invoke-MconDispatch {
     }
 }
 
-Export-ModuleMember -Function Invoke-MconDispatch, New-MconDispatchResult, Get-MconResponseItems, Write-MconDispatchState, Get-MconLeadWorkspacePath
+Export-ModuleMember -Function Invoke-MconDispatch, New-MconDispatchResult, Get-MconResponseItems, Write-MconDispatchState, Get-MconDispatchStatePath, Get-MconLeadWorkspacePath, Read-MconAgentRoster

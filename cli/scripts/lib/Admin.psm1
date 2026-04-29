@@ -156,6 +156,61 @@ function Invoke-MconAdminGetTokens {
     $outputPath = Join-Path $PSScriptRoot '..\.agent-tokens.json.enc'
     $encrypted | Set-Content -LiteralPath $outputPath -Encoding UTF8
 
+    # Write agent roster files per board to lead workspaces
+    $agentsByBoard = @{}
+    foreach ($agent in $agentsList) {
+        $boardId = $agent.board_id
+        if (-not $boardId) { continue }
+        if (-not $agentsByBoard.ContainsKey($boardId)) {
+            $agentsByBoard[$boardId] = @()
+        }
+        $agentsByBoard[$boardId] += $agent
+    }
+
+    foreach ($boardId in $agentsByBoard.Keys) {
+        $leadWorkspace = "/home/cronjev/.openclaw/workspace-lead-$boardId"
+        if (Test-Path -LiteralPath $leadWorkspace) {
+            $rosterDir = Join-Path $leadWorkspace '.openclaw/workflows'
+            if (-not (Test-Path -LiteralPath $rosterDir)) {
+                New-Item -ItemType Directory -Path $rosterDir -Force | Out-Null
+            }
+            $rosterPath = Join-Path $rosterDir 'agent-roster.json'
+
+            # Filter agents to only include required fields
+            $filteredAgents = @()
+            foreach ($agent in $agentsByBoard[$boardId]) {
+                $filteredAgent = [ordered]@{
+                    id = if ($agent.PSObject.Properties.Name -contains 'id') { $agent.id } else { $null }
+                    name = if ($agent.PSObject.Properties.Name -contains 'name') { $agent.name } else { $null }
+                    board_id = if ($agent.PSObject.Properties.Name -contains 'board_id') { $agent.board_id } else { $null }
+                    is_board_lead = if ($agent.PSObject.Properties.Name -contains 'is_board_lead') { [bool]$agent.is_board_lead } else { $false }
+                    is_gateway_main = if ($agent.PSObject.Properties.Name -contains 'is_gateway_main') { [bool]$agent.is_gateway_main } else { $false }
+                    role = if ($agent.PSObject.Properties.Name -contains 'role') { $agent.role } else { $null }
+                    identity_template = if ($agent.PSObject.Properties.Name -contains 'identity_template') { $agent.identity_template } else { $null }
+                }
+
+                # Add identity_profile.role if it exists
+                if ($agent.PSObject.Properties.Name -contains 'identity_profile' -and $agent.identity_profile) {
+                    $filteredAgent['identity_profile'] = [ordered]@{
+                        role = if ($agent.identity_profile.PSObject.Properties.Name -contains 'role') { $agent.identity_profile.role } else { $null }
+                    }
+                } else {
+                    $filteredAgent['identity_profile'] = [ordered]@{ role = $null }
+                }
+
+                $filteredAgents += $filteredAgent
+            }
+
+            $roster = [ordered]@{
+                version     = '1.0'
+                generated_at = [DateTime]::UtcNow.ToString('o')
+                board_id    = $boardId
+                agents      = $filteredAgents
+            }
+            $roster | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $rosterPath -Encoding UTF8
+        }
+    }
+
     # Sync lead allowAgents to match current board assignments
     try {
         Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'lib/SyncAllowAgents.psm1') -Force

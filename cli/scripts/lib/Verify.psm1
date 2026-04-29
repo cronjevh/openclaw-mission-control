@@ -512,7 +512,7 @@ function New-MconVerificationComment {
     )
 
     $decision = if ($ExecutionResult.passed) { 'PASS' } else { 'FAIL' }
-    $actionTaken = if ($ExecutionResult.passed) { 'moved to done' } else { 'returned to inbox for rework' }
+    $actionTaken = if ($ExecutionResult.passed) { 'moved to done' } else { 'rework dispatched to worker' }
     $resultPath = if ($ExecutionResult.validation_result_path) { $ExecutionResult.validation_result_path } else { 'none' }
     $stdoutSummary = if ([string]::IsNullOrWhiteSpace($ExecutionResult.stdout)) { 'none' } else { $ExecutionResult.stdout }
     $preflightSummary = if ($null -ne $Preflight) {
@@ -590,8 +590,8 @@ function Invoke-MconVerifyRun {
         $executionResult = Invoke-MconVerificationProcess -TaskId $TaskId -VerificationPaths $verificationPaths -TaskBundlePaths $taskBundlePaths -Config $Config -Task $task
     }
 
-    $resultingTaskStatus = if ($executionResult.passed) { 'done' } else { 'inbox' }
-    $actionTaken = if ($executionResult.passed) { 'mark_done' } else { 'return_to_sender' }
+    $resultingTaskStatus = if ($executionResult.passed) { 'done' } else { 'in_progress' }
+    $actionTaken = if ($executionResult.passed) { 'mark_done' } else { 'rework' }
     $evidencePacket = $null
     if ($executionResult.passed) {
         $evidencePacket = Submit-MconVerificationEvidencePacket `
@@ -614,6 +614,118 @@ function Invoke-MconVerifyRun {
 
     $comment = Send-MconComment -BaseUrl $baseUrl -Token $authToken -BoardId $boardId -TaskId $TaskId -Message $commentMessage
     $updatedTask = Set-MconTaskStatus -BaseUrl $leadConfig.base_url -Token $leadConfig.auth_token -BoardId $boardId -TaskId $TaskId -Status $resultingTaskStatus
+
+    $reworkDispatch = $null
+    if (-not $executionResult.passed) {
+        $subagentUuid = Get-MconTaskSubagentUuid -Task $task
+        $assignedAgentId = if ($task.PSObject.Properties.Name -contains 'assigned_agent_id' -and $task.assigned_agent_id) {
+            [string]$task.assigned_agent_id
+        } else { $null }
+
+        if ($assignedAgentId -and -not [string]::IsNullOrWhiteSpace($subagentUuid)) {
+            $openClawRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+            $openClawRoot = if ($leadConfig.workspace_path) { Split-Path -Parent $leadConfig.workspace_path } else { $openClawRoot }
+            $workerWorkspacePath = Join-Path $openClawRoot "workspace-mc-$assignedAgentId"
+
+            if (Test-Path -LiteralPath $workerWorkspacePath) {
+                try {
+                    $workerConfig = Resolve-MconOpenClawConfig -WorkspacePath $workerWorkspacePath
+                    $workerSpawnAgentId = if ($workerConfig.agents.list.Count -gt 0) { $workerConfig.agents.list[0].id } else { $null }
+                    $workerLegacyName = if ($workerConfig.agents.list.Count -gt 0) { $workerConfig.agents.list[0].name.ToLower() } else { '' }
+
+                    $sessionAgentNames = @()
+                    foreach ($candidate in @($workerSpawnAgentId, $workerLegacyName)) {
+                        if (-not [string]::IsNullOrWhiteSpace($candidate) -and ($sessionAgentNames -notcontains $candidate)) {
+                            $sessionAgentNames += $candidate
+                        }
+                    }
+
+                    $registeredSession = Resolve-MconRegisteredSubagentSession `
+                        -OpenClawRoot $openClawRoot `
+                        -AgentName $sessionAgentNames `
+                        -SubagentUuid $subagentUuid `
+                        -TaskId $TaskId
+
+                    if (-not $registeredSession) {
+                        $registeredSession = Resolve-MconRegisteredSubagentSessionByTask `
+                            -OpenClawRoot $openClawRoot `
+                            -AgentName $sessionAgentNames `
+                            -TaskId $TaskId
+                    }
+
+                    if ($registeredSession) {
+                        $childSessionKey = [string]$registeredSession.childSessionKey
+                        $subagentAgentId = if ($registeredSession.PSObject.Properties.Name -contains 'registryAgentId') {
+                            [string]$registeredSession.registryAgentId
+                        } else { $workerSpawnAgentId }
+
+                        $reworkPrompt = @"
+# VERIFICATION FAILED — REWORK REQUIRED
+
+Task $TaskId verification failed and requires rework.
+
+## Verification Feedback
+$commentMessage
+
+## Work Contract
+- Read the existing deliverables and fix only what needs fixing
+- After completing rework, post a handoff comment and move the task to review
+- If blocked, comment with the exact blocker and stop
+"@
+
+                        $diagnosticsDir = Join-Path $taskBundlePaths.evidence_directory 'session-dispatch'
+                        $deferredPayload = [ordered]@{
+                            workspace_path        = [string]$leadConfig.workspace_path
+                            invocation_agent      = $subagentAgentId
+                            session_key           = $childSessionKey
+                            message               = $reworkPrompt
+                            task_id               = $TaskId
+                            dispatch_type         = 'rework'
+                            timeout_seconds       = 300
+                            temperature           = 0
+                            initial_delay_seconds = 0
+                        }
+                        $response = Start-MconDeferredSessionDispatch `
+                            -WorkspacePath ([string]$leadConfig.workspace_path) `
+                            -MconScriptPath $MconScriptPath `
+                            -DiagnosticsDir $diagnosticsDir `
+                            -TaskId $TaskId `
+                            -Payload $deferredPayload
+                        $reworkDispatch = [ordered]@{
+                            ok          = $true
+                            session_key = $childSessionKey
+                            agent_id    = $subagentAgentId
+                            queued      = $true
+                            dispatch    = $response
+                        }
+                    } else {
+                        $reworkDispatch = [ordered]@{
+                            ok     = $false
+                            reason = 'no_registered_session'
+                            note   = 'Could not find a registered subagent session for rework dispatch.'
+                        }
+                    }
+                } catch {
+                    $reworkDispatch = [ordered]@{
+                        ok    = $false
+                        error = $_.Exception.Message
+                    }
+                }
+            } else {
+                $reworkDispatch = [ordered]@{
+                    ok     = $false
+                    reason = 'worker_workspace_not_found'
+                    note   = "Worker workspace not found: $workerWorkspacePath"
+                }
+            }
+        } else {
+            $reworkDispatch = [ordered]@{
+                ok     = $false
+                reason = 'no_assignment'
+                note   = 'Task has no assigned agent or subagent UUID; cannot dispatch rework.'
+            }
+        }
+    }
 
     $closureDispatch = $null
     if ($executionResult.passed -and $updatedTask.status -eq 'done') {
@@ -681,6 +793,7 @@ function Invoke-MconVerifyRun {
         resulting_task_status = $updatedTask.status
         action_taken = $actionTaken
         closure_dispatch = $closureDispatch
+        rework_dispatch = $reworkDispatch
         comment_id = if ($comment.PSObject.Properties.Name -contains 'id') { $comment.id } else { $null }
         task = $updatedTask
     }
@@ -708,16 +821,107 @@ function Invoke-MconVerifyFail {
         throw "Task must be in review before verifier can fail it. Current status: $($task.status)"
     }
 
-    # Add comment with the failure message
     $comment = Send-MconComment -BaseUrl $baseUrl -Token $authToken -BoardId $boardId -TaskId $TaskId -Message $Message
+    $updatedTask = Set-MconTaskStatus -BaseUrl $leadConfig.base_url -Token $leadConfig.auth_token -BoardId $boardId -TaskId $TaskId -Status 'in_progress'
 
-    # Set status to inbox using lead token
-    $updatedTask = Set-MconTaskStatus -BaseUrl $leadConfig.base_url -Token $leadConfig.auth_token -BoardId $boardId -TaskId $TaskId -Status 'inbox'
+    $reworkDispatch = $null
+    $subagentUuid = Get-MconTaskSubagentUuid -Task $task
+    $assignedAgentId = if ($task.PSObject.Properties.Name -contains 'assigned_agent_id' -and $task.assigned_agent_id) {
+        [string]$task.assigned_agent_id
+    } else { $null }
+
+    if ($assignedAgentId -and -not [string]::IsNullOrWhiteSpace($subagentUuid)) {
+        $openClawRoot = Split-Path -Parent $leadConfig.workspace_path
+        $workerWorkspacePath = Join-Path $openClawRoot "workspace-mc-$assignedAgentId"
+
+        if (Test-Path -LiteralPath $workerWorkspacePath) {
+            try {
+                $workerConfig = Resolve-MconOpenClawConfig -WorkspacePath $workerWorkspacePath
+                $workerSpawnAgentId = if ($workerConfig.agents.list.Count -gt 0) { $workerConfig.agents.list[0].id } else { $null }
+                $workerLegacyName = if ($workerConfig.agents.list.Count -gt 0) { $workerConfig.agents.list[0].name.ToLower() } else { '' }
+
+                $sessionAgentNames = @()
+                foreach ($candidate in @($workerSpawnAgentId, $workerLegacyName)) {
+                    if (-not [string]::IsNullOrWhiteSpace($candidate) -and ($sessionAgentNames -notcontains $candidate)) {
+                        $sessionAgentNames += $candidate
+                    }
+                }
+
+                $registeredSession = Resolve-MconRegisteredSubagentSession `
+                    -OpenClawRoot $openClawRoot `
+                    -AgentName $sessionAgentNames `
+                    -SubagentUuid $subagentUuid `
+                    -TaskId $TaskId
+
+                if (-not $registeredSession) {
+                    $registeredSession = Resolve-MconRegisteredSubagentSessionByTask `
+                        -OpenClawRoot $openClawRoot `
+                        -AgentName $sessionAgentNames `
+                        -TaskId $TaskId
+                }
+
+                if ($registeredSession) {
+                    $childSessionKey = [string]$registeredSession.childSessionKey
+                    $subagentAgentId = if ($registeredSession.PSObject.Properties.Name -contains 'registryAgentId') {
+                        [string]$registeredSession.registryAgentId
+                    } else { $workerSpawnAgentId }
+
+                    $reworkPrompt = @"
+# VERIFICATION FAILED — REWORK REQUIRED
+
+Task $TaskId verification failed and requires rework.
+
+## Verification Feedback
+$Message
+
+## Work Contract
+- Read the existing deliverables and fix only what needs fixing
+- After completing rework, post a handoff comment and move the task to review
+- If blocked, comment with the exact blocker and stop
+"@
+
+                    $mconScriptPath = Join-Path (Split-Path -Path $PSScriptRoot -Parent) 'mcon.ps1'
+                    $taskBundlePaths = Get-MconVerifyTaskBundlePaths -LeadWorkspacePath $leadConfig.workspace_path -TaskId $TaskId
+                    $diagnosticsDir = Join-Path $taskBundlePaths.evidence_directory 'session-dispatch'
+                    $deferredPayload = [ordered]@{
+                        workspace_path        = [string]$leadConfig.workspace_path
+                        invocation_agent      = $subagentAgentId
+                        session_key           = $childSessionKey
+                        message               = $reworkPrompt
+                        task_id               = $TaskId
+                        dispatch_type         = 'rework'
+                        timeout_seconds       = 300
+                        temperature           = 0
+                        initial_delay_seconds = 0
+                    }
+                    $response = Start-MconDeferredSessionDispatch `
+                        -WorkspacePath ([string]$leadConfig.workspace_path) `
+                        -MconScriptPath $mconScriptPath `
+                        -DiagnosticsDir $diagnosticsDir `
+                        -TaskId $TaskId `
+                        -Payload $deferredPayload
+                    $reworkDispatch = [ordered]@{
+                        ok          = $true
+                        session_key = $childSessionKey
+                        agent_id    = $subagentAgentId
+                        queued      = $true
+                        dispatch    = $response
+                    }
+                }
+            } catch {
+                $reworkDispatch = [ordered]@{
+                    ok    = $false
+                    error = $_.Exception.Message
+                }
+            }
+        }
+    }
 
     return [ordered]@{
         ok = $true
         task_id = $TaskId
         resulting_task_status = $updatedTask.status
+        rework_dispatch = $reworkDispatch
         comment_id = if ($comment.PSObject.Properties.Name -contains 'id') { $comment.id } else { $null }
         task = $updatedTask
     }

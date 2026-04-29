@@ -517,7 +517,7 @@ Assert-OutputContains -Label 'comment-no-msg-error' -Output ($out -join '') -Exp
 # Test: task move without --status
 $out = pwsh -NoProfile -File $mconScript task move --task 00000000-0000-0000-0000-000000000001 2>&1
 Assert-ExitCode -Label 'move-no-status-exit1' -Expected 1 -Actual $LASTEXITCODE
-Assert-OutputContains -Label 'move-no-status-error' -Output ($out -join '') -Expected 'required'
+Assert-OutputContains -Label 'move-no-status-error' -Output ($out -join '') -Expected 'requires either'
 
 # Test: task move with invalid status
 $out = pwsh -NoProfile -File $mconScript task move --task 00000000-0000-0000-0000-000000000001 --status flying 2>&1
@@ -532,7 +532,7 @@ Assert-OutputContains -Label 'unknown-flag-error' -Output ($out -join '') -Expec
 # Test: verify without action
 $out = pwsh -NoProfile -File $mconScript verify 2>&1
 Assert-ExitCode -Label 'verify-no-action-exit1' -Expected 1 -Actual $LASTEXITCODE
-Assert-OutputContains -Label 'verify-no-action-error' -Output ($out -join '') -Expected 'verify <action>'
+Assert-OutputContains -Label 'verify-no-action-error' -Output ($out -join '') -Expected 'verify run'
 
 # Test: verify run without --task
 $out = pwsh -NoProfile -File $mconScript verify run 2>&1

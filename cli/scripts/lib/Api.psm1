@@ -24,34 +24,57 @@ function Invoke-MconApi {
         $irmParams.Body = if ($Body -is [string]) { $Body } else { $Body | ConvertTo-Json -Depth 12 -Compress }
     }
 
-    try {
-        return Invoke-RestMethod @irmParams
-    }
-    catch {
-        $statusCode = $null
-        $detail = $null
-        if ($_.Exception.Response) {
-            $statusCode = [int]$_.Exception.Response.StatusCode
+    $maxRetries = 3
+    $baseDelay = 2
+
+    for ($retryAttempt = 0; $retryAttempt -le $maxRetries; $retryAttempt++) {
+        try {
+            return Invoke-RestMethod @irmParams
         }
-        if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
-            $detail = ([string]$_.ErrorDetails.Message).Trim()
-        }
-        if (-not $detail -and $_.Exception.Response -and $_.Exception.Response.Content) {
-            try {
-                $detail = $_.Exception.Response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-                if ($detail) {
-                    $detail = ([string]$detail).Trim()
-                }
-            } catch {
-                $detail = $null
+        catch {
+            $statusCode = $null
+            $detail = $null
+            if ($_.Exception.Response) {
+                $statusCode = [int]$_.Exception.Response.StatusCode
             }
-        }
+            if ($statusCode -eq 429) {
+                if ($retryAttempt -lt $maxRetries) {
+                    $retryAfter = $_.Exception.Response.Headers['Retry-After']
+                    if ($retryAfter) {
+                        try {
+                            $delay = [int]$retryAfter
+                        } catch {
+                            $delay = $baseDelay * [math]::Pow(2, $retryAttempt)
+                        }
+                    } else {
+                        $delay = $baseDelay * [math]::Pow(2, $retryAttempt)
+                    }
+                    Write-Warning "429 Too Many Requests. Retrying in $delay seconds... (Attempt $($retryAttempt + 1)/$($maxRetries + 1))"
+                    Start-Sleep -Seconds $delay
+                    continue
+                }
+            }
+            # If not 429 or max retries reached, handle error
+            if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+                $detail = ([string]$_.ErrorDetails.Message).Trim()
+            }
+            if (-not $detail -and $_.Exception.Response -and $_.Exception.Response.Content) {
+                try {
+                    $detail = $_.Exception.Response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                    if ($detail) {
+                        $detail = ([string]$detail).Trim()
+                    }
+                } catch {
+                    $detail = $null
+                }
+            }
 
-        if ($detail) {
-            throw "API error: $Method $Uri failed (HTTP $statusCode): $($_.Exception.Message) Response: $detail"
-        }
+            if ($detail) {
+                throw "API error: $Method $Uri failed (HTTP $statusCode): $($_.Exception.Message) Response: $detail"
+            }
 
-        throw "API error: $Method $Uri failed (HTTP $statusCode): $($_.Exception.Message)"
+            throw "API error: $Method $Uri failed (HTTP $statusCode): $($_.Exception.Message)"
+        }
     }
 }
 

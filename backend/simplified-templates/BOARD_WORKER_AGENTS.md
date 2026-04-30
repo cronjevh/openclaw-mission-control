@@ -281,6 +281,57 @@ Rules:
 - Component-level testing with self-test is acceptable when task acceptance criteria require it.
 - Follow-up tasks handle production operationalization.
 
+### Preflight Checklist (Run Before Submitting)
+
+The verifier script runs a preflight that scans `verify-<TASK_ID>.ps1` for specific patterns. If preflight fails, the task is rejected before the script ever runs.
+
+**Runtime signals the preflight recognizes:**
+- `pytest`, `python`, `uv run`, `node`, `npm`, `pnpm`, `yarn`
+- `dotnet`, `go test`, `cargo test`
+- `Invoke-RestMethod`, `curl`, `docker`
+- `bash`, `sh`, `Start-Process`
+- `& pwsh -File`, `& powershell -File`
+- `& $var` or `& "script.ps1"` (process isolation)
+
+**Static-only patterns that trigger rejection:**
+- `Test-Path`, `Get-Content`, `-match`, `[Parser]::ParseInput`, `[guid]::Parse`
+- If these are the only checks and the task has multiple implementation files, preflight fails.
+
+**Exit code requirements:**
+- Must have both a success path (`exit 0` or `return 0`) and a failure path (`exit 1` or `return 1`).
+- Success-only scripts are rejected.
+
+**Hybrid detection:**
+- If the task title/description looks like documentation (plan, document, report, analysis) but deliverables include executables, preflight fails unless the task is classified as `component_test` or `ops_integration`.
+
+**How to test preflight locally before submitting:**
+
+```powershell
+# In your PowerShell session, import the verification module:
+Import-Module /home/cronjev/mission-control-tfsmrt/cli/scripts/lib/Verify.psm1 -Force
+
+# Build a minimal task object and test your script:
+$task = [pscustomobject]@{
+    title       = 'Your task title'
+    description = 'Your task description'
+}
+$paths = [pscustomobject]@{
+    verification_artifact_path = '/path/to/lead/tasks/<TASK_ID>/deliverables/verify-<TASK_ID>.ps1'
+}
+$bundle = [pscustomobject]@{
+    deliverables_directory = '/path/to/lead/tasks/<TASK_ID>/deliverables'
+}
+
+Test-MconVerificationPreflight -Task $task -VerificationPaths $paths -TaskBundlePaths $bundle
+```
+
+Run this before every `mcon workflow submitreview`. If `passed` is `$false`, read `reasons` and fix the script.
+
+**Quick preflight (no module import required):**
+```powershell
+pwsh -File /home/cronjev/mission-control-tfsmrt/scripts/verify-preflight.ps1 -TaskId <TASK_ID>
+```
+
 ### Task Completion Steps
 
 1. Save the primary deliverable to `$DELIVERABLES_DIR/`.

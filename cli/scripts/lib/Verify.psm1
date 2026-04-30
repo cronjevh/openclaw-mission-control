@@ -161,6 +161,9 @@ function Test-MconVerificationPreflight {
         '(?i)\binvoke-restmethod\b',
         '(?i)\bcurl\b',
         '(?i)\bdocker\b',
+        '(?i)\bbash\b',
+        '(?i)\bsh\b',
+        '(?i)Start-Process',
         '(?i)&\s*\$[A-Za-z_][A-Za-z0-9_]*',
         '(?i)&\s*["''][^"'']+\.(ps1|py|sh|bash|js|ts)',
         '(?i)&\s*pwsh\s+-File',
@@ -195,10 +198,11 @@ function Test-MconVerificationPreflight {
     }
 
     # HYBRID DETECTION: Task looks like documentation but contains executable files
+    # Skip this check for integration-like tasks (they naturally include both docs and executables)
     $looksLikeDocs = Test-MconVerificationTaskLooksLikeDocs -Task $Task
     $hasExecutableFiles = ($implementationFiles.Count -gt 0)
 
-    if ($looksLikeDocs -and $hasExecutableFiles) {
+    if ($looksLikeDocs -and $hasExecutableFiles -and -not $integrationLike) {
         $executableNames = @($implementationFiles | Select-Object -ExpandProperty Name)
         $conflictMsg = "Task appears to be documentation but includes executable files: $($executableNames -join ', '). Either remove executables for a pure documentation task, or reclassify the task as hybrid/code and adjust verification accordingly."
         $reasons += $conflictMsg
@@ -720,13 +724,24 @@ $commentMessage
         # Fallback: if rework could not be dispatched, move to inbox so lead can reassign
         if (-not $reworkDispatch -or -not $reworkDispatch.ok) {
             try {
-                $fallbackComment = "Verification failed and rework could not be dispatched to worker. Reason: $($reworkDispatch.reason). $($reworkDispatch.note). Task returned to inbox for lead reassignment."
+                $fallbackComment = "Verification failed and rework could not be dispatched to worker. Reason: $($reworkDispatch.reason). $($reworkDispatch.note). Task remains in_progress for lead reassignment."
                 $null = Send-MconComment -BaseUrl $baseUrl -Token $authToken -BoardId $boardId -TaskId $TaskId -Message $fallbackComment
-                $null = Set-MconTaskStatus -BaseUrl $leadConfig.base_url -Token $leadConfig.auth_token -BoardId $boardId -TaskId $TaskId -Status 'inbox'
-                $escalationResult = [ordered]@{
-                    ok     = $true
-                    action = 'returned_to_inbox'
-                    reason = $reworkDispatch.reason
+                # Only move to inbox if still in review; if already in_progress, leave it there
+                $currentTask = Get-MconTask -BaseUrl $baseUrl -Token $authToken -BoardId $boardId -TaskId $TaskId
+                if ($currentTask.status -eq 'review') {
+                    $null = Set-MconTaskStatus -BaseUrl $leadConfig.base_url -Token $leadConfig.auth_token -BoardId $boardId -TaskId $TaskId -Status 'inbox'
+                    $escalationResult = [ordered]@{
+                        ok     = $true
+                        action = 'returned_to_inbox'
+                        reason = $reworkDispatch.reason
+                    }
+                } else {
+                    $escalationResult = [ordered]@{
+                        ok     = $true
+                        action = 'left_in_progress'
+                        reason = $reworkDispatch.reason
+                        note   = "Task status is $($currentTask.status); skipped inbox fallback."
+                    }
                 }
             } catch {
                 $escalationResult = [ordered]@{
@@ -963,13 +978,24 @@ $Message
 
     if (-not $reworkDispatch -or -not $reworkDispatch.ok) {
         try {
-            $fallbackComment = "Verification failed and rework could not be dispatched to worker. Reason: $($reworkDispatch.reason). $($reworkDispatch.note). Task returned to inbox for lead reassignment."
+            $fallbackComment = "Verification failed and rework could not be dispatched to worker. Reason: $($reworkDispatch.reason). $($reworkDispatch.note). Task remains in_progress for lead reassignment."
             $null = Send-MconComment -BaseUrl $baseUrl -Token $authToken -BoardId $boardId -TaskId $TaskId -Message $fallbackComment
-            $null = Set-MconTaskStatus -BaseUrl $leadConfig.base_url -Token $leadConfig.auth_token -BoardId $boardId -TaskId $TaskId -Status 'inbox'
-            $escalationResult = [ordered]@{
-                ok     = $true
-                action = 'returned_to_inbox'
-                reason = $reworkDispatch.reason
+            # Only move to inbox if still in review; if already in_progress, leave it there
+            $currentTask = Get-MconTask -BaseUrl $baseUrl -Token $authToken -BoardId $boardId -TaskId $TaskId
+            if ($currentTask.status -eq 'review') {
+                $null = Set-MconTaskStatus -BaseUrl $leadConfig.base_url -Token $leadConfig.auth_token -BoardId $boardId -TaskId $TaskId -Status 'inbox'
+                $escalationResult = [ordered]@{
+                    ok     = $true
+                    action = 'returned_to_inbox'
+                    reason = $reworkDispatch.reason
+                }
+            } else {
+                $escalationResult = [ordered]@{
+                    ok     = $true
+                    action = 'left_in_progress'
+                    reason = $reworkDispatch.reason
+                    note   = "Task status is $($currentTask.status); skipped inbox fallback."
+                }
             }
         } catch {
             $escalationResult = [ordered]@{

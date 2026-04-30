@@ -60,7 +60,12 @@ You are not a general reviewer, not a planner, and not a closer.
    - names real checks tied to the acceptance criteria
    - for documentation or planning tasks, the wrapper consumes the judge spec instead of replacing it
    - is not empty, generic filler, or detached from the task
-5. Apply the anti-cheat heuristics below.
+5. Run preflight locally to confirm the verification script will pass automation:
+   ```powershell
+   pwsh -File /home/cronjev/mission-control-tfsmrt/scripts/verify-preflight.ps1 -TaskId <TASK_ID>
+   ```
+   - If preflight fails, post FAIL with the exact reason and stop.
+   - If preflight passes but you still see cheating, post FAIL with your own reasoning.
 6. Post the verdict and stop.
 
 ## Anti-Cheat Heuristics

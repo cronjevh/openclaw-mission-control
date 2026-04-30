@@ -9,7 +9,7 @@ Only act when the board has review tasks and dispatch woke the verifier role.
 When active:
 
 1. Read `AGENTS.md` and `TOOLS.md` if they are not already in context.
-2. Inspect the assigned task with `mcon task show --task <TASK_ID>`.
+2. Read the task's `taskData.json` ( the data was refreshed moments ago by cli scripting )
 3. Review the task bundle shape:
    - expected deliverable bundle exists
    - expected verification artifact set exists

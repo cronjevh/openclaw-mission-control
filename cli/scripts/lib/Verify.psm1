@@ -162,13 +162,20 @@ function Test-MconVerificationPreflight {
         '(?i)\bcurl\b',
         '(?i)\bdocker\b',
         '(?i)&\s*\$[A-Za-z_][A-Za-z0-9_]*',
-        '(?i)&\s*["''][^"'']+\.(ps1|py|sh|bash|js|ts)'
+        '(?i)&\s*["''][^"'']+\.(ps1|py|sh|bash|js|ts)',
+        '(?i)&\s*pwsh\s+-File',
+        '(?i)&\s*powershell\s+-File'
     )
     $runtimeSignalCount = 0
     foreach ($pattern in $runtimeSignals) {
         if ($scriptContent -match $pattern) {
             $runtimeSignalCount++
         }
+    }
+
+    $hasSelfTest = $scriptContent -match '(?i)-SelfTest\b'
+    if ($hasSelfTest) {
+        $notes += "Detected -SelfTest flag (component-level testing)"
     }
 
     $staticOnlyPatternCount = 0
@@ -179,7 +186,7 @@ function Test-MconVerificationPreflight {
     }
 
     $integrationLike = Test-MconVerificationTaskLooksLikeIntegration -Task $Task -ImplementationFiles $implementationFiles
-    if ($integrationLike -and $runtimeSignalCount -eq 0) {
+    if ($integrationLike -and $runtimeSignalCount -eq 0 -and -not $hasSelfTest) {
         $reasons += 'Integration-like task has no runtime or behavior-exercising checks; verification is static-only.'
     }
 
@@ -281,84 +288,41 @@ function Invoke-MconVerificationProcess {
         New-Item -ItemType Directory -Path $evidenceDir -Force | Out-Null
     }
 
-    # Prepare isolated agent session for verification
-    $invocationAgent = "mc-$($Config.agent_id)"
-    $sessionKey = Get-MconAgentTaskSessionKey -InvocationAgent $invocationAgent -TaskId $TaskId
-
-    # Compute lead workspace path
-    $leadWorkspacePath = Get-MconLeadWorkspacePath -BoardId $Config.board_id
-
-    # Create verifier's task context directory and taskData.json
-    $verifierTaskDir = Join-Path (Join-Path $Config.workspace_path 'tasks') $TaskId
-    if (-not (Test-Path -LiteralPath $verifierTaskDir)) {
-        New-Item -ItemType Directory -Path $verifierTaskDir -Force | Out-Null
-    }
-
-    # Fetch comments for the task
-    $comments = Get-MconTaskComments -BaseUrl $Config.base_url -Token $Config.auth_token -BoardId $Config.board_id -TaskId $TaskId
-
-    $taskData = [ordered]@{
-        generated_at          = (Get-Date).ToUniversalTime().ToString('o')
-        board_id              = $Config.board_id
-        lead_agent_id         = $Config.board_id
-        invocation_agent_id   = $invocationAgent
-        task_directory        = $verifierTaskDir
-        deliverables_directory = $TaskBundlePaths.deliverables_directory
-        evidence_directory    = $TaskBundlePaths.evidence_directory
-        task                  = $Task
-        comments              = $comments
-        boardWorkers          = @()
-    }
-
-    $taskDataPath = Join-Path $verifierTaskDir 'taskData.json'
-    $taskData | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $taskDataPath -Encoding UTF8
-
-    # Build minimal dispatch state for the prompt
-    $dispatchState = [ordered]@{
-        tasks = @([ordered]@{
-            id            = $TaskId
-            status        = 'review'
-            title         = $Task.title
-            task_data_path = $taskDataPath
-            task_directory = $verifierTaskDir
-            deliverables_directory = $TaskBundlePaths.deliverables_directory
-            evidence_directory = $TaskBundlePaths.evidence_directory
-        })
-    }
-
-    # Generate the standard verifier prompt
-    $prompt = New-MconVerifierPrompt -WorkspacePath $Config.workspace_path -DispatchState $dispatchState -AuthToken $Config.auth_token -SessionKey $sessionKey
-
     # Build verification command
     $verificationScript = $VerificationPaths.verification_artifact_path
     if ($VerificationPaths.verification_kind -eq 'documentation') {
         $command = @(
-            'pwsh -NoProfile -File', $verificationScript,
+            'pwsh', '-NoProfile', '-File', '"' + $verificationScript + '"',
             '-TaskId', $TaskId,
             '-DocumentPath', $VerificationPaths.primary_deliverable_path,
             '-JudgeSpecPath', $VerificationPaths.judge_spec_path,
             '-EvidenceDir', $evidenceDir
-        ) -join ' '
+        )
     } else {
-        $command = "pwsh -NoProfile -File `"$verificationScript`""
+        $command = @('pwsh', '-NoProfile', '-File', $verificationScript)
     }
 
-    $prompt += "`n`n# VERIFICATION EXECUTION`n"
-    $prompt += "Run the following command exactly and capture its output:`n"
-    $prompt += "`$ $command`n"
-    $prompt += "After the command completes, exit with the same exit code as the command (0 for pass, non-zero for fail). Include the command's stdout/stderr in your response.`n"
+    # Run directly; capture stdout, stderr, and exit code
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $command[0]
+    $psi.Arguments = ($command | Select-Object -Skip 1) -join ' '
+    $psi.WorkingDirectory = $Config.workspace_path
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
 
-    # Run the agent in an isolated session with verifier's workspace as cwd
-    $originalLocation = Get-Location
-    try {
-        Set-Location -Path $Config.workspace_path
-        $agentResult = Invoke-MconOpenClawAgentSession -InvocationAgent $invocationAgent -SessionKey $sessionKey -Message $prompt -TimeoutSec 300
-    } finally {
-        Set-Location -Path $originalLocation
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    if (-not $proc) {
+        throw "Failed to start verification process: $verificationScript"
     }
 
-    $stdoutText = ($agentResult.output | Out-String).Trim()
-    $exitCode = $agentResult.exit_code
+    $stdout = $proc.StandardOutput.ReadToEnd()
+    $stderr = $proc.StandardError.ReadToEnd()
+    $proc.WaitForExit(300000) | Out-Null
+    $exitCode = $proc.ExitCode
+
+    $stdoutText = ($stdout + "`n" + $stderr).Trim()
 
     $validationResultPath = Join-Path $evidenceDir "validation-result-$TaskId.json"
     $parsedResult = $null
@@ -626,9 +590,8 @@ function Invoke-MconVerifyRun {
         $statusPatchBody.assigned_agent_id = $originalAssignedAgentId
     }
 
-    # Use lead token for review -> in_progress transition (lead is authorized for this status gate).
-    $statusToken = if (-not $executionResult.passed) { $leadConfig.auth_token } else { $authToken }
-    $updatedTask = Invoke-MconApi -Method Patch -Uri $taskUri -Token $statusToken -Body $statusPatchBody
+    # Always use the lead (local admin) token for status transitions; agents do not have permission.
+    $updatedTask = Invoke-MconApi -Method Patch -Uri $taskUri -Token $leadConfig.auth_token -Body $statusPatchBody
 
     $reworkDispatch = $null
     $escalationResult = $null

@@ -14,6 +14,12 @@ comment parsing plus first-match file reads.
   - `required_artifact_kinds`
   - `required_check_kinds`
   - `lead_spot_check_required`
+- `task_class` values:
+  - `code_deterministic` — deterministic code changes with unit/integration checks
+  - `design_exploratory` — design, architecture, or exploratory work
+  - `ops_integration` — infrastructure, automation, or service integration
+  - `docs_content` — documentation, planning, or content tasks
+  - `component_test` — component-level testing with self-test mode, no live API required
 - Added persisted evidence tables:
   - `task_evidence_packets`
   - `task_evidence_artifacts`

@@ -277,6 +277,9 @@ Rules:
 - Keep task-specific criteria in `evaluate-<TASK_ID>.json`. Do not hide bespoke validation logic inside the wrapper.
 - Verification artifacts must not hardcode success or ignore the acceptance criteria.
 - Prefer PowerShell for verification entrypoints unless the task clearly requires another language.
+- For detect-only scripts (no system changes): `-SelfTest` mode with `& pwsh -File` is valid process isolation.
+- Component-level testing with self-test is acceptable when task acceptance criteria require it.
+- Follow-up tasks handle production operationalization.
 
 ### Task Completion Steps
 

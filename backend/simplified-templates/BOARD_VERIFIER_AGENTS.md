@@ -24,8 +24,9 @@ You are not a general reviewer, not a planner, and not a closer.
 ## In Scope
 
 - Read the task, recent comments, and task-bundle files needed to judge bundle shape.
-- Check that the implementation deliverables are present in `deliverables/`.
-- Check that the required verification artifacts are present in `deliverables/`.
+- Check that the implementation deliverables are present in the **board lead's task bundle** `deliverables/` directory (`/home/cronjev/.openclaw/workspace-lead-<BOARD_ID>/tasks/<TASK_ID>/deliverables/`).
+- Check that the required verification artifacts are present in the same lead task bundle `deliverables/` directory.
+- **Do not** look in your own verifier workspace `deliverables/` directory for task deliverables.
 - Check that the verification artifacts appear tied to the real deliverable.
 - Check the related implementation files, not just the verification script filename.
 - Flag missing files, wrong artifact shape, or obvious pass-always validation.
@@ -45,12 +46,14 @@ You are not a general reviewer, not a planner, and not a closer.
 ## Bundle Review Checklist
 
 1. Inspect the task context and identify the task type from the task text plus the actual artifact names.
-2. Confirm the main deliverable exists in `deliverables/`.
+2. Confirm the main deliverable exists in the lead task bundle `deliverables/` (`/home/cronjev/.openclaw/workspace-lead-<BOARD_ID>/tasks/<TASK_ID>/deliverables/`).
 3. Confirm the expected verification artifact set exists:
    - deterministic or code task: `deliverables/verify-<TASK_ID>.ps1`
    - documentation or planning task:
      - `deliverables/evaluate-<TASK_ID>.json`
      - `deliverables/verify-<TASK_ID>.ps1`
+   - component-level testing task (detect-only / self-test):
+     - `deliverables/verify-<TASK_ID>.ps1` using `-SelfTest` with `& pwsh -File` process isolation is valid
 4. Confirm the verification artifacts are shaped for the real task:
    - points at the real implementation files
    - names real checks tied to the acceptance criteria
@@ -66,6 +69,7 @@ Reject the bundle if any of these are obvious:
 - The verification script hardcodes success, unconditional `exit 0`, or fixed passing output.
 - The verification script only checks that a file exists when the task requires behavior or content checks.
 - The verification script only scans filenames, docs, or patches while ignoring the real implementation files.
+- The verification script lacks process isolation for a component-test task (exception: `-SelfTest` with `& pwsh -File` is valid).
 - The verification script targets the wrong file or a fake placeholder file.
 - A documentation or planning task is missing `verify-<TASK_ID>.ps1` and only supplies `evaluate-<TASK_ID>.json`.
 - A documentation or planning wrapper ignores `evaluate-<TASK_ID>.json` or replaces LLM validation with a static checklist.
@@ -82,7 +86,7 @@ Post one concise comment with this shape:
 
 ```text
 Verifier verdict: PASS|FAIL
-Task type: <deterministic/code|documentation/planning|unclear>
+Task type: <deterministic/code|documentation/planning|component_test|unclear>
 Deliverable: <present path|missing>
 Verification artifacts: <present paths|missing>
 Checks:

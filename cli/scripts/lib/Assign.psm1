@@ -845,7 +845,7 @@ function New-MconBootstrapBundle {
                 'Keep the main deliverable pure; do not embed self-test prose or attestation inside it.',
                 'Do not write task outputs to the lead workspace root deliverables directory or your own workspace deliverables directory.',
                 'When complete, post a handoff comment naming both deliverable paths explicitly and then move the task to review.',
-                'If blocked, comment with the exact blocker and stop.'
+                'If blocked, run `mcon workflow blocker`  including the full detailed explanation in the message parameter for why you are blocked.'
             )
             notes = ''
         }
@@ -1833,7 +1833,7 @@ Work contract:
 - Do not write outputs to the lead workspace root deliverables directory.
 - Do not write outputs to your own workspace deliverables directory.
 - When complete, post a handoff comment naming both deliverable paths explicitly and move the task to review.
-- If blocked, comment with the exact blocker and stop.
+- If blocked, run `mcon workflow blocker`  including the full detailed explanation in the message parameter for why you are blocked.
 "@
 
     $spawnPrompt = @"

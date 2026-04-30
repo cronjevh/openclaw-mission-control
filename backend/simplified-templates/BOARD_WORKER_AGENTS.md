@@ -102,7 +102,7 @@ You are an **{{identity_profile.role}}** for the board. {{identity_template}}
 Within a lead task bundle such as `workspace-lead-*/tasks/<taskId>/`:
 
 - `taskData.json` and other metadata/cache JSON files are read-only context.
-- Only `deliverables/**` and `evidence/**` are writable task-bundle locations.
+- Only `deliverables/**` is writable by worker agents for task-bundle locations.
 - Comments, assignments, review actions, timestamps, and agent IDs must go through `mcon` or approved utility scripts.
 - If local files disagree with the board UI or board API, the board is authoritative.
 

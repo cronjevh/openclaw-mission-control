@@ -44,7 +44,7 @@ Reason: bundle shape and anti-cheat checks pass"
 mcon verify run --task <TASK_ID>
 ```
 
-For FAIL verdict, also run automated verification (which will dispatch rework automatically):
+For FAIL verdict, 
 
 ```bash
 mcon task comment --task <TASK_ID> --message "Verifier verdict: FAIL
@@ -68,7 +68,8 @@ For documentation or planning tasks, treat:
 
 - Use `mcon task show` to inspect task context before issuing a verdict.
 - Use `mcon task comment` to post the verifier result.
-- Use `mcon verify run` after posting either a PASS or FAIL verdict. On PASS, the task moves to `done`; on FAIL, the task moves back to `in_progress` and rework is dispatched to the existing worker session.
+- Use `mcon workflow rework` after posting a FAIL verdict
+- Use `mcon verify run` after posting a PASS verdict. This triggers the execution of the prepared and vetted verify<TASK_ID>.json which then determines of a task is done, or requires additional rework. 
 - For documentation or planning tasks, do not treat `evaluate-<TASK_ID>.json` as the executable verifier by itself; the required runnable entrypoint is `verify-<TASK_ID>.ps1`.
 - `mcon verify run` also performs its own anti-cheat preflight against the verification script and related deliverables. It can reject static-only or disconnected verification even if the verifier comment said `PASS`.
 - If a non-comment workflow action is needed, use an approved script from the workspace workflow folder.

@@ -2739,12 +2739,12 @@ async def _lead_apply_status(
                 f"task status is `review` (current: `{update.task.status}`)."
             ),
         )
-    if target_status not in {"done", "inbox"}:
+    if target_status not in {"done", "inbox", "in_progress"}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
-                "Lead status target gate failed: review tasks can only move to `done` or "
-                f"`inbox` (requested: `{target_status}`)."
+                "Lead status target gate failed: review tasks can only move to `done`, "
+                f"`inbox`, or `in_progress` (requested: `{target_status}`)."
             ),
         )
     if target_status == "inbox":
@@ -2755,6 +2755,17 @@ async def _lead_apply_status(
             lead_agent_id=lead_agent.id,
         )
         update.task.in_progress_at = None
+    elif target_status == "in_progress":
+        # Preserve existing worker assignment when verifier dispatches rework.
+        # If no assigned_agent_id is present, look up the last worker who moved to review.
+        if not update.task.assigned_agent_id:
+            update.task.assigned_agent_id = await _last_worker_who_moved_task_to_review(
+                session,
+                task_id=update.task.id,
+                board_id=update.board_id,
+                lead_agent_id=lead_agent.id,
+            )
+        update.task.in_progress_at = utcnow()
     update.task.status = target_status
 
 
@@ -2773,6 +2784,37 @@ async def _lead_notify_new_assignee(
     *,
     update: _TaskUpdateInput,
 ) -> None:
+    # If the task is currently assigned, fetch the board once.
+    board = (
+        await Board.objects.by_id(update.task.board_id).first(session)
+        if update.task.board_id
+        else None
+    )
+
+    # Special case: lead moves task from review -> inbox (rework).
+    # Send rework notification to the currently assigned agent (the worker),
+    # regardless of whether the assignment changed.
+    if (
+        board
+        and update.previous_status == "review"
+        and update.task.status == "inbox"
+        and update.actor.actor_type == "agent"
+        and update.actor.agent
+        and update.actor.agent.is_board_lead
+    ):
+        if update.task.assigned_agent_id:
+            agent = await Agent.objects.by_id(update.task.assigned_agent_id).first(session)
+            if agent:
+                await _notify_agent_on_task_rework(
+                    session=session,
+                    board=board,
+                    task=update.task,
+                    agent=agent,
+                    lead=update.actor.agent,
+                )
+        return
+
+    # Normal assignment-change notification.
     if (
         not update.task.assigned_agent_id
         or update.task.assigned_agent_id == update.previous_assigned
@@ -2783,27 +2825,7 @@ async def _lead_notify_new_assignee(
     )
     if assigned_agent is None:
         return
-    board = (
-        await Board.objects.by_id(update.task.board_id).first(session)
-        if update.task.board_id
-        else None
-    )
     if board:
-        if (
-            update.previous_status == "review"
-            and update.task.status == "inbox"
-            and update.actor.actor_type == "agent"
-            and update.actor.agent
-            and update.actor.agent.is_board_lead
-        ):
-            await _notify_agent_on_task_rework(
-                session=session,
-                board=board,
-                task=update.task,
-                agent=assigned_agent,
-                lead=update.actor.agent,
-            )
-            return
         await _notify_agent_on_task_assign(
             session=session,
             board=board,
@@ -2990,7 +3012,6 @@ async def _apply_non_lead_agent_task_rules(
             update.task.in_progress_at = None
         elif status_value == "review":
             update.task.previous_in_progress_at = update.task.in_progress_at
-            update.task.assigned_agent_id = None
             update.task.in_progress_at = None
         else:
             update.task.assigned_agent_id = (
@@ -3057,7 +3078,6 @@ async def _apply_admin_task_rules(
             update.task.in_progress_at = None
         elif status_value == "review":
             update.task.previous_in_progress_at = update.task.in_progress_at
-            update.task.assigned_agent_id = None
             update.task.in_progress_at = None
         elif status_value == "in_progress":
             update.task.in_progress_at = utcnow()
@@ -3145,7 +3165,11 @@ async def _assign_review_task_to_lead(
     *,
     update: _TaskUpdateInput,
 ) -> None:
+    # Only assign the lead if the task is entering review and has no assigned agent.
+    # Preserve existing worker assignment through review so rework can target the same agent.
     if update.task.status != "review" or update.previous_status == "review":
+        return
+    if update.task.assigned_agent_id is not None:
         return
     lead = (
         await Agent.objects.filter_by(board_id=update.board_id)
@@ -3211,6 +3235,28 @@ async def _notify_task_update_assignment_changes(
                 agent=assigned_agent,
                 reason="status_in_progress",
             )
+
+    # If the task has just entered review (from non-review) and the actor is a non-lead agent,
+    # notify the board lead that the task is ready for review. This notification is sent
+    # regardless of whether the assignment changed, because the lead needs to be aware
+    # even when the task remains assigned to the worker.
+    if (
+        update.previous_status != "review"
+        and update.task.status == "review"
+        and update.actor.actor_type == "agent"
+        and update.actor.agent
+        and not update.actor.agent.is_board_lead
+    ):
+        current_board = await _board()
+        if current_board:
+            lead = await Agent.objects.filter_by(board_id=current_board.id).filter(col(Agent.is_board_lead).is_(True)).first(session)
+            if lead and lead.openclaw_session_id:
+                await _notify_agent_on_task_assign(
+                    session=session,
+                    board=current_board,
+                    task=update.task,
+                    agent=lead,
+                )
 
     if not assignment_changed:
         return

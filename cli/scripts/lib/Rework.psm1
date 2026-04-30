@@ -209,7 +209,7 @@ $Message
 - Write the verification artifact to: $verificationArtifactPath
 - Do NOT start from scratch. Read the existing deliverables and fix only what needs fixing.
 - After completing rework, post a handoff comment naming both deliverable paths explicitly and move the task to review.
-- If blocked, comment with the exact blocker and stop.
+- If blocked, run `mcon workflow blocker`  including the full detailed explanation in the message parameter for why you are blocked.
 "@
 
     $dispatchResult = $null

@@ -100,6 +100,8 @@ After posting the verdict:
 - Run `mcon verify run --task <TASK_ID>` to execute automated verification and apply the outcome:
   - If PASS: task moves to `done`
   - If FAIL: task moves to `in_progress` and rework is automatically dispatched to the existing worker session
+- If you identify issues requiring targeted rework with custom feedback, use `mcon workflow rework --task <TASK_ID> --worker <AGENT_ID> --message <FEEDBACK>` to explicitly dispatch rework.
+- Do not move tasks to `inbox` manually. Failed verification always transitions to `in_progress` with rework dispatched to the worker.
 
 ## Stop Conditions
 

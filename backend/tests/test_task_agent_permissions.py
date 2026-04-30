@@ -410,7 +410,7 @@ async def test_non_lead_agent_moves_task_to_review_and_reassigns_to_lead() -> No
             )
 
             assert updated.status == "review"
-            assert updated.assigned_agent_id == lead_id
+            assert updated.assigned_agent_id == worker_id
             assert updated.in_progress_at is None
 
             refreshed_task = (
@@ -418,7 +418,7 @@ async def test_non_lead_agent_moves_task_to_review_and_reassigns_to_lead() -> No
             ).first()
             assert refreshed_task is not None
             assert refreshed_task.previous_in_progress_at == in_progress_at
-            assert refreshed_task.assigned_agent_id == lead_id
+            assert refreshed_task.assigned_agent_id == worker_id
     finally:
         await engine.dispose()
 
@@ -531,7 +531,7 @@ async def test_non_lead_agent_move_to_review_reassigns_to_lead_and_sends_review_
             )
 
             assert updated.status == "review"
-            assert updated.assigned_agent_id == lead_id
+            assert updated.assigned_agent_id == worker_id
             assert sent["session_key"] == "lead-session"
             assert sent["agent_name"] == "Lead Agent"
             assert "TASK READY FOR LEAD REVIEW" in sent["message"]
@@ -654,7 +654,7 @@ async def test_lead_moves_review_task_to_inbox_and_reassigns_last_worker_with_re
                 actor=ActorContext(actor_type="agent", agent=worker),
             )
             assert moved_to_review.status == "review"
-            assert moved_to_review.assigned_agent_id == lead_id
+            assert moved_to_review.assigned_agent_id == worker_id
 
             session.add(
                 ActivityEvent(
@@ -844,7 +844,7 @@ async def test_non_lead_agent_moves_to_review_without_comment_when_rule_disabled
             )
 
             assert updated.status == "review"
-            assert updated.assigned_agent_id == lead_id
+            assert updated.assigned_agent_id == worker_id
     finally:
         await engine.dispose()
 

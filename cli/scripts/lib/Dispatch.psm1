@@ -197,7 +197,11 @@ function Write-MconTaskContextBundle {
         deliverables_directory = $taskDeliverablesDir
         evidence_directory    = $taskEvidenceDir
         task                  = $TaskSummary
-        boardWorkers          = $workerAgents
+    }
+
+    # Only include boardWorkers when roster not cached (backward compat)
+    if (-not $BoardRoster) {
+        $taskData.boardWorkers = $workerAgents
     }
 
     $taskData | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $taskDataPath -Encoding UTF8

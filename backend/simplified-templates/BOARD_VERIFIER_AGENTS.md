@@ -42,6 +42,7 @@ You are not a general reviewer, not a planner, and not a closer.
 - Task closure, reassignment, or workflow ownership.
 - Raw API construction or secret handling.
 - Recreating the verifier turn in a fresh main session.
+- Constructing curl api requests for Mission Control operations.
 
 ## Bundle Review Checklist
 

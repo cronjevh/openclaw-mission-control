@@ -20,6 +20,7 @@ comment parsing plus first-match file reads.
   - `ops_integration` — infrastructure, automation, or service integration
   - `docs_content` — documentation, planning, or content tasks
   - `component_test` — component-level testing with self-test mode, no live API required
+  - `workspace_config` — workspace prompt, guideline, or config file updates (AGENTS.md, SOUL.md, etc.)
 - Added persisted evidence tables:
   - `task_evidence_packets`
   - `task_evidence_artifacts`
@@ -74,3 +75,94 @@ comment parsing plus first-match file reads.
 - Backend tests verify evidence-gated tasks cannot move to `done` without the
   required evidence:
   - `backend/tests/test_task_evidence_foundation.py`
+
+---
+
+## Task Classes and Verification Patterns
+
+### `code_deterministic`
+
+**Definition:** Tasks that produce deterministic code or configuration with testable outputs.
+
+**Verification Pattern:**
+- Run deliverable with predetermined test inputs
+- Validate exit code (0 = success, non-zero = failure)
+- Capture stdout/stderr as evidence
+- Process isolation required (`& pwsh -File`, `python script.py`, etc.)
+
+**Required artifacts:** `verify-<TASK_ID>.ps1` with runtime execution
+
+### `ops_integration`
+
+**Definition:** Tasks that integrate with external systems (APIs, services, infrastructure).
+
+**Verification Pattern:**
+- Invoke against real or mock API
+- Use dry-run flags if available
+- Validate response codes, payloads, or side-effects
+- Process isolation mandatory
+
+**Required artifacts:** `verify-<TASK_ID>.ps1` with runtime against real/dry-run APIs
+
+### `docs_content`
+
+**Definition:** Pure documentation, design, or planning tasks with no executable component.
+
+**Verification Pattern:**
+- `evaluate-<TASK_ID>.json` — LLM judge spec with criteria and scoring rubric
+- `verify-<TASK_ID>.ps1` — wrapper that invokes LLM validation
+- No runtime execution of deliverable itself
+
+**Anti-cheat:** Do NOT create executable deliverables (`.ps1`, `.py`, `.sh`, `.js`) unless acceptance criteria explicitly require them. Prototypes should be markdown code blocks.
+
+**Required artifacts:** `evaluate-<TASK_ID>.json` + `verify-<TASK_ID>.ps1`
+
+### `design_exploratory`
+
+**Definition:** Design, architecture, or exploratory work. Semantically distinct from `docs_content` — involves trade-off analysis and spike findings.
+
+**Verification Pattern:** Same as `docs_content` — evaluate.json + wrapper with LLM judgment.
+
+**Required artifacts:** `evaluate-<TASK_ID>.json` + `verify-<TASK_ID>.ps1`
+
+### `component_test`
+
+**Definition:** Detect-only scripts (monitors, diagnostics) that observe but do not mutate state.
+
+**Verification Pattern:**
+- `-SelfTest` flag with process isolation
+- Internal validation (syntax check, mock data, self-diagnostic)
+- Exit code 0 on successful self-test
+
+**Required artifacts:** `verify-<TASK_ID>.ps1` with `-SelfTest` and `& pwsh -File`
+
+### `workspace_config`
+
+**Definition:** Modifications to workspace files (AGENTS.md, SOUL.md, etc.).
+
+**Verification Pattern:**
+- Content checks against modified file (`Get-Content`, `-match`, `Test-Path`)
+- The modified workspace file IS the deliverable
+- No LLM judging needed; string matching sufficient
+
+**Required artifacts:** `verify-<TASK_ID>.ps1` with content checks
+
+---
+
+## Preflight Rules
+
+1. **Runtime signals required** for `code_deterministic`, `ops_integration`, `component_test`
+2. **Static-only patterns trigger rejection** unless task_class is `docs_content`, `design_exploratory`, or `workspace_config`
+3. **Both exit 0 and exit 1 required** — verification must demonstrably pass AND fail
+4. **Deliverable reference required** — verification script must reference actual deliverable, not just filenames
+5. **Hybrid detection** — `docs_content`/`design_exploratory` tasks with executable files are rejected unless explicitly exempted
+
+## Common Failure Modes
+
+- Integration-like task has no runtime checks → FAIL
+- Verification relies on file presence only → FAIL  
+- Task is docs_content but includes executables → FAIL (hybrid confusion)
+- Start-Process loses arguments on Linux → Use `& pwsh -File`
+- Missing `-Append` on Start-Process → Check stderr redirection
+- Unbound variables abort bash scripts → Use `set -u` or check variables
+- Wrong target path for workspace config → Verify exact file path in task description

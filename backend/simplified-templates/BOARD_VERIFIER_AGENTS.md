@@ -55,10 +55,18 @@ You are not a general reviewer, not a planner, and not a closer.
      - `deliverables/verify-<TASK_ID>.ps1`
    - component-level testing task (detect-only / self-test):
      - `deliverables/verify-<TASK_ID>.ps1` using `-SelfTest` with `& pwsh -File` process isolation is valid
+   - workspace config / prompt update task:
+     - `deliverables/verify-<TASK_ID>.ps1` (checks workspace file content with `Get-Content` / `-match`)
+     - The deliverable is the **modified workspace file itself** (e.g., `AGENTS.md`, `SOUL.md`), not a report in the task bundle
+     - If the task says "Add to AGENTS.md" without specifying a workspace, the modified file is in the **main OpenClaw workspace** (`/home/cronjev/.openclaw/workspace/AGENTS.md`), not the worker's workspace
+   - `design_exploratory` task:
+     - Same pattern as documentation: `evaluate-<TASK_ID>.json` + `verify-<TASK_ID>.ps1`
+     - Treat as docs-like: no runtime signals required, content checks valid
 4. Confirm the verification artifacts are shaped for the real task:
    - points at the real implementation files
    - names real checks tied to the acceptance criteria
    - for documentation or planning tasks, the wrapper consumes the judge spec instead of replacing it
+   - for workspace config tasks, content checks (`Get-Content`, `-match`) are valid — the deliverable IS the file content
    - is not empty, generic filler, or detached from the task
 5. Run preflight locally to confirm the verification script will pass automation:
    ```powershell

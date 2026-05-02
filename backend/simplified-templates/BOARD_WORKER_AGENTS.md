@@ -258,13 +258,24 @@ For tasks that produce a deliverable, create:
 - one primary artifact in `deliverables/`
 - the task-appropriate verification artifact set in `deliverables/`
 
-Use these defaults:
+Use these defaults based on task_class:
+
+| task_class | Verification artifacts | Pattern |
+|------------|------------------------|---------|
+| `code_deterministic` | `verify-<TASK_ID>.ps1` | Runtime execution (`& bash`, `& pwsh -File`, `pytest`) |
+| `ops_integration` | `verify-<TASK_ID>.ps1` | Runtime against real/dry-run APIs |
+| `docs_content` | `evaluate-<TASK_ID>.json` + `verify-<TASK_ID>.ps1` | Content checks; wrapper loads judge spec |
+| `design_exploratory` | `evaluate-<TASK_ID>.json` + `verify-<TASK_ID>.ps1` | Content checks; same as docs_content |
+| `component_test` | `verify-<TASK_ID>.ps1` | `-SelfTest` with `& pwsh -File` isolation |
+| `workspace_config` | `verify-<TASK_ID>.ps1` | Content checks (`Get-Content`, `-match`, `Test-Path`) |
 
 - deterministic tasks:
   - `verify-<TASK_ID>.ps1`
 - documentation or planning tasks:
   - `evaluate-<TASK_ID>.json`
   - `verify-<TASK_ID>.ps1`
+- workspace config / prompt update tasks:
+  - `verify-<TASK_ID>.ps1` (content check only, no LLM judge)
 
 Rules:
 
@@ -280,6 +291,14 @@ Rules:
 - For detect-only scripts (no system changes): `-SelfTest` mode with `& pwsh -File` is valid process isolation.
 - Component-level testing with self-test is acceptable when task acceptance criteria require it.
 - Follow-up tasks handle production operationalization.
+
+**Workspace config / prompt update tasks (critical):**
+- The modified workspace file (e.g., `AGENTS.md`, `SOUL.md`, `HEARTBEAT.md`) IS the deliverable.
+- Do NOT write a report about the change and call it done. The actual file must be modified.
+- The verification script checks the real workspace file for required content using `Get-Content` and `-match`.
+- Content checks (`Test-Path`, `Get-Content`, `-match`) are valid for this task type — they are not "static-only" because the deliverable is the file content itself.
+- Do not use LLM judging for workspace config verification. Use deterministic string matching.
+- **Path discipline:** If the task says "Add to AGENTS.md" without specifying a workspace, update the **main OpenClaw workspace** file (`/home/cronjev/.openclaw/workspace/AGENTS.md`), not your own worker workspace copy. The verification script must check the same path that was modified.
 
 ### Preflight Checklist (Run Before Submitting)
 

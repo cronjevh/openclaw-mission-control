@@ -6,6 +6,15 @@ function Test-MconVerificationTaskLooksLikeDocs {
     $title = if ($Task.PSObject.Properties.Name -contains 'title') { [string]$Task.title } else { '' }
     $description = if ($Task.PSObject.Properties.Name -contains 'description') { [string]$Task.description } else { '' }
     $text = "$title`n$description"
+
+    # Explicit task_class override: design_exploratory and docs_content are always docs-like
+    if ($Task.PSObject.Properties.Name -contains 'task_class') {
+        $tc = [string]$Task.task_class
+        if ($tc -in @('docs_content', 'design_exploratory')) {
+            return $true
+        }
+    }
+
     return $text -match '(?i)\b(plan|planning|document|documentation|note|strategy|report|analysis)\b'
 }
 
@@ -105,6 +114,23 @@ function Test-MconVerificationTaskLooksLikeIntegration {
     return $text -match '(?i)\b(api|queue|worker|webhook|cron|crontab|scheduler|cadence|dispatch|automation|integration|service|daemon|watcher)\b'
 }
 
+function Test-MconVerificationTaskLooksLikeWorkspaceConfig {
+    param(
+        [Parameter(Mandatory)]$Task
+    )
+
+    # Check explicit task_class first
+    if ($Task.PSObject.Properties.Name -contains 'task_class' -and $Task.task_class -eq 'workspace_config') {
+        return $true
+    }
+
+    $title = if ($Task.PSObject.Properties.Name -contains 'title') { [string]$Task.title } else { '' }
+    $description = if ($Task.PSObject.Properties.Name -contains 'description') { [string]$Task.description } else { '' }
+    $text = "$title`n$description"
+
+    return $text -match '(?i)\b(AGENTS\.md|SOUL\.md|HEARTBEAT\.md|TOOLS\.md|workspace|prompt|guideline|instruction|policy)\b'
+}
+
 function Test-MconVerificationPreflight {
     param(
         [Parameter(Mandatory)]$Task,
@@ -112,12 +138,28 @@ function Test-MconVerificationPreflight {
         [Parameter(Mandatory)]$TaskBundlePaths
     )
 
+    # ============================================================
+    # Preflight Rules by Task Class
+    # ============================================================
+    # code_deterministic: Requires runtime signals (pytest, node, dotnet, etc.). Both exit 0 and exit 1 must be present. Must reference implementation deliverables.
+    # ops_integration:      Requires runtime signals AND process isolation (& pwsh -File, subprocess). No dot-sourcing. Both exit paths required.
+    # docs_content:         Requires evaluate-*.json judge spec + verify-*.ps1 wrapper. Wrapper must load judge spec and call LLM judge. Static-only allowed.
+    # component_test:       Requires -SelfTest flag. Must use process isolation (& pwsh -File). Dot-sourcing (. ./script.ps1) is rejected.
+    # workspace_config:     Static-only allowed. Must check the MAIN workspace path (e.g., /home/cronjev/.openclaw/workspace/...), not task bundle copy.
+    # Hybrid detection:     If task looks like docs but contains implementation files, reject unless task_class is docs_content/design_exploratory.
+    # ============================================================
+
     $verificationArtifactPath = $VerificationPaths.verification_artifact_path
     $deliverables = @(Get-MconVerificationCandidateDeliverables -DeliverablesDirectory $TaskBundlePaths.deliverables_directory -TaskId $Task.id)
     $implementationFiles = @($deliverables | Where-Object { Test-MconDeliverableLooksLikeImplementation -File $_ })
     $scriptContent = Get-Content -LiteralPath $verificationArtifactPath -Raw
     $reasons = @()
     $notes = @()
+
+    $workspaceConfigLike = Test-MconVerificationTaskLooksLikeWorkspaceConfig -Task $Task
+    if ($workspaceConfigLike) {
+        $notes += "Detected workspace config task (content checks are valid)"
+    }
 
     $mentionedDeliverables = @(
         $deliverables |
@@ -130,11 +172,11 @@ function Test-MconVerificationPreflight {
             Select-Object -ExpandProperty Name -Unique
     )
 
-    if ($mentionedDeliverables.Count -eq 0) {
+    if ($mentionedDeliverables.Count -eq 0 -and -not $workspaceConfigLike) {
         $reasons += 'Verification script does not reference any non-verification deliverable by filename.'
     }
 
-    if ($implementationFiles.Count -gt 0 -and $mentionedImplementationFiles.Count -eq 0) {
+    if ($implementationFiles.Count -gt 0 -and $mentionedImplementationFiles.Count -eq 0 -and -not $workspaceConfigLike) {
         $implNames = @($implementationFiles | Select-Object -ExpandProperty Name)
         $reasons += "Verification script does not target implementation deliverables directly: $($implNames -join ', ')"
     }
@@ -181,6 +223,14 @@ function Test-MconVerificationPreflight {
         $notes += "Detected -SelfTest flag (component-level testing)"
     }
 
+    # component_test: Reject dot-sourcing when -SelfTest present (requires process isolation via & pwsh -File)
+    if ($hasSelfTest) {
+        $hasDotSourcing = $scriptContent -match '(?i)\.\s+' -or $scriptContent -match '(?i)\bsource\s+'
+        if ($hasDotSourcing) {
+            $reasons += 'component_test with -SelfTest must use process isolation (& pwsh -File), not dot-sourcing.'
+        }
+    }
+
     $staticOnlyPatternCount = 0
     foreach ($pattern in @('(?i)\bTest-Path\b', '(?i)\bGet-Content\b', '(?i)\s-match\s', '(?i)\[System\.Management\.Automation\.Language\.Parser\]::ParseInput', '(?i)\[guid\]::Parse')) {
         if ($scriptContent -match $pattern) {
@@ -189,6 +239,8 @@ function Test-MconVerificationPreflight {
     }
 
     $integrationLike = Test-MconVerificationTaskLooksLikeIntegration -Task $Task -ImplementationFiles $implementationFiles
+    $workspaceConfigLike = Test-MconVerificationTaskLooksLikeWorkspaceConfig -Task $Task
+
     if ($integrationLike -and $runtimeSignalCount -eq 0 -and -not $hasSelfTest) {
         $reasons += 'Integration-like task has no runtime or behavior-exercising checks; verification is static-only.'
     }
@@ -197,12 +249,23 @@ function Test-MconVerificationPreflight {
         $reasons += 'Verification relies on file presence/content checks only for a multi-file implementation task.'
     }
 
+    # Workspace config tasks validate file content; static-only patterns are expected
+    if ($workspaceConfigLike -and $runtimeSignalCount -eq 0 -and $staticOnlyPatternCount -gt 0) {
+        # Remove static-only rejection for workspace config; content checks are the verification
+        $staticOnlyRejection = $reasons | Where-Object { $_ -match 'static-only' -or $_ -match 'file presence/content checks only' }
+        if ($staticOnlyRejection) {
+            $reasons = @($reasons | Where-Object { $_ -notin $staticOnlyRejection })
+        }
+    }
+
     # HYBRID DETECTION: Task looks like documentation but contains executable files
-    # Skip this check for integration-like tasks (they naturally include both docs and executables)
+    # Skip this check for integration-like tasks and non-deterministic task types (docs_content, design_exploratory)
     $looksLikeDocs = Test-MconVerificationTaskLooksLikeDocs -Task $Task
     $hasExecutableFiles = ($implementationFiles.Count -gt 0)
+    $taskClass = if ($Task.PSObject.Properties.Name -contains 'task_class') { [string]$Task.task_class } else { '' }
+    $isExemptTaskType = $integrationLike -or $taskClass -in @('workspace_config', 'docs_content', 'design_exploratory')
 
-    if ($looksLikeDocs -and $hasExecutableFiles -and -not $integrationLike) {
+    if ($looksLikeDocs -and $hasExecutableFiles -and -not $isExemptTaskType) {
         $executableNames = @($implementationFiles | Select-Object -ExpandProperty Name)
         $conflictMsg = "Task appears to be documentation but includes executable files: $($executableNames -join ', '). Either remove executables for a pure documentation task, or reclassify the task as hybrid/code and adjust verification accordingly."
         $reasons += $conflictMsg
@@ -213,6 +276,15 @@ function Test-MconVerificationPreflight {
     }
     if ($mentionedImplementationFiles.Count -gt 0) {
         $notes += "Targets implementation files: $($mentionedImplementationFiles -join ', ')"
+    }
+
+    # workspace_config: Verify script must reference the main workspace path, not just task bundle copy
+    if ($workspaceConfigLike) {
+        $mainWorkspacePattern = '/home/cronjev/\.openclaw/workspace/'
+        $hasMainWorkspaceRef = $scriptContent -match [regex]::Escape($mainWorkspacePattern)
+        if (-not $hasMainWorkspaceRef) {
+            $reasons += 'workspace_config verification must check the main workspace file (e.g., /home/cronjev/.openclaw/workspace/AGENTS.md), not a task bundle copy.'
+        }
     }
 
     return [ordered]@{
@@ -240,7 +312,11 @@ function Get-MconVerificationPaths {
     $primaryDeliverablePath = Get-MconPrimaryDeliverablePath -DeliverablesDirectory $deliverablesDir -TaskId $TaskId
     $relatedDeliverables = @(Get-MconVerificationCandidateDeliverables -DeliverablesDirectory $deliverablesDir -TaskId $TaskId)
 
-    if (Test-MconVerificationTaskLooksLikeDocs -Task $Task) {
+    # Task class overrides keyword-based detection
+    $taskClass = if ($Task.PSObject.Properties.Name -contains 'task_class' -and $Task.task_class) { [string]$Task.task_class } else { '' }
+    $isDocsTaskClass = $taskClass -in @('docs_content', 'design_exploratory')
+
+    if ($isDocsTaskClass -or (Test-MconVerificationTaskLooksLikeDocs -Task $Task)) {
         $verificationKind = 'documentation'
         $judgeSpecPath = Join-Path $deliverablesDir "evaluate-$TaskId.json"
         $verificationArtifactPath = Join-Path $deliverablesDir "verify-$TaskId.ps1"
@@ -296,7 +372,7 @@ function Invoke-MconVerificationProcess {
     $verificationScript = $VerificationPaths.verification_artifact_path
     if ($VerificationPaths.verification_kind -eq 'documentation') {
         $command = @(
-            'pwsh', '-NoProfile', '-File', '"' + $verificationScript + '"',
+            'pwsh', '-NoProfile', '-File', ('"' + $verificationScript + '"'),
             '-TaskId', $TaskId,
             '-DocumentPath', $VerificationPaths.primary_deliverable_path,
             '-JudgeSpecPath', $VerificationPaths.judge_spec_path,
@@ -618,7 +694,8 @@ function Invoke-MconVerifyRun {
                     $workerConfig = Resolve-MconOpenClawConfig -WorkspacePath $workerWorkspacePath
                     $workerSpawnAgentId = if ($workerConfig.agents.list.Count -gt 0) { $workerConfig.agents.list[0].id } else { $null }
                     $workerLegacyName = if ($workerConfig.agents.list.Count -gt 0) { $workerConfig.agents.list[0].name.ToLower() } else { '' }
-                    foreach ($candidate in @($workerSpawnAgentId, $workerLegacyName)) {
+                    $mcDirName = "mc-$assignedAgentId"
+                    foreach ($candidate in @($workerSpawnAgentId, $workerLegacyName, $mcDirName)) {
                         if (-not [string]::IsNullOrWhiteSpace($candidate) -and ($sessionAgentNames -notcontains $candidate)) {
                             $sessionAgentNames += $candidate
                         }
@@ -667,7 +744,28 @@ function Invoke-MconVerifyRun {
                 [string]$registeredSession.registryAgentId
             } else { $sessionAgentNames[0] }
 
-            $reworkPrompt = @"
+            try {
+                # Generate rework bootstrap and worker task data
+                $workerWorkspacePath = Join-Path $openClawRoot "workspace-mc-$assignedAgentId"
+                $workerConfig = Resolve-MconOpenClawAgentConfig -WorkspacePath $workerWorkspacePath
+                $workerName = $workerConfig.name
+
+                $normalizedComments = @()
+                if ($commentsResponse) {
+                    if ($commentsResponse.PSObject.Properties.Name -contains 'items') {
+                        $normalizedComments = @($commentsResponse.items | Where-Object { $null -ne $_ })
+                    } elseif ($commentsResponse.PSObject.Properties.Name -contains 'comments') {
+                        $normalizedComments = @($commentsResponse.comments | Where-Object { $null -ne $_ })
+                    }
+                }
+
+                $bundle = New-MconBootstrapBundle -BoardId $boardId -TaskId $TaskId -WorkerAgentId $assignedAgentId -WorkerName $workerName -LeadWorkspacePath $leadConfig.workspace_path -WorkerWorkspacePath $workerWorkspacePath -TaskData $task -Comments $normalizedComments
+                $bundlePath = Join-Path (Join-Path $leadConfig.workspace_path 'deliverables') "$TaskId-rework-bootstrap.json"
+                $bundle | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $bundlePath -Encoding UTF8
+
+                $workerTaskDataPath = Write-MconWorkerTaskData -WorkerWorkspacePath $workerWorkspacePath -BoardId $boardId -LeadAgentId $leadConfig.agent_id -InvocationAgentId $leadConfig.agent_id -TaskData $task -Comments $normalizedComments -TaskBundlePaths $taskBundlePaths
+
+                $reworkPrompt = @"
 # VERIFICATION FAILED — REWORK REQUIRED
 
 Task $TaskId verification failed and requires rework.
@@ -675,13 +773,16 @@ Task $TaskId verification failed and requires rework.
 ## Verification Feedback
 $commentMessage
 
+## Updated Context Files
+- Bootstrap bundle: $bundlePath
+- Task data: $workerTaskDataPath
+
 ## Work Contract
 - Read the existing deliverables and fix only what needs fixing
 - After completing rework, post a handoff comment and move the task to review
 - If blocked, comment with the exact blocker and stop
 "@
 
-            try {
                 $diagnosticsDir = Join-Path $taskBundlePaths.evidence_directory 'session-dispatch'
                 $deferredPayload = [ordered]@{
                     workspace_path        = [string]$leadConfig.workspace_path
@@ -713,6 +814,7 @@ $commentMessage
                     error = $_.Exception.Message
                 }
             }
+
         } else {
             $reworkDispatch = [ordered]@{
                 ok     = $false
@@ -867,6 +969,10 @@ function Invoke-MconVerifyFail {
     $escalationResult = $null
     $subagentUuid = Get-MconTaskSubagentUuid -Task $task
     $openClawRoot = Split-Path -Parent $leadConfig.workspace_path
+    # Precompute task bundle paths and fetch comments for bootstrap generation
+    $taskBundlePaths = Get-MconAssignTaskBundlePaths -LeadWorkspacePath $leadConfig.workspace_path -TaskId $TaskId
+    $commentsUri = "$taskUri/comments"
+    $commentsResponse = Invoke-MconApi -Method Get -Uri $commentsUri -Token $authToken
 
     $sessionAgentNames = @()
     if ($assignedAgentId) {
@@ -921,7 +1027,29 @@ function Invoke-MconVerifyFail {
         $subagentAgentId = if ($registeredSession.PSObject.Properties.Name -contains 'registryAgentId') {
             [string]$registeredSession.registryAgentId
         } else { $sessionAgentNames[0] }
-        $reworkPrompt = @"
+
+        try {
+            # Generate rework bootstrap and worker task data
+            $workerWorkspacePath = Join-Path $openClawRoot "workspace-mc-$assignedAgentId"
+            $workerConfig = Resolve-MconOpenClawAgentConfig -WorkspacePath $workerWorkspacePath
+            $workerName = $workerConfig.name
+
+            $normalizedComments = @()
+            if ($commentsResponse) {
+                if ($commentsResponse.PSObject.Properties.Name -contains 'items') {
+                    $normalizedComments = @($commentsResponse.items | Where-Object { $null -ne $_ })
+                } elseif ($commentsResponse.PSObject.Properties.Name -contains 'comments') {
+                    $normalizedComments = @($commentsResponse.comments | Where-Object { $null -ne $_ })
+                }
+            }
+
+            $bundle = New-MconBootstrapBundle -BoardId $boardId -TaskId $TaskId -WorkerAgentId $assignedAgentId -WorkerName $workerName -LeadWorkspacePath $leadConfig.workspace_path -WorkerWorkspacePath $workerWorkspacePath -TaskData $task -Comments $normalizedComments
+            $bundlePath = Join-Path (Join-Path $leadConfig.workspace_path 'deliverables') "$TaskId-rework-bootstrap.json"
+            $bundle | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $bundlePath -Encoding UTF8
+
+            $workerTaskDataPath = Write-MconWorkerTaskData -WorkerWorkspacePath $workerWorkspacePath -BoardId $boardId -LeadAgentId $leadConfig.agent_id -InvocationAgentId $leadConfig.agent_id -TaskData $task -Comments $normalizedComments -TaskBundlePaths $taskBundlePaths
+
+            $reworkPrompt = @"
 # VERIFICATION FAILED — REWORK REQUIRED
 
 Task $TaskId verification failed and requires rework.
@@ -929,14 +1057,17 @@ Task $TaskId verification failed and requires rework.
 ## Verification Feedback
 $Message
 
+## Updated Context Files
+- Bootstrap bundle: $bundlePath
+- Task data: $workerTaskDataPath
+
 ## Work Contract
 - Read the existing deliverables and fix only what needs fixing
 - After completing rework, post a handoff comment and move the task to review
 - If blocked, comment with the exact blocker and stop
 "@
-        try {
+
             $mconScriptPath = Join-Path (Split-Path -Path $PSScriptRoot -Parent) 'mcon.ps1'
-            $taskBundlePaths = Get-MconVerifyTaskBundlePaths -LeadWorkspacePath $leadConfig.workspace_path -TaskId $TaskId
             $diagnosticsDir = Join-Path $taskBundlePaths.evidence_directory 'session-dispatch'
             $deferredPayload = [ordered]@{
                 workspace_path        = [string]$leadConfig.workspace_path

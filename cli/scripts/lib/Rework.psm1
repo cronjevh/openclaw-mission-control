@@ -146,7 +146,8 @@ function Invoke-MconRework {
     }
 
     if ([string]::IsNullOrWhiteSpace($currentSubagentUuid) -and -not [string]::IsNullOrWhiteSpace($resolvedSubagentUuid)) {
-        $null = Invoke-MconApi -Method Patch -Uri $taskUri -Token $authToken -Body @{
+        # Use lead token for task metadata updates; agents do not have permission.
+        $null = Invoke-MconApi -Method Patch -Uri $taskUri -Token $leadConfig.auth_token -Body @{
             custom_field_values = @{ subagent_uuid = $resolvedSubagentUuid }
         }
     }
@@ -251,7 +252,8 @@ $Message
 
     $null = Send-MconComment -BaseUrl $baseUrl -Token $authToken -BoardId $boardId -TaskId $TaskId -Message $Message
 
-    $updatedTask = Set-MconTaskStatus -BaseUrl $baseUrl -Token $authToken -BoardId $boardId -TaskId $TaskId -Status 'in_progress'
+    # Use lead token for status transitions; agents do not have permission.
+    $updatedTask = Set-MconTaskStatus -BaseUrl $baseUrl -Token $leadConfig.auth_token -BoardId $boardId -TaskId $TaskId -Status 'in_progress'
 
     return [ordered]@{
         ok                    = $true

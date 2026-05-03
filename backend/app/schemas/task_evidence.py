@@ -15,6 +15,7 @@ TaskClass = Literal[
     "ops_integration",
     "docs_content",
     "component_test",
+    "workspace_config",
 ]
 TaskClosureMode = Literal["manual_review", "evidence_packet", "passing_checks"]
 TaskEvidencePacketStatus = Literal["draft", "submitted", "accepted", "rejected"]

@@ -62,8 +62,8 @@ mcon - Mission Control CLI
 
 Usage:
    mcon task list        [--board <BOARD_ID>] [--status <STATUS>] [--tag <TAG>] [--assigned <AGENT_ID>] [--unassigned]
-  mcon task show        --task <TASK_ID>
-  mcon task show        --tags <TAG_ID|SLUG|NAME,...>
+  mcon task show        [--board <BOARD_ID>] --task <TASK_ID>
+  mcon task show        [--board <BOARD_ID>] --tags <TAG_ID|SLUG|NAME,...>
    mcon task comment    --task <TASK_ID> (--message <TEXT>|--message-file <PATH>)
    mcon task move       --task <TASK_ID> --status <STATUS>
    mcon task move       --task <TASK_ID> --board <BOARD_ID> --comment <TEXT> [--source-board <BOARD_ID>]
@@ -262,6 +262,9 @@ Statuses: inbox, in_progress, review, done, blocked
             }
             if ($task -and $task -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
                 Write-MconError -Message "Invalid task ID format: $task" -Code 'validation'
+            }
+            if ($targetBoard -and $targetBoard -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                Write-MconError -Message "Invalid board ID format: $targetBoard" -Code 'validation'
             }
             if ($tags) {
                 $tags = @(Get-MconTagIdentifierList -Tags $tags)
@@ -484,16 +487,25 @@ Statuses: inbox, in_progress, review, done, blocked
             }
             'show' {
                 try {
+                    # Determine effective board (--board overrides workspace-resolved board)
+                    $effectiveBoard = if ($targetBoard) { $targetBoard } else { $config.board_id }
+                    if (-not $effectiveBoard) {
+                        Write-MconError -Message 'No board context available. Use --board <BOARD_ID> to specify a board.' -Code 'usage'
+                    }
+                    if ($effectiveBoard -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                        Write-MconError -Message "Invalid board ID format: $effectiveBoard" -Code 'validation'
+                    }
+
                     if ($task) {
-                        $result = Get-MconTask -BaseUrl $config.base_url -Token $config.auth_token -BoardId $config.board_id -TaskId $task
-                        $comments = Get-MconTaskComments -BaseUrl $config.base_url -Token $config.auth_token -BoardId $config.board_id -TaskId $task
+                        $result = Get-MconTask -BaseUrl $config.base_url -Token $config.auth_token -BoardId $effectiveBoard -TaskId $task
+                        $comments = Get-MconTaskComments -BaseUrl $config.base_url -Token $config.auth_token -BoardId $effectiveBoard -TaskId $task
                         Write-MconResult -Data ([ordered]@{ ok = $true; task = $result; comments = $comments })
                     }
                     else {
                         $result = Get-MconProjectTagSummaries `
                             -BaseUrl $config.base_url `
                             -Token $config.auth_token `
-                            -BoardId $config.board_id `
+                            -BoardId $effectiveBoard `
                             -TagIdentifiers ([string[]]$tags)
                         Write-MconResult -Data ([ordered]@{
                                 ok             = $true

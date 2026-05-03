@@ -157,12 +157,127 @@ comment parsing plus first-match file reads.
 4. **Deliverable reference required** — verification script must reference actual deliverable, not just filenames
 5. **Hybrid detection** — `docs_content`/`design_exploratory` tasks with executable files are rejected unless explicitly exempted
 
-## Common Failure Modes
+## Common Failure Modes and Fixes
 
-- Integration-like task has no runtime checks → FAIL
-- Verification relies on file presence only → FAIL  
-- Task is docs_content but includes executables → FAIL (hybrid confusion)
-- Start-Process loses arguments on Linux → Use `& pwsh -File`
-- Missing `-Append` on Start-Process → Check stderr redirection
-- Unbound variables abort bash scripts → Use `set -u` or check variables
-- Wrong target path for workspace config → Verify exact file path in task description
+### 1. Integration-like task has no runtime checks
+
+**Symptom:** Preflight fails: "Integration-like task has no runtime or behavior-exercising checks; verification is static-only."
+
+**Cause:** Verification script only checks that files exist (`Test-Path`) but doesn't execute anything.
+
+**Fix:**
+- For `code_deterministic`: Add `& pwsh -File deliverables/script.ps1 -Test` or equivalent
+- For `ops_integration`: Add actual API call or dry-run execution
+- For `component_test`: Add `-SelfTest` with process isolation
+
+### 2. Verification relies on file presence only
+
+**Symptom:** Same as above — script uses `Test-Path` or `Get-ChildItem` without execution.
+
+**Fix:** Add runtime execution of the deliverable. File existence is necessary but not sufficient.
+
+### 3. Task appears documentation but includes executables
+
+**Symptom:** Preflight fails: "Task appears to be documentation but includes executable files."
+
+**Cause:** Task title says "document" or "report" but verification script runs `pytest`, `node`, etc.
+
+**Fix:**
+- If the task IS documentation, switch to `docs_content` pattern: create `evaluate-*.json` + `verify.ps1` wrapper
+- If the task IS code, retitle to remove "document" wording and use appropriate task class
+
+### 4. Start-Process loses arguments on Linux
+
+**Symptom:** `Start-Process` with `-ArgumentList` works on Windows but fails on Linux (WSL) because arguments are not passed correctly.
+
+**Cause:** `Start-Process` in PowerShell on Linux drops quoted arguments when the file is a `.sh` script.
+
+**Fix:**
+```powershell
+# WRONG (loses arguments on Linux)
+Start-Process -FilePath "$script.sh" -ArgumentList @('arg with spaces')
+
+# CORRECT (use call operator for native commands)
+& bash "$script" 'arg with spaces'
+```
+
+### 5. Missing `-Append` on `Start-Process` output capture
+
+**Symptom:** `Start-Process` throws "A parameter cannot be found that matches parameter name 'Append'."
+
+**Cause:** `-RedirectStandardOutput` has no `-Append` parameter.
+
+**Fix:**
+```powershell
+# WRONG
+Start-Process -RedirectStandardOutput $log -Append
+
+# CORRECT (use separate log or redirect)
+& bash "$script" args > $log 2>&1
+```
+
+### 6. Unbound variables abort bash scripts
+
+**Symptom:** Bash verification script exits immediately with "unbound variable" error.
+
+**Cause:** `set -euo pipefail` is enabled and a sourced wrapper references `${RADARR_API_KEY}` which is unset.
+
+**Fix:**
+```powershell
+# In PowerShell verification script, export dummies before calling bash:
+$env:RADARR_API_KEY = "dry-run-test-key"
+& bash "$script" args
+```
+
+### 7. Wrong target path for workspace config
+
+**Symptom:** Verification checks the wrong file path (e.g., worker's workspace instead of main workspace).
+
+**Cause:** Confusion between worker workspace and main workspace paths.
+
+**Fix:**
+- Workspace config tasks modify files in the **main OpenClaw workspace** (`/home/cronjev/.openclaw/workspace/AGENTS.md`)
+- Verification must check that exact path, not the worker's copy
+- If the task says "Add to AGENTS.md" without specifying a workspace, use the main workspace
+
+**Example correct path:**
+```powershell
+# CHECK the actual modified file in the main workspace
+$path = "/home/cronjev/.openclaw/workspace/AGENTS.md"
+$content = Get-Content $path -Raw
+```
+
+---
+
+## Verification Pattern Decision Tree
+
+```
+Is there an executable component?
+├─ YES → code_deterministic
+│   └─ Pattern: Run deliverable with test inputs, validate exit code
+│
+├─ NO → Does it integrate with external systems (API, infra)?
+│   ├─ YES → ops_integration
+│   │   └─ Pattern: Runtime against test/dry-run APIs, process isolation
+│   └─ NO → Is it pure documentation/design?
+│       ├─ YES → docs_content
+│       │   └─ Pattern: evaluate-*.json (judge spec) + verify wrapper
+│       └─ NO → Is it a detect-only monitor/health-check?
+│           ├─ YES → component_test
+│           │   └─ Pattern: -SelfTest with & pwsh -File process isolation
+│           └─ NO → workspace_config (modifies workspace files)
+│               └─ Pattern: Content checks (Get-Content, -match) against modified file
+```
+
+---
+
+## Quick Reference Table
+
+| Task Class | Deliverable | Verification | Runtime Required | Preflight Exemptions |
+|------------|-------------|--------------|------------------|---------------------|
+| `code_deterministic` | Executable code/script | Execute with test inputs, check exit code | Yes (process isolation) | None |
+| `ops_integration` | Integration code/config | Execute against test/dry-run API | Yes (process isolation) | None |
+| `docs_content` | Markdown/design doc | LLM judge via evaluate-*.json + wrapper | Yes (LLM invocation) | None |
+| `design_exploratory` | Design/architecture doc | LLM judge via evaluate-*.json + wrapper | Yes (LLM invocation) | None |
+| `component_test` | Monitor/diagnostic script | Self-test mode (`-SelfTest`) | Yes (process isolation) | None |
+| `workspace_config` | Modified workspace file | Content checks (Get-Content, -match) | No | Static-only allowed |

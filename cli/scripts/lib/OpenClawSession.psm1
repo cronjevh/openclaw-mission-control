@@ -114,6 +114,31 @@ Before ending the turn, execute this closure protocol for each completed task:
    - Update memory wiki content based on the results, discoveries and other output of the task. 
 6. Post a concise factual closure summary comment.
   - Include deliverables, follow-up tasks, wiki ingestion, and any remaining risk or open question.
+7. Send no-guarantee reflection prompts to worker and verifier sessions.
+   - Worker reflection:
+     a. Read the task's `taskData.json` to get `task.assigned_agent_id`.
+     b. Look up the agent's short name in `boardWorkers` (e.g., `vulcan`, `athena`).
+     c. Construct session key: `agent:<shortname>:task:<taskId>` (lowercase shortname).
+     d. Use `sessions_send` (or `Send-MconTaskReflectionPrompt` if running PowerShell) to deliver the reflection prompt.
+     e. If the session no longer exists, log the failure and continue — do not retry or block.
+   - Verifier reflection (if identifiable):
+     a. Scan task comments and evidence for any verifier agent name or verifier-related activity.
+     b. If a verifier agent can be identified, construct session key `agent:<verifier_name>:task:<taskId>` and send the same reflection prompt.
+     c. If the verifier cannot be identified, skip this step silently.
+   - Reflection prompt text to send:
+     ```
+     ## Task Reflection — Task <taskId>: <taskTitle>
+
+     This task has been completed successfully. Take a moment to reflect:
+
+     1. What worked well in your approach to this task?
+     2. What friction, surprise, or inefficiency did you encounter?
+     3. What would you do differently on a similar task in the future?
+     4. Is there a reusable pattern, script, or workflow improvement worth capturing?
+
+     Record any durable learnings in your memory files (MEMORY.md, SOUL.md, TOOLS.md, etc.) as appropriate. This is optional but encouraged — your future self will thank you.
+     ```
+   - This is fire-and-forget. Do not wait for replies. Do not let failures delay closure.
 
 Keep the control-plane boundary intact: you may create follow-up tasks or leave breadcrumbs here, but defer any fresh assignment or work-start decision to the next gated heartbeat authorization.
 '@ -f ($taskLines -join "`n"))
@@ -392,4 +417,83 @@ function Invoke-MconOpenClawAgentSession {
     }
 }
 
-Export-ModuleMember -Function Get-MconOpenClawGatewayConfig, Get-MconAgentTaskSessionKey, New-MconLeadClosureDirective, Send-MconOpenClawSessionMessage, Start-MconDeferredSessionDispatch, Invoke-MconDeferredSessionDispatch, Invoke-MconOpenClawAgentSession
+function Send-MconTaskReflectionPrompt {
+    <#
+    .SYNOPSIS
+        Sends a no-guarantee reflection prompt to a task-scoped agent session.
+
+    .DESCRIPTION
+        Fire-and-forget reflection prompt for worker or verifier agents after task completion.
+        Uses a short timeout and swallows errors — the session may have expired and that is fine.
+
+    .PARAMETER WorkspacePath
+        Path to the lead workspace (used to resolve gateway config).
+
+    .PARAMETER InvocationAgent
+        Short agent name (e.g., 'vulcan', 'athena', 'nemesis').
+
+    .PARAMETER TaskId
+        The board task ID.
+
+    .PARAMETER TaskTitle
+        The task title (included in the reflection message).
+
+    .PARAMETER LogPath
+        Optional path to append log entries.
+
+    .PARAMETER TimeoutSec
+        Timeout for the gateway call. Default is 15 seconds (short, because this is best-effort).
+    #>
+    param(
+        [Parameter(Mandatory)][string]$WorkspacePath,
+        [Parameter(Mandatory)][string]$InvocationAgent,
+        [Parameter(Mandatory)][string]$TaskId,
+        [Parameter(Mandatory)][string]$TaskTitle,
+        [string]$LogPath = $null,
+        [int]$TimeoutSec = 15
+    )
+
+    $reflectionMessage = @"
+## Task Reflection — Task ${TaskId}: ${TaskTitle}
+
+This task has been completed successfully. Take a moment to reflect:
+
+1. What worked well in your approach to this task?
+2. What friction, surprise, or inefficiency did you encounter?
+3. What would you do differently on a similar task in the future?
+4. Is there a reusable pattern, script, or workflow improvement worth capturing?
+
+Record any durable learnings in your memory files (MEMORY.md, SOUL.md, TOOLS.md, etc.) as appropriate. This is optional but encouraged — your future self will thank you.
+"@
+
+    $sessionKey = Get-MconAgentTaskSessionKey -InvocationAgent $InvocationAgent -TaskId $TaskId
+
+    try {
+        $response = Send-MconOpenClawSessionMessage `
+            -WorkspacePath $WorkspacePath `
+            -InvocationAgent $InvocationAgent `
+            -SessionKey $sessionKey `
+            -Message $reflectionMessage `
+            -TaskId $TaskId `
+            -DispatchType 'reflection' `
+            -TimeoutSec $TimeoutSec `
+            -LogPath $LogPath
+        return [ordered]@{
+            ok         = $true
+            sessionKey = $sessionKey
+            response   = $response
+        }
+    } catch {
+        $errorText = ($_ | Out-String).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
+            Write-MconOpenClawSessionLog -Path $LogPath -Message "reflection_failed task=$TaskId agent=$InvocationAgent session_key=$sessionKey error=$errorText"
+        }
+        return [ordered]@{
+            ok         = $false
+            sessionKey = $sessionKey
+            error      = $errorText
+        }
+    }
+}
+
+Export-ModuleMember -Function Get-MconOpenClawGatewayConfig, Get-MconAgentTaskSessionKey, New-MconLeadClosureDirective, Send-MconOpenClawSessionMessage, Start-MconDeferredSessionDispatch, Invoke-MconDeferredSessionDispatch, Invoke-MconOpenClawAgentSession, Send-MconTaskReflectionPrompt

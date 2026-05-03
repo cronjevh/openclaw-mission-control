@@ -54,6 +54,29 @@ foreach ($pattern in $runtimeSignals) {
     if ($scriptContent -match $pattern) { $runtimeSignalCount++ }
 }
 
+# Detect -SelfTest flag (component_test)
+$hasSelfTest = $scriptContent -match '(?i)-SelfTest\b'
+
+# Detect workspace config tasks
+$taskDataPath = Join-Path (Split-Path -Parent $DeliverablesDir) "taskData.json"
+$isWorkspaceConfig = $false
+if (Test-Path -LiteralPath $taskDataPath) {
+    try {
+        $taskData = Get-Content -LiteralPath $taskDataPath -Raw | ConvertFrom-Json -Depth 5
+        $task = $taskData.task
+        if ($task.task_class -eq 'workspace_config') {
+            $isWorkspaceConfig = $true
+        } else {
+            $title = if ($task.PSObject.Properties.Name -contains 'title') { [string]$task.title } else { '' }
+            $desc = if ($task.PSObject.Properties.Name -contains 'description') { [string]$task.description } else { '' }
+            $text = "$title`n$desc"
+            if ($text -match '(?i)\b(AGENTS\.md|SOUL\.md|HEARTBEAT\.md|TOOLS\.md|workspace|prompt|guideline|instruction|policy)\b') {
+                $isWorkspaceConfig = $true
+            }
+        }
+    } catch {}
+}
+
 # Check exit paths
 $hasSuccessExit = $scriptContent -match '(?mi)^\s*exit\s+0\s*$' -or $scriptContent -match '(?mi)^\s*return\s+0\s*$'
 $hasFailureExit = $scriptContent -match '(?mi)^\s*exit\s+1\s*$' -or
@@ -67,7 +90,24 @@ if ($hasSuccessExit -and -not $hasFailureExit) {
     $reasons += 'Verification script contains a success-only exit path.'
 }
 
-if ($runtimeSignalCount -eq 0) {
+# component_test: Reject dot-sourcing when -SelfTest present
+if ($hasSelfTest) {
+    $hasDotSourcing = $scriptContent -match '(?i)\.\s+' -or $scriptContent -match '(?i)\bsource\s+'
+    if ($hasDotSourcing) {
+        $reasons += 'component_test with -SelfTest must use process isolation (& pwsh -File), not dot-sourcing.'
+    }
+}
+
+if ($isWorkspaceConfig) {
+    $notes += "Detected workspace config task (content checks are valid)"
+    # Workspace config tasks don't need runtime signals; content checks are the verification
+    # But must reference the main workspace path, not just the task bundle copy
+    $mainWorkspacePattern = '/home/cronjev/\.openclaw/workspace/'
+    $hasMainWorkspaceRef = $scriptContent -match [regex]::Escape($mainWorkspacePattern)
+    if (-not $hasMainWorkspaceRef) {
+        $reasons += 'workspace_config verification must check the main workspace file (e.g., /home/cronjev/.openclaw/workspace/AGENTS.md), not a task bundle copy.'
+    }
+} elseif ($runtimeSignalCount -eq 0) {
     $reasons += 'No runtime signals detected. Preflight will reject as static-only.'
 } else {
     $notes += "Detected runtime signals: $runtimeSignalCount"

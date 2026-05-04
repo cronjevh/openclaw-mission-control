@@ -33,3 +33,4 @@ backend/simplified-templates/template-update.json
 backend/simplified-templates/testmerge/
 workspaces/
 config/
+!cli/config/

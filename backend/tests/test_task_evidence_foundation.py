@@ -352,3 +352,42 @@ async def test_evidence_intent_signal_tasks_close_with_submitted_packet_and_prim
             assert updated.status == "done"
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_task_verification_rules_can_be_created_and_updated() -> None:
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            _board, task, agent = await _seed_board_task_and_agent(session)
+
+            rules = {
+                "preflight": {
+                    "skip_deliverable_by_filename": True,
+                    "skip_static_only_rejection": True,
+                },
+                "required_patterns": ["/home/cronjev/.openclaw/workspace/"],
+            }
+
+            updated = await tasks_api.update_task(
+                payload=TaskUpdate(verification_rules=rules),
+                task=task,
+                session=session,
+                actor=_agent_actor(agent),
+            )
+
+            assert updated.verification_rules == rules
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_task_verification_rules_defaults_to_none() -> None:
+    engine = await _make_engine()
+    try:
+        async with await _make_session(engine) as session:
+            _board, task, agent = await _seed_board_task_and_agent(session)
+
+            assert task.verification_rules is None
+    finally:
+        await engine.dispose()

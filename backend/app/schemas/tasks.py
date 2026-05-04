@@ -35,6 +35,7 @@ class TaskBase(SQLModel):
     required_artifact_kinds: list[str] = Field(default_factory=list)
     required_check_kinds: list[str] = Field(default_factory=list)
     lead_spot_check_required: bool = False
+    verification_rules: dict | None = None
     depends_on_task_ids: list[UUID] = Field(default_factory=list)
     tag_ids: list[UUID] = Field(default_factory=list)
 
@@ -60,6 +61,7 @@ class TaskUpdate(SQLModel):
     required_artifact_kinds: list[str] | None = None
     required_check_kinds: list[str] | None = None
     lead_spot_check_required: bool | None = None
+    verification_rules: dict | None = None
     depends_on_task_ids: list[UUID] | None = None
     tag_ids: list[UUID] | None = None
     custom_field_values: TaskCustomFieldValues | None = None

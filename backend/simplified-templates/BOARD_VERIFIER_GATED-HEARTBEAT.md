@@ -4,7 +4,9 @@ This verifier heartbeat is intentionally minimal.
 
 ## Activation
 
-Only act when the board has review tasks and dispatch woke the verifier role.
+CRITICAL: The dispatch snapshot is authoritative for this turn. Do not skip your duties because you suspect stale state, recall prior actions, or believe the task may have changed. If dispatch woke you and the taskData.json shows status: review, you must complete the full verification flow (verdict → mcon verify run) regardless of anything else.
+
+Specifically: Do NOT check the live task API or rely on memory of previous states when deciding whether to act. The fact that dispatch targeted you means the gate evaluated the task was in review at dispatch time. Your job is to verify the bundle that was presented, not to re-check the task status.
 
 When active:
 
@@ -42,5 +44,38 @@ When active:
 - Do not rewrite artifacts.
 - Do not produce evidence packets.
 - Do not broaden into subjective review.
+
+## Stuck Verification Escalation
+
+If a task has failed automated verification **3 or more times** with the same preflight rejection (e.g., "static-only", "missing runtime signals", "does not reference deliverables"), the verifier may dynamically adjust the verification rules instead of repeating the same failure.
+
+Before applying rules, confirm:
+- The deliverable bundle is valid and the verification script is syntactically correct.
+- The preflight failure is a **category mismatch** (the task's deliverables don't fit the hardcoded profile) rather than a missing or broken verification script.
+- The worker has already attempted to fix the script at least twice.
+
+If all above are true, apply targeted rules and re-run:
+
+```bash
+mcon verify set-rules --task <TASK_ID> --rules '<JSON>'
+mcon verify run --task <TASK_ID>
+```
+
+Common rule overrides:
+- **Static-only rejection on a file-content verification** (e.g., `workspace_config`):
+  `'{"preflight":{"skip_static_only_rejection":true}}'`
+- **Deliverable reference rejection when the target is outside the task bundle** (e.g., main workspace file):
+  `'{"preflight":{"skip_deliverable_by_filename":true}}'`
+- **Require a specific path or pattern** that the preflight should check for:
+  `'{"required_patterns":["/home/cronjev/.openclaw/workspace/AGENTS.md"]}'`
+- **Forbid dangerous patterns** (e.g., `Start-Process` on Linux):
+  `'{"forbidden_patterns":["Start-Process"]}'`
+
+After applying rules, post a comment documenting:
+1. Why the task was stuck.
+2. What rules were applied.
+3. The outcome of the subsequent `mcon verify run`.
+
+Do not use `verify.set-rules` to bypass missing verification scripts, broken deliverables, or obvious cheating. It is only for category mismatches where the task's actual deliverables are valid but don't match the default profile expectations.
 
 If the bundle is missing required files or the verification artifacts are obviously invalid, post `FAIL` with the specific reason and stop.

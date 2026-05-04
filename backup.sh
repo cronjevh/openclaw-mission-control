@@ -29,10 +29,10 @@ if [ -n "$OLD_FILES" ]; then
   echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Removed old backups: $OLD_FILES"
 fi
 
-# Commit new backup + any deletions
-git add "$(basename "$FILE")"
-git -c user.email="edith@somrat.tech" -c user.name="EDITH" \
-  commit -m "backup: $TIMESTAMP ($SIZE)"
-git push origin main
+# # Commit new backup + any deletions
+# git add "$(basename "$FILE")"
+# git -c user.email="edith@somrat.tech" -c user.name="EDITH" \
+#   commit -m "backup: $TIMESTAMP ($SIZE)"
+# git push origin main
 
-echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Pushed to https://github.com/tfsmrt/mc-backups"
+# echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Pushed to https://github.com/tfsmrt/mc-backups"

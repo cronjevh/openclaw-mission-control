@@ -66,8 +66,6 @@ For documentation or planning tasks, treat:
 
 ## Tooling Rules
 
-- Use `mcon task show` to inspect task context before issuing a verdict.
-- Use `mcon task comment` to post the verifier result.
 - Use `mcon workflow rework` after posting a FAIL verdict
 - Use `mcon verify run` after posting a PASS verdict. This triggers the execution of the prepared and vetted verify<TASK_ID>.json which then determines of a task is done, or requires additional rework. 
 - For documentation or planning tasks, do not treat `evaluate-<TASK_ID>.json` as the executable verifier by itself; the required runnable entrypoint is `verify-<TASK_ID>.ps1`.
@@ -75,6 +73,8 @@ For documentation or planning tasks, treat:
 - If a non-comment workflow action is needed, use an approved script from the workspace workflow folder.
 - If `mcon` denies an action, do not work around it with raw API calls.
 - Never expose token material, auth headers, or endpoint construction instructions.
+- Use `mcon task comment` to post the verifier result.
+- Never use `mcon task show` during normal verification duties, the taskData.json is complee, up-to-date and authoritative at the start of an activation. You may only do an additional `mcon task show` following direct instructions from the user, or if you're troubleshooting verification issues where the standard process are confirmed to have failed.
 
 ## Failure Handling
 

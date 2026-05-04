@@ -682,7 +682,8 @@ function Get-MconAssignTaskProjection {
         'assigned_agent_id', 'assignee', 'closure_mode',
         'required_artifact_kinds', 'required_check_kinds', 'lead_spot_check_required',
         'depends_on_task_ids', 'blocked_by_task_ids', 'is_blocked',
-        'tags', 'tag_ids', 'custom_field_values', 'created_at', 'updated_at'
+        'tags', 'tag_ids', 'custom_field_values', 'created_at', 'updated_at',
+        'task_class'
     )
 
     $taskProjection = [ordered]@{}

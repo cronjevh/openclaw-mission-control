@@ -131,6 +131,122 @@ function Test-MconVerificationTaskLooksLikeWorkspaceConfig {
     return $text -match '(?i)\b(AGENTS\.md|SOUL\.md|HEARTBEAT\.md|TOOLS\.md|workspace|prompt|guideline|instruction|policy)\b'
 }
 
+function Get-MconVerificationProfilesConfig {
+    param(
+        [string]$ConfigPath = $null
+    )
+
+    if (-not $ConfigPath) {
+        # PSScriptRoot is cli/scripts/lib; go up two levels to cli/
+        $scriptDir = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $ConfigPath = Join-Path $scriptDir 'config/verification-profiles.json'
+    }
+
+    if (-not (Test-Path -LiteralPath $ConfigPath)) {
+        return $null
+    }
+
+    try {
+        $raw = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json -AsHashtable -Depth 10
+        return $raw
+    } catch {
+        Write-Warning "Failed to load verification profiles from $ConfigPath : $_"
+        return $null
+    }
+}
+
+function Get-MconVerificationProfileForTask {
+    param(
+        [Parameter(Mandatory)]$Task,
+        [Parameter(Mandatory)][hashtable]$Config
+    )
+
+    $profiles = $Config.profiles
+    $defaultProfile = $Config.default_profile
+    if (-not $profiles) {
+        return $defaultProfile
+    }
+
+    $taskClass = if ($Task.PSObject.Properties.Name -contains 'task_class') { [string]$Task.task_class } else { '' }
+    $title = if ($Task.PSObject.Properties.Name -contains 'title') { [string]$Task.title } else { '' }
+    $description = if ($Task.PSObject.Properties.Name -contains 'description') { [string]$Task.description } else { '' }
+    $text = "$title`n$description"
+
+    # Match by task_class first
+    foreach ($profileName in $profiles.Keys) {
+        $profile = $profiles[$profileName]
+        $detection = $profile.detection
+        if ($detection -and $detection.task_class) {
+            if ($taskClass -in $detection.task_class) {
+                return $profile
+            }
+        }
+    }
+
+    # Fallback to keyword matching
+    foreach ($profileName in $profiles.Keys) {
+        $profile = $profiles[$profileName]
+        $detection = $profile.detection
+        if ($detection -and $detection.keywords) {
+            foreach ($keyword in $detection.keywords) {
+                if ($text -match [regex]::Escape($keyword)) {
+                    return $profile
+                }
+            }
+        }
+    }
+
+    return $defaultProfile
+}
+
+function Merge-MconVerificationProfile {
+    param(
+        [Parameter(Mandatory)][hashtable]$Profile,
+        [hashtable]$TaskRules = $null
+    )
+
+    $merged = @{}
+
+    # Start with profile preflight rules
+    if ($Profile.preflight) {
+        foreach ($key in $Profile.preflight.Keys) {
+            $merged[$key] = $Profile.preflight[$key]
+        }
+    }
+
+    # Overlay task-level verification_rules overrides
+    if ($TaskRules -and $TaskRules.preflight) {
+        foreach ($key in $TaskRules.preflight.Keys) {
+            $merged[$key] = $TaskRules.preflight[$key]
+        }
+    }
+
+    # Collect required patterns from profile + task override
+    $requiredPatterns = [System.Collections.ArrayList]::new()
+    if ($Profile.required_patterns) {
+        [void]$requiredPatterns.AddRange($Profile.required_patterns)
+    }
+    if ($TaskRules -and $TaskRules.required_patterns) {
+        [void]$requiredPatterns.AddRange($TaskRules.required_patterns)
+    }
+
+    # Collect forbidden patterns from profile + task override
+    $forbiddenPatterns = [System.Collections.ArrayList]::new()
+    if ($Profile.forbidden_patterns) {
+        [void]$forbiddenPatterns.AddRange($Profile.forbidden_patterns)
+    }
+    if ($TaskRules -and $TaskRules.forbidden_patterns) {
+        [void]$forbiddenPatterns.AddRange($TaskRules.forbidden_patterns)
+    }
+
+    return [ordered]@{
+        preflight = $merged
+        required_patterns = @($requiredPatterns)
+        forbidden_patterns = @($forbiddenPatterns)
+        notes = if ($Profile.notes) { $Profile.notes } else { '' }
+    }
+}
+
 function Test-MconVerificationPreflight {
     param(
         [Parameter(Mandatory)]$Task,
@@ -139,14 +255,11 @@ function Test-MconVerificationPreflight {
     )
 
     # ============================================================
-    # Preflight Rules by Task Class
+    # Dynamic Verification Profile System
     # ============================================================
-    # code_deterministic: Requires runtime signals (pytest, node, dotnet, etc.). Both exit 0 and exit 1 must be present. Must reference implementation deliverables.
-    # ops_integration:      Requires runtime signals AND process isolation (& pwsh -File, subprocess). No dot-sourcing. Both exit paths required.
-    # docs_content:         Requires evaluate-*.json judge spec + verify-*.ps1 wrapper. Wrapper must load judge spec and call LLM judge. Static-only allowed.
-    # component_test:       Requires -SelfTest flag. Must use process isolation (& pwsh -File). Dot-sourcing (. ./script.ps1) is rejected.
-    # workspace_config:     Static-only allowed. Must check the MAIN workspace path (e.g., /home/cronjev/.openclaw/workspace/...), not task bundle copy.
-    # Hybrid detection:     If task looks like docs but contains implementation files, reject unless task_class is docs_content/design_exploratory.
+    # Profiles are loaded from cli/config/verification-profiles.json.
+    # Tasks may override profile behavior via the verification_rules field.
+    # When no profile matches, hardcoded detection functions provide fallback.
     # ============================================================
 
     $verificationArtifactPath = $VerificationPaths.verification_artifact_path
@@ -155,6 +268,34 @@ function Test-MconVerificationPreflight {
     $scriptContent = Get-Content -LiteralPath $verificationArtifactPath -Raw
     $reasons = @()
     $notes = @()
+
+    # Load dynamic profile configuration
+    $profilesConfig = Get-MconVerificationProfilesConfig
+    $taskRules = $null
+    if ($Task.PSObject.Properties.Name -contains 'verification_rules' -and $Task.verification_rules) {
+        try {
+            if ($Task.verification_rules -is [hashtable]) {
+                $taskRules = $Task.verification_rules
+            } elseif ($Task.verification_rules -is [pscustomobject]) {
+                $taskRules = @{}
+                $Task.verification_rules.PSObject.Properties | ForEach-Object {
+                    $taskRules[$_.Name] = $_.Value
+                }
+            }
+        } catch {
+            $notes += "Task has verification_rules but could not parse them"
+        }
+    }
+
+    $matchedProfile = $null
+    $mergedRules = $null
+    if ($profilesConfig) {
+        $matchedProfile = Get-MconVerificationProfileForTask -Task $Task -Config $profilesConfig
+        $mergedRules = Merge-MconVerificationProfile -Profile $matchedProfile -TaskRules $taskRules
+        if ($matchedProfile.notes) {
+            $notes += $matchedProfile.notes
+        }
+    }
 
     $workspaceConfigLike = Test-MconVerificationTaskLooksLikeWorkspaceConfig -Task $Task
     if ($workspaceConfigLike) {
@@ -172,11 +313,13 @@ function Test-MconVerificationPreflight {
             Select-Object -ExpandProperty Name -Unique
     )
 
-    if ($mentionedDeliverables.Count -eq 0 -and -not $workspaceConfigLike) {
+    # Deliverable-by-filename check (skippable via profile)
+    $skipDeliverableCheck = $mergedRules -and $mergedRules.preflight.skip_deliverable_by_filename
+    if ($mentionedDeliverables.Count -eq 0 -and -not $workspaceConfigLike -and -not $skipDeliverableCheck) {
         $reasons += 'Verification script does not reference any non-verification deliverable by filename.'
     }
 
-    if ($implementationFiles.Count -gt 0 -and $mentionedImplementationFiles.Count -eq 0 -and -not $workspaceConfigLike) {
+    if ($implementationFiles.Count -gt 0 -and $mentionedImplementationFiles.Count -eq 0 -and -not $workspaceConfigLike -and -not $skipDeliverableCheck) {
         $implNames = @($implementationFiles | Select-Object -ExpandProperty Name)
         $reasons += "Verification script does not target implementation deliverables directly: $($implNames -join ', ')"
     }
@@ -185,7 +328,8 @@ function Test-MconVerificationPreflight {
     $hasFailureExit = $scriptContent -match '(?mi)^\s*exit\s+1\s*$' -or
         $scriptContent -match '(?mi)^\s*exit\s+\$[A-Za-z_][A-Za-z0-9_]*\s*$' -or
         $scriptContent -match '(?mi)^\s*return\s+1\s*$'
-    if ($hasSuccessExit -and -not $hasFailureExit) {
+    $requireExitPaths = if ($mergedRules -and $mergedRules.preflight.ContainsKey('require_exit_paths')) { $mergedRules.preflight.require_exit_paths } else { $true }
+    if ($hasSuccessExit -and -not $hasFailureExit -and $requireExitPaths) {
         $reasons += 'Verification script contains a success-only exit path.'
     }
 
@@ -219,12 +363,15 @@ function Test-MconVerificationPreflight {
     }
 
     $hasSelfTest = $scriptContent -match '(?i)-SelfTest\b'
+    $requireSelfTest = if ($mergedRules -and $mergedRules.preflight.ContainsKey('require_selftest')) { $mergedRules.preflight.require_selftest } else { $false }
     if ($hasSelfTest) {
         $notes += "Detected -SelfTest flag (component-level testing)"
+    } elseif ($requireSelfTest) {
+        $reasons += 'component_test verification script must include -SelfTest flag.'
     }
 
-    # component_test: Reject dot-sourcing when -SelfTest present (requires process isolation via & pwsh -File)
-    if ($hasSelfTest) {
+    $forbidDotSourcing = if ($mergedRules -and $mergedRules.preflight.ContainsKey('forbid_dot_sourcing')) { $mergedRules.preflight.forbid_dot_sourcing } else { $false }
+    if ($hasSelfTest -or $forbidDotSourcing) {
         $hasDotSourcing = $scriptContent -match '(?i)\.\s+' -or $scriptContent -match '(?i)\bsource\s+'
         if ($hasDotSourcing) {
             $reasons += 'component_test with -SelfTest must use process isolation (& pwsh -File), not dot-sourcing.'
@@ -241,15 +388,18 @@ function Test-MconVerificationPreflight {
     $integrationLike = Test-MconVerificationTaskLooksLikeIntegration -Task $Task -ImplementationFiles $implementationFiles
     $workspaceConfigLike = Test-MconVerificationTaskLooksLikeWorkspaceConfig -Task $Task
 
-    if ($integrationLike -and $runtimeSignalCount -eq 0 -and -not $hasSelfTest) {
+    $requireRuntimeSignals = if ($mergedRules -and $mergedRules.preflight.ContainsKey('require_runtime_signals')) { $mergedRules.preflight.require_runtime_signals } else { $true }
+
+    if ($integrationLike -and $runtimeSignalCount -eq 0 -and -not $hasSelfTest -and $requireRuntimeSignals) {
         $reasons += 'Integration-like task has no runtime or behavior-exercising checks; verification is static-only.'
     }
 
-    if ($integrationLike -and $staticOnlyPatternCount -gt 0 -and $runtimeSignalCount -eq 0) {
+    if ($integrationLike -and $staticOnlyPatternCount -gt 0 -and $runtimeSignalCount -eq 0 -and $requireRuntimeSignals) {
         $reasons += 'Verification relies on file presence/content checks only for a multi-file implementation task.'
     }
 
-    # Workspace config tasks validate file content; static-only patterns are expected
+    # Static-only rejection (skippable via profile)
+    $skipStaticOnlyRejection = $mergedRules -and $mergedRules.preflight.skip_static_only_rejection
     if ($workspaceConfigLike -and $runtimeSignalCount -eq 0 -and $staticOnlyPatternCount -gt 0) {
         # Remove static-only rejection for workspace config; content checks are the verification
         $staticOnlyRejection = $reasons | Where-Object { $_ -match 'static-only' -or $_ -match 'file presence/content checks only' }
@@ -259,7 +409,6 @@ function Test-MconVerificationPreflight {
     }
 
     # HYBRID DETECTION: Task looks like documentation but contains executable files
-    # Skip this check for integration-like tasks and non-deterministic task types (docs_content, design_exploratory)
     $looksLikeDocs = Test-MconVerificationTaskLooksLikeDocs -Task $Task
     $hasExecutableFiles = ($implementationFiles.Count -gt 0)
     $taskClass = if ($Task.PSObject.Properties.Name -contains 'task_class') { [string]$Task.task_class } else { '' }
@@ -278,8 +427,26 @@ function Test-MconVerificationPreflight {
         $notes += "Targets implementation files: $($mentionedImplementationFiles -join ', ')"
     }
 
-    # workspace_config: Verify script must reference the main workspace path, not just task bundle copy
-    if ($workspaceConfigLike) {
+    # Profile-driven required patterns
+    if ($mergedRules -and $mergedRules.required_patterns) {
+        foreach ($pattern in $mergedRules.required_patterns) {
+            if (-not ($scriptContent -match [regex]::Escape($pattern))) {
+                $reasons += "Verification script must include required pattern: $pattern"
+            }
+        }
+    }
+
+    # Profile-driven forbidden patterns
+    if ($mergedRules -and $mergedRules.forbidden_patterns) {
+        foreach ($pattern in $mergedRules.forbidden_patterns) {
+            if ($scriptContent -match [regex]::Escape($pattern)) {
+                $reasons += "Verification script contains forbidden pattern: $pattern"
+            }
+        }
+    }
+
+    # Fallback: workspace_config main path check (preserved for backward compat when no profile loaded)
+    if ($workspaceConfigLike -and (-not $mergedRules -or $mergedRules.required_patterns.Count -eq 0)) {
         $mainWorkspacePattern = '/home/cronjev/\.openclaw/workspace/'
         $hasMainWorkspaceRef = $scriptContent -match [regex]::Escape($mainWorkspacePattern)
         if (-not $hasMainWorkspaceRef) {
@@ -298,6 +465,8 @@ function Test-MconVerificationPreflight {
         static_only_pattern_count = $staticOnlyPatternCount
         reasons = $reasons
         notes = $notes
+        profile_matched = if ($matchedProfile) { $true } else { $false }
+        task_rules_applied = if ($taskRules) { $true } else { $false }
     }
 }
 
@@ -592,6 +761,99 @@ Output: $stdoutSummary
 "@
 }
 
+function Test-MconVerificationStuckTask {
+    <#
+    .SYNOPSIS
+        Detects whether a task is stuck in a verification failure loop.
+    .DESCRIPTION
+        Analyzes recent task comments to count consecutive verification
+        preflight failures. Returns diagnostic info if the task appears stuck.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [Parameter(Mandatory)][string]$Token,
+        [Parameter(Mandatory)][string]$BoardId,
+        [Parameter(Mandatory)][string]$TaskId,
+        [int]$StuckThreshold = 3
+    )
+
+    $comments = Get-MconTaskComments -BaseUrl $BaseUrl -Token $Token -BoardId $BoardId -TaskId $TaskId
+    if (-not $comments) {
+        return [ordered]@{
+            is_stuck = $false
+            failure_count = 0
+            latest_reason = $null
+            suggestion = $null
+        }
+    }
+
+    # Look for recent verifier comments indicating preflight failure
+    $preflightFailures = @()
+    $latestPreflightReason = $null
+    foreach ($comment in ($comments | Sort-Object created_at -Descending)) {
+        $msg = if ($comment.message) { [string]$comment.message } else { '' }
+        if ($msg -match 'Verification preflight failed:') {
+            $reason = if ($msg -match 'Verification preflight failed:\s*(.+?)(?:\r?\n|$)') { $matches[1].Trim() } else { 'unknown' }
+            $preflightFailures += [ordered]@{
+                reason = $reason
+                created_at = $comment.created_at
+            }
+            if (-not $latestPreflightReason) {
+                $latestPreflightReason = $reason
+            }
+        }
+    }
+
+    $isStuck = $preflightFailures.Count -ge $StuckThreshold
+    $suggestion = $null
+    if ($isStuck) {
+        $suggestion = @"
+TASK STUCK IN VERIFICATION
+
+This task has failed verification preflight $($preflightFailures.Count) times with the same or similar reasons.
+Latest failure: $latestPreflightReason
+
+To unblock this task, a lead or gateway agent can apply custom verification rules:
+
+  mcon verify set-rules --task $TaskId --rules '{"preflight":{"skip_static_only_rejection":true},"required_patterns":["..."]}'
+"@
+    }
+
+    return [ordered]@{
+        is_stuck = $isStuck
+        failure_count = $preflightFailures.Count
+        latest_reason = $latestPreflightReason
+        suggestion = $suggestion
+    }
+}
+
+function Set-MconVerificationRules {
+    <#
+    .SYNOPSIS
+        Patches the verification_rules field on a task.
+    .DESCRIPTION
+        Used by lead or gateway agents to dynamically extend verification
+        logic for a stuck task without editing PowerShell code.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [Parameter(Mandatory)][string]$Token,
+        [Parameter(Mandatory)][string]$BoardId,
+        [Parameter(Mandatory)][string]$TaskId,
+        [Parameter(Mandatory)][hashtable]$Rules
+    )
+
+    $encodedBoard = [uri]::EscapeDataString($BoardId)
+    $encodedTask = [uri]::EscapeDataString($TaskId)
+    $taskUri = "$BaseUrl/api/v1/agent/boards/$encodedBoard/tasks/$encodedTask"
+
+    $body = @{
+        verification_rules = $Rules
+    }
+
+    return Invoke-MconApi -Method Patch -Uri $taskUri -Token $Token -Body $body
+}
+
 function Invoke-MconVerifyRun {
     [CmdletBinding()]
     param(
@@ -658,6 +920,15 @@ function Invoke-MconVerifyRun {
 
     $comment = Send-MconComment -BaseUrl $baseUrl -Token $authToken -BoardId $boardId -TaskId $TaskId -Message $commentMessage
 
+    # Stuck-task detection: if preflight keeps failing with the same reason, alert the lead
+    $stuckCheck = $null
+    if (-not $executionResult.passed -and $preflight -and -not $preflight.passed) {
+        $stuckCheck = Test-MconVerificationStuckTask -BaseUrl $baseUrl -Token $authToken -BoardId $boardId -TaskId $TaskId -StuckThreshold 3
+        if ($stuckCheck.is_stuck) {
+            $null = Send-MconComment -BaseUrl $baseUrl -Token $authToken -BoardId $boardId -TaskId $TaskId -Message $stuckCheck.suggestion
+        }
+    }
+
     $originalAssignedAgentId = if ($task.PSObject.Properties.Name -contains 'assigned_agent_id' -and $task.assigned_agent_id) {
         [string]$task.assigned_agent_id
     } else { $null }
@@ -691,11 +962,12 @@ function Invoke-MconVerifyRun {
             $workerWorkspacePath = Join-Path $openClawRoot "workspace-mc-$assignedAgentId"
             if (Test-Path -LiteralPath $workerWorkspacePath) {
                 try {
-                    $workerConfig = Resolve-MconOpenClawConfig -WorkspacePath $workerWorkspacePath
-                    $workerSpawnAgentId = if ($workerConfig.agents.list.Count -gt 0) { $workerConfig.agents.list[0].id } else { $null }
-                    $workerLegacyName = if ($workerConfig.agents.list.Count -gt 0) { $workerConfig.agents.list[0].name.ToLower() } else { '' }
+                    $workerConfig = Resolve-MconOpenClawAgentConfig -WorkspacePath $workerWorkspacePath
+                    $workerAgentId = if ($workerConfig.PSObject.Properties.Name -contains 'agent_id') { [string]$workerConfig.agent_id } else { $null }
+                    $workerConfigId = if ($workerConfig.PSObject.Properties.Name -contains 'config_id') { [string]$workerConfig.config_id } else { $null }
+                    $workerName = if ($workerConfig.PSObject.Properties.Name -contains 'name') { [string]$workerConfig.name } else { $null }
                     $mcDirName = "mc-$assignedAgentId"
-                    foreach ($candidate in @($workerSpawnAgentId, $workerLegacyName, $mcDirName)) {
+                    foreach ($candidate in @($workerConfigId, $workerAgentId, $workerName, $mcDirName)) {
                         if (-not [string]::IsNullOrWhiteSpace($candidate) -and ($sessionAgentNames -notcontains $candidate)) {
                             $sessionAgentNames += $candidate
                         }
@@ -723,12 +995,14 @@ function Invoke-MconVerifyRun {
         }
 
         $registeredSession = $null
-        if (-not [string]::IsNullOrWhiteSpace($subagentUuid) -and $sessionAgentNames.Count -gt 0) {
-            $registeredSession = Resolve-MconRegisteredSubagentSession `
-                -OpenClawRoot $openClawRoot `
-                -AgentName $sessionAgentNames `
-                -SubagentUuid $subagentUuid `
-                -TaskId $TaskId
+        if ($sessionAgentNames.Count -gt 0) {
+            if (-not [string]::IsNullOrWhiteSpace($subagentUuid)) {
+                $registeredSession = Resolve-MconRegisteredSubagentSession `
+                    -OpenClawRoot $openClawRoot `
+                    -AgentName $sessionAgentNames `
+                    -SubagentUuid $subagentUuid `
+                    -TaskId $TaskId
+            }
 
             if (-not $registeredSession) {
                 $registeredSession = Resolve-MconRegisteredSubagentSessionByTask `
@@ -979,10 +1253,11 @@ function Invoke-MconVerifyFail {
         $workerWorkspacePath = Join-Path $openClawRoot "workspace-mc-$assignedAgentId"
         if (Test-Path -LiteralPath $workerWorkspacePath) {
             try {
-                $workerConfig = Resolve-MconOpenClawConfig -WorkspacePath $workerWorkspacePath
-                $workerSpawnAgentId = if ($workerConfig.agents.list.Count -gt 0) { $workerConfig.agents.list[0].id } else { $null }
-                $workerLegacyName = if ($workerConfig.agents.list.Count -gt 0) { $workerConfig.agents.list[0].name.ToLower() } else { '' }
-                foreach ($candidate in @($workerSpawnAgentId, $workerLegacyName)) {
+                $workerConfig = Resolve-MconOpenClawAgentConfig -WorkspacePath $workerWorkspacePath
+                $workerAgentId = if ($workerConfig.PSObject.Properties.Name -contains 'agent_id') { [string]$workerConfig.agent_id } else { $null }
+                $workerConfigId = if ($workerConfig.PSObject.Properties.Name -contains 'config_id') { [string]$workerConfig.config_id } else { $null }
+                $workerName = if ($workerConfig.PSObject.Properties.Name -contains 'name') { [string]$workerConfig.name } else { $null }
+                foreach ($candidate in @($workerConfigId, $workerAgentId, $workerName)) {
                     if (-not [string]::IsNullOrWhiteSpace($candidate) -and ($sessionAgentNames -notcontains $candidate)) {
                         $sessionAgentNames += $candidate
                     }
@@ -1008,12 +1283,14 @@ function Invoke-MconVerifyFail {
     }
 
     $registeredSession = $null
-    if (-not [string]::IsNullOrWhiteSpace($subagentUuid) -and $sessionAgentNames.Count -gt 0) {
-        $registeredSession = Resolve-MconRegisteredSubagentSession `
-            -OpenClawRoot $openClawRoot `
-            -AgentName $sessionAgentNames `
-            -SubagentUuid $subagentUuid `
-            -TaskId $TaskId
+    if ($sessionAgentNames.Count -gt 0) {
+        if (-not [string]::IsNullOrWhiteSpace($subagentUuid)) {
+            $registeredSession = Resolve-MconRegisteredSubagentSession `
+                -OpenClawRoot $openClawRoot `
+                -AgentName $sessionAgentNames `
+                -SubagentUuid $subagentUuid `
+                -TaskId $TaskId
+        }
         if (-not $registeredSession) {
             $registeredSession = Resolve-MconRegisteredSubagentSessionByTask `
                 -OpenClawRoot $openClawRoot `
@@ -1148,4 +1425,4 @@ $Message
     }
 }
 
-Export-ModuleMember -Function Invoke-MconVerifyRun, Invoke-MconVerifyFail, Test-MconVerificationPreflight
+Export-ModuleMember -Function Invoke-MconVerifyRun, Invoke-MconVerifyFail, Test-MconVerificationPreflight, Get-MconVerificationProfilesConfig, Get-MconVerificationProfileForTask, Merge-MconVerificationProfile, Test-MconVerificationStuckTask, Set-MconVerificationRules

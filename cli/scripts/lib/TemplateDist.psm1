@@ -215,8 +215,8 @@ function Publish-MconWorkspaceTemplates {
     )
 
     $templateFiles = Get-ChildItem -LiteralPath $TemplatesDir -Filter "$TemplatePrefix*.md" -File | Sort-Object Name
-    $templatePerFileLimitBytes = 17KB
-    $templateBundleLimitBytes = 40KB
+    $templatePerFileLimitBytes = 30KB
+    $templateBundleLimitBytes = 70KB
     $renderedTemplates = @()
     $renderedBytes = 0
 

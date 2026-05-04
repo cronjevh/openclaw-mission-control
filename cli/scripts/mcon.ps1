@@ -84,6 +84,7 @@ Usage:
   mcon workflow gateway-reply --board <BOARD_ID> (--message <TEXT>|--message-file <PATH>) [--task <TASK_ID>] [--secret-reply]  # gateway-only: reply to board lead
    mcon workflow submitreview --task <TASK_ID> (--message <TEXT>|--message-file <PATH>)  # submit task for review
     mcon verify run --task <TASK_ID>    # verifier-only: execute verification and apply outcome
+   mcon verify set-rules --task <TASK_ID> --rules <JSON>  # lead/gateway: patch verification_rules on a stuck task
 
 Roles (derived from MCON_WSP):
   workspace-lead-*     = lead
@@ -221,6 +222,7 @@ Statuses: inbox, in_progress, review, done, blocked
         $backlog = $null
         $tags = $null
         $dependsOn = $null
+        $taskClass = $null
         $messageFile = $null
         $targetBoard = $null
         $sourceBoard = $null
@@ -248,6 +250,7 @@ Statuses: inbox, in_progress, review, done, blocked
                 '--backlog' { $backlog = $actionArgs[++$i]; break }
                 '--tags' { $tags = $actionArgs[++$i]; break }
                 '--depends-on' { $dependsOn = $actionArgs[++$i]; break }
+                '--task-class' { $taskClass = $actionArgs[++$i]; break }
                 default { Write-MconError -Message "Unknown flag: $($actionArgs[$i])" -Code 'usage' }
             }
             $i++
@@ -384,6 +387,13 @@ Statuses: inbox, in_progress, review, done, blocked
                     }
                     $dependsOn = $depList
                 }
+                if ([string]::IsNullOrWhiteSpace($taskClass)) {
+                    Write-MconError -Message '--task-class <TASK_CLASS> is required. Valid values: code_deterministic, design_exploratory, ops_integration, docs_content, component_test, workspace_config' -Code 'validation'
+                }
+                $allowedTaskClasses = @('code_deterministic','design_exploratory','ops_integration','docs_content','component_test','workspace_config')
+                if ($taskClass -notin $allowedTaskClasses) {
+                    Write-MconError -Message "Invalid task_class '$taskClass'. Valid values: $($allowedTaskClasses -join ', ')" -Code 'validation'
+                }
             }
             'update' {
                 if ($null -ne $messageFile) {
@@ -395,8 +405,8 @@ Statuses: inbox, in_progress, review, done, blocked
                     }
                     $description = Get-Content -LiteralPath $messageFile -Raw -Encoding UTF8
                 }
-                if ($null -eq $title -and $null -eq $description -and $null -eq $priority -and $null -eq $backlog -and $null -eq $tags -and $null -eq $dependsOn) {
-                    Write-MconError -Message 'At least one update field is required (--title, --description, --priority, --backlog, --tags, --depends-on).' -Code 'usage'
+                if ($null -eq $title -and $null -eq $description -and $null -eq $priority -and $null -eq $backlog -and $null -eq $tags -and $null -eq $dependsOn -and $null -eq $taskClass) {
+                    Write-MconError -Message 'At least one update field is required (--title, --description, --priority, --backlog, --tags, --depends-on, --task-class).' -Code 'usage'
                 }
                 if ($null -ne $backlog) {
                     switch (($backlog.ToString()).ToLowerInvariant()) {
@@ -576,6 +586,9 @@ Statuses: inbox, in_progress, review, done, blocked
                     if ($null -ne $dependsOn) {
                         $createParams.DependsOnTaskIds = [string[]]$dependsOn
                     }
+                    if ($null -ne $taskClass) {
+                        $createParams.TaskClass = $taskClass
+                    }
                     $result = New-MconTask @createParams
                     Write-MconResult -Data ([ordered]@{ ok = $true; task = $result })
                 }
@@ -608,6 +621,9 @@ Statuses: inbox, in_progress, review, done, blocked
                     }
                     if ($null -ne $dependsOn) {
                         $updateParams.DependsOnTaskIds = [string[]]$dependsOn
+                    }
+                    if ($null -ne $taskClass) {
+                        $updateParams.TaskClass = $taskClass
                     }
                     $result = Set-MconTask @updateParams
                     Write-MconResult -Data ([ordered]@{ ok = $true; task = $result })
@@ -1406,8 +1422,65 @@ Statuses: inbox, in_progress, review, done, blocked
                 }
             }
 
+            'set-rules' {
+                $taskId = $null
+                $rulesJson = $null
+                $i = 0
+                while ($i -lt $verifyArgs.Count) {
+                    switch ($verifyArgs[$i]) {
+                        '--task' { $taskId = $verifyArgs[++$i]; break }
+                        '--rules' { $rulesJson = $verifyArgs[++$i]; break }
+                        default { Write-MconError -Message "Unknown flag: $($verifyArgs[$i])" -Code 'usage' }
+                    }
+                    $i++
+                }
+
+                if (-not $taskId) {
+                    Write-MconError -Message '--task <TASK_ID> is required.' -Code 'usage'
+                }
+                if (-not $rulesJson) {
+                    Write-MconError -Message '--rules <JSON> is required.' -Code 'usage'
+                }
+
+                $agentConfig = Resolve-MconKeybagAgent
+                if (-not $agentConfig) {
+                    Write-MconError -Message "No agent configuration found for current directory. Run from an agent workspace or set MCON_* env vars." -Code 'config_error'
+                }
+
+                $role = Resolve-MconExecutionRole -Wsp $agentConfig.wsp -WorkspacePath $agentConfig.workspace_path
+                $actionKey = 'verify.set-rules'
+                if (-not (Test-MconPermission -Action $actionKey -Role $role)) {
+                    $msg = Get-MconDeniedMessage -Action $actionKey -Role $role
+                    Write-MconError -Message $msg -Code 'forbidden'
+                }
+
+                try {
+                    $rules = $rulesJson | ConvertFrom-Json -AsHashtable
+                } catch {
+                    Write-MconError -Message "Invalid JSON in --rules: $($_.Exception.Message)" -Code 'validation'
+                }
+
+                try {
+                    $updated = Set-MconVerificationRules `
+                        -BaseUrl $agentConfig.base_url `
+                        -Token $agentConfig.auth_token `
+                        -BoardId $agentConfig.board_id `
+                        -TaskId $taskId `
+                        -Rules $rules
+                    Write-MconResult -Data ([ordered]@{
+                            ok     = $true
+                            action = 'verify.set-rules'
+                            task_id = $taskId
+                            verification_rules = $rules
+                        })
+                }
+                catch {
+                    Write-MconError -Message $_.Exception.Message -Code 'api_error'
+                }
+            }
+
             default {
-                Write-MconError -Message "Unknown verify action: $verifyAction. Valid: run." -Code 'usage'
+                Write-MconError -Message "Unknown verify action: $verifyAction. Valid: run, set-rules." -Code 'usage'
             }
         }
     }

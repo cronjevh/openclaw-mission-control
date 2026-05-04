@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "description": "Verification profiles define preflight and execution rules per task type. Profiles are matched by task_class first, then by title/description keywords. Tasks may override profile behavior via the verification_rules field.",
+  "profiles": {
+    "code_deterministic": {
+      "detection": {
+        "task_class": ["code_deterministic"],
+        "keywords": []
+      },
+      "preflight": {
+        "skip_deliverable_by_filename": false,
+        "skip_static_only_rejection": false,
+        "require_exit_paths": true,
+        "require_runtime_signals": true,
+        "forbid_dot_sourcing": false,
+        "require_selftest": false
+      },
+      "required_patterns": [],
+      "forbidden_patterns": [],
+      "notes": "Requires runtime signals (pytest, node, dotnet, etc.). Both exit 0 and exit 1 must be present. Must reference implementation deliverables."
+    },
+    "ops_integration": {
+      "detection": {
+        "task_class": ["ops_integration"],
+        "keywords": ["api", "queue", "worker", "webhook", "cron", "crontab", "scheduler", "cadence", "dispatch", "automation", "integration", "service", "daemon", "watcher"]
+      },
+      "preflight": {
+        "skip_deliverable_by_filename": false,
+        "skip_static_only_rejection": false,
+        "require_exit_paths": true,
+        "require_runtime_signals": true,
+        "forbid_dot_sourcing": false,
+        "require_selftest": false
+      },
+      "required_patterns": [],
+      "forbidden_patterns": [],
+      "notes": "Requires runtime signals AND process isolation. No dot-sourcing. Both exit paths required."
+    },
+    "docs_content": {
+      "detection": {
+        "task_class": ["docs_content", "design_exploratory"],
+        "keywords": ["plan", "planning", "document", "documentation", "note", "strategy", "report", "analysis"]
+      },
+      "preflight": {
+        "skip_deliverable_by_filename": false,
+        "skip_static_only_rejection": true,
+        "require_exit_paths": true,
+        "require_runtime_signals": false,
+        "forbid_dot_sourcing": false,
+        "require_selftest": false
+      },
+      "required_patterns": [],
+      "forbidden_patterns": [],
+      "notes": "Requires evaluate-*.json judge spec + verify-*.ps1 wrapper. Static-only allowed."
+    },
+    "component_test": {
+      "detection": {
+        "task_class": ["component_test"],
+        "keywords": ["selftest", "self-test", "component test"]
+      },
+      "preflight": {
+        "skip_deliverable_by_filename": false,
+        "skip_static_only_rejection": true,
+        "require_exit_paths": true,
+        "require_runtime_signals": false,
+        "forbid_dot_sourcing": true,
+        "require_selftest": true
+      },
+      "required_patterns": ["-SelfTest"],
+      "forbidden_patterns": [],
+      "notes": "Requires -SelfTest flag. Must use process isolation (& pwsh -File). Dot-sourcing is rejected."
+    },
+    "workspace_config": {
+      "detection": {
+        "task_class": ["workspace_config"],
+        "keywords": ["AGENTS.md", "SOUL.md", "HEARTBEAT.md", "TOOLS.md", "workspace", "prompt", "guideline", "instruction", "policy"]
+      },
+      "preflight": {
+        "skip_deliverable_by_filename": true,
+        "skip_static_only_rejection": true,
+        "require_exit_paths": true,
+        "require_runtime_signals": false,
+        "forbid_dot_sourcing": false,
+        "require_selftest": false
+      },
+      "required_patterns": ["/home/cronjev/.openclaw/workspace/"],
+      "forbidden_patterns": [],
+      "notes": "Static-only allowed. Must check the MAIN workspace path, not task bundle copy."
+    }
+  },
+  "default_profile": {
+    "preflight": {
+      "skip_deliverable_by_filename": false,
+      "skip_static_only_rejection": false,
+      "require_exit_paths": true,
+      "require_runtime_signals": true,
+      "forbid_dot_sourcing": false,
+      "require_selftest": false
+    },
+    "required_patterns": [],
+    "forbidden_patterns": [],
+    "notes": "Default profile: requires runtime signals, exit paths, and deliverable references."
+  }
+}

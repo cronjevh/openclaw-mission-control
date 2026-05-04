@@ -2582,6 +2582,7 @@ def _validate_lead_update_request(update: _TaskUpdateInput) -> None:
         "tag_ids",
         "custom_field_values",
         "comment",
+        "task_class",
     }
     requested_fields = _lead_requested_fields(update)
     disallowed_fields = requested_fields - allowed_fields
@@ -2908,7 +2909,8 @@ async def _apply_lead_task_update(
 
     if "description" in update.updates:
         update.task.description = update.updates["description"]
-
+    if "task_class" in update.updates:
+        update.task.task_class = update.updates["task_class"]
     update.task.updated_at = utcnow()
     session.add(update.task)
     event_type, message = _task_event_details(update.task, update.previous_status)
@@ -2965,9 +2967,9 @@ async def _apply_non_lead_agent_task_rules(
             code="task_assignee_mismatch",
             message="Agents can only change status on tasks assigned to them.",
         )
-    # Agents are limited to status/comment updates, and non-inbox status moves
-    # must pass dependency checks before they can proceed.
-    allowed_fields = {"status", "comment", "custom_field_values"}
+    # Agents are limited to status/comment/verification_rules updates, and non-inbox
+    # status moves must pass dependency checks before they can proceed.
+    allowed_fields = {"status", "comment", "custom_field_values", "verification_rules"}
     if (
         update.depends_on_task_ids is not None
         or update.tag_ids is not None

@@ -160,7 +160,8 @@ function New-MconTask {
         [string]$Priority,
         [Nullable[bool]]$Backlog,
         [string[]]$TagIds,
-        [string[]]$DependsOnTaskIds
+        [string[]]$DependsOnTaskIds,
+        [string]$TaskClass
     )
 
     $encodedBoard = [uri]::EscapeDataString($BoardId)
@@ -193,6 +194,10 @@ function New-MconTask {
         $body.depends_on_task_ids = @($DependsOnTaskIds)
     }
 
+    if ($null -ne $TaskClass) {
+        $body.task_class = $TaskClass
+    }
+
     return Invoke-MconApi -Method Post -Uri $uri -Token $Token -Body $body
 }
 
@@ -208,7 +213,8 @@ function Set-MconTask {
         [string]$Priority,
         [Nullable[bool]]$Backlog,
         [string[]]$TagIds,
-        [string[]]$DependsOnTaskIds
+        [string[]]$DependsOnTaskIds,
+        [string]$TaskClass
     )
 
     $encodedBoard = [uri]::EscapeDataString($BoardId)
@@ -236,6 +242,9 @@ function Set-MconTask {
     }
     if ($DependsOnTaskIds -and $DependsOnTaskIds.Count -gt 0) {
         $body.depends_on_task_ids = @($DependsOnTaskIds)
+    }
+    if ($null -ne $TaskClass) {
+        $body.task_class = $TaskClass
     }
 
     return Invoke-MconApi -Method Patch -Uri $uri -Token $Token -Body $body

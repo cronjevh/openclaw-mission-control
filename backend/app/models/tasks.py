@@ -55,6 +55,10 @@ class Task(TenantScoped, table=True):
         sa_column=Column(JSON, nullable=False),
     )
     lead_spot_check_required: bool = Field(default=False)
+    verification_rules: dict | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+    )
 
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

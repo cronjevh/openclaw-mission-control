@@ -35,19 +35,6 @@ function Test-MconTaskBacklog {
     return $false
 }
 
-function Get-MconTaskSubagentUuid {
-    param($Task)
-
-    if ($Task.PSObject.Properties.Name -contains 'custom_field_values') {
-        $cf = $Task.custom_field_values
-        if ($cf -and $cf.PSObject.Properties.Name -contains 'subagent_uuid' -and $cf.subagent_uuid) { return $cf.subagent_uuid }
-    }
-    if ($Task.PSObject.Properties.Name -contains 'subagent_uuid') {
-        return $Task.subagent_uuid
-    }
-    return $null
-}
-
 function Get-MconLeadWorkspacePath {
     param(
         [Parameter(Mandatory)][string]$BoardId
@@ -299,7 +286,6 @@ function Write-MconDispatchState {
             id                     = Get-MconDispatchFieldValue -Item $task -Name 'id'
             status                 = Get-MconDispatchFieldValue -Item $task -Name 'status'
             title                  = Get-MconDispatchFieldValue -Item $task -Name 'title'
-            subagent_uuid          = Get-MconDispatchFieldValue -Item $task -Name 'subagent_uuid'
             task_data_path         = Get-MconDispatchFieldValue -Item $task -Name 'task_data_path'
             task_directory         = Get-MconDispatchFieldValue -Item $task -Name 'task_directory'
             deliverables_directory = Get-MconDispatchFieldValue -Item $task -Name 'deliverables_directory'
@@ -449,7 +435,6 @@ function Invoke-MconDispatch {
                         id            = $task.id
                         status        = 'inbox'
                         title         = $task.title
-                        subagent_uuid = (Get-MconTaskSubagentUuid -Task $task)
                         task_data_path = $taskContext.task_data_path
                         task_directory = $taskContext.task_directory
                         deliverables_directory = $taskContext.deliverables_directory
@@ -503,9 +488,8 @@ function Invoke-MconDispatch {
                     -BoardRoster $boardRoster
                     $allTasks += [ordered]@{
                         id            = $task.id
-                        status        = 'review'
+                        status        = 'inbox'
                         title         = $task.title
-                        subagent_uuid = (Get-MconTaskSubagentUuid -Task $task)
                         task_data_path = $taskContext.task_data_path
                         task_directory = $taskContext.task_directory
                         deliverables_directory = $taskContext.deliverables_directory
@@ -540,7 +524,6 @@ function Invoke-MconDispatch {
                         id            = $task.id
                         status        = 'inbox'
                         title         = $task.title
-                        subagent_uuid = (Get-MconTaskSubagentUuid -Task $task)
                         task_data_path = $taskContext.task_data_path
                         task_directory = $taskContext.task_directory
                         deliverables_directory = $taskContext.deliverables_directory
@@ -558,9 +541,8 @@ function Invoke-MconDispatch {
                     $taskContext = Write-MconTaskContextBundle -WorkspacePath $workspacePath -BoardId $boardId -LeadAgentId $boardId -InvocationAgentId $invocationAgentId -BaseUrl $baseUrl -AuthToken $authToken -TaskSummary $task
                     $allTasks += [ordered]@{
                         id            = $task.id
-                        status        = 'in_progress'
+                        status        = 'review'
                         title         = $task.title
-                        subagent_uuid = (Get-MconTaskSubagentUuid -Task $task)
                         task_data_path = $taskContext.task_data_path
                         task_directory = $taskContext.task_directory
                         deliverables_directory = $taskContext.deliverables_directory

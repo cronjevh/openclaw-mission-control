@@ -501,14 +501,51 @@ function Invoke-MissionControlRecoveryPrompt {
     $taskId = $DispatchState.task_id
     $recoveryAttempt = $DispatchState.recovery_attempt
     $stallReason = $DispatchState.stall_reason
-    $subagentSessionKey = $DispatchState.subagent_session_key
-    $subagentAgentId = $DispatchState.subagent_agent_id
     $taskDataPath = $DispatchState.task_data_path
 
+    # Support both new task-scoped field names and legacy subagent field names
+    $taskSessionKey = if ($DispatchState.PSObject.Properties.Name -contains 'task_session_key') { $DispatchState.task_session_key } else { $null }
+    $taskAgentId = if ($DispatchState.PSObject.Properties.Name -contains 'task_agent_id') { $DispatchState.task_agent_id } else { $null }
+    $subagentSessionKey = if ($DispatchState.PSObject.Properties.Name -contains 'subagent_session_key') { $DispatchState.subagent_session_key } else { $null }
+    $subagentAgentId = if ($DispatchState.PSObject.Properties.Name -contains 'subagent_agent_id') { $DispatchState.subagent_agent_id } else { $null }
+
+    $sessionKey = if ($taskSessionKey) { $taskSessionKey } else { $subagentSessionKey }
+    $agentId = if ($taskAgentId) { $taskAgentId } else { $subagentAgentId }
+
     if (-not $taskId) { throw "Missing task_id in recovery dispatch_state" }
-    if (-not $subagentSessionKey) { throw "Missing subagent_session_key in recovery dispatch_state" }
-    if (-not $subagentAgentId) { throw "Missing subagent_agent_id in recovery dispatch_state" }
     if (-not $taskDataPath) { throw "Missing task_data_path in recovery dispatch_state" }
+
+    # If session key or agent id are missing, try to derive them from task data
+    if (-not $sessionKey -or -not $agentId) {
+        if (Test-Path -LiteralPath $taskDataPath) {
+            $taskData = Get-Content -LiteralPath $taskDataPath -Raw | ConvertFrom-Json -Depth 50
+            $assignedAgentId = $null
+            if ($taskData.task.PSObject.Properties.Name -contains 'assigned_agent_id' -and $taskData.task.assigned_agent_id) {
+                $assignedAgentId = [string]$taskData.task.assigned_agent_id
+            }
+            if ($assignedAgentId) {
+                $openClawRoot = Split-Path -Parent $WorkspacePath
+                $workerWorkspacePath = Join-Path $openClawRoot "workspace-mc-$assignedAgentId"
+                if (Test-Path -LiteralPath $workerWorkspacePath) {
+                    try {
+                        $workerConfig = Get-OpenClawAgentConfig -WorkspacePath $workerWorkspacePath
+                        $workerSpawnAgentId = if ($workerConfig.PSObject.Properties.Name -contains 'spawn_agent_id') { [string]$workerConfig.spawn_agent_id } else { $null }
+                        if (-not [string]::IsNullOrWhiteSpace($workerSpawnAgentId)) {
+                            if (-not $sessionKey) {
+                                $sessionKey = "agent:$workerSpawnAgentId:task:$taskId"
+                            }
+                            if (-not $agentId) {
+                                $agentId = $workerSpawnAgentId
+                            }
+                        }
+                    } catch {}
+                }
+            }
+        }
+    }
+
+    if (-not $sessionKey) { throw "Missing task_session_key (or subagent_session_key) in recovery dispatch_state" }
+    if (-not $agentId) { throw "Missing task_agent_id (or subagent_agent_id) in recovery dispatch_state" }
 
     # Load taskData.json for context
     if (-not (Test-Path -LiteralPath $taskDataPath)) {
@@ -552,16 +589,16 @@ Respond in this exact format:
 Do not add commentary outside this structure. If you cannot comply, respond with SIGNAL_ESCALATION.
 "@
 
-    # Send recovery prompt to subagent session
-    Write-Host "[{0}] Sending recovery prompt to subagent session (key: {1}, agent: {2})" -f (Get-Date).ToString('o'), $subagentSessionKey, $subagentAgentId
+    # Send recovery prompt to worker task-scoped session
+    Write-Host "[{0}] Sending recovery prompt to worker session (key: {1}, agent: {2})" -f (Get-Date).ToString('o'), $sessionKey, $agentId
     $gateway = Get-OpenClawGatewayConfig -WorkspacePath $WorkspacePath
     $uri = "http://127.0.0.1:$($gateway.port)/v1/chat/completions"
     $headers = @{
         Authorization = "Bearer $($gateway.token)"
-        'x-openclaw-session-key' = $subagentSessionKey
+        'x-openclaw-session-key' = $sessionKey
     }
     $body = @{
-        model = "openclaw/$subagentAgentId"
+        model = "openclaw/$agentId"
         messages = @(@{role = 'user'; content = $recoveryPrompt})
         temperature = 0.3
         max_tokens = 500
@@ -573,7 +610,7 @@ Do not add commentary outside this structure. If you cannot comply, respond with
 
     # Capture reply
     $rawReply = $response.choices[0].message.content
-    Write-Host "[{0}] Subagent reply received ({1}ms)" -f (Get-Date).ToString('o'), [math]::Round($elapsedMs)
+    Write-Host "[{0}] Worker reply received ({1}ms)" -f (Get-Date).ToString('o'), [math]::Round($elapsedMs)
 
     # Parse and validate
     $parsedReply = $null
@@ -594,7 +631,7 @@ Do not add commentary outside this structure. If you cannot comply, respond with
     catch {
         $parseSuccess = $false
         $parsedReply = $null
-        Write-Warning "Failed to parse subagent reply as valid JSON: $_"
+        Write-Warning "Failed to parse worker reply as valid JSON: $_"
     }
 
     # Write evidence artifact
@@ -611,8 +648,8 @@ Do not add commentary outside this structure. If you cannot comply, respond with
     $evidence = [ordered]@{
         timestamp = (Get-Date).ToUniversalTime().ToString('o')
         task_id = $taskId
-        subagent_session_key = $subagentSessionKey
-        subagent_agent_id = $subagentAgentId
+        task_session_key = $sessionKey
+        task_agent_id = $agentId
         recovery_attempt = $recoveryAttempt
         stall_reason = $stallReason
         prompt_sent = $recoveryPrompt
@@ -634,7 +671,7 @@ Do not add commentary outside this structure. If you cannot comply, respond with
     $commentBody = @"
 **[RECOVERY TURN #$recoveryAttempt]** — Stall detected: $stallReason
 
-Subagent response: $($parsedReply ? $parsedReply.recovery_action : 'PARSE_ERROR')
+Worker response: $($parsedReply ? $parsedReply.recovery_action : 'PARSE_ERROR')
 - Next step: $($parsedReply ? $parsedReply.next_step_description : 'N/A')
 - Needs from lead: $($parsedReply ? $parsedReply.required_input : 'N/A')
 - Est. completion: $($parsedReply ? $parsedReply.estimated_completion_cycles : 'N/A')

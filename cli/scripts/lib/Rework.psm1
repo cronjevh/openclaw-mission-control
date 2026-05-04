@@ -67,8 +67,6 @@ function Invoke-MconRework {
         }
     }
 
-    $currentSubagentUuid = Get-MconTaskSubagentUuid -TaskData $task
-
     $currentAssignedAgentId = $null
     if ($task.PSObject.Properties.Name -contains 'assigned_agent_id' -and $task.assigned_agent_id) {
         $currentAssignedAgentId = Get-MconNormalizedWorkerAgentId -AgentId ([string]$task.assigned_agent_id)
@@ -102,60 +100,8 @@ function Invoke-MconRework {
     $workerSpawnAgentId = $workerConfig.spawn_agent_id
     $workerLegacyAgentName = [string]($workerConfig.name).ToLower()
 
-    $workerSessionAgentNames = @()
-    foreach ($candidateAgentName in @($workerSpawnAgentId, $workerLegacyAgentName)) {
-        if (-not [string]::IsNullOrWhiteSpace($candidateAgentName) -and ($workerSessionAgentNames -notcontains [string]$candidateAgentName)) {
-            $workerSessionAgentNames += [string]$candidateAgentName
-        }
-    }
-
-    $registeredSession = $null
-    if (-not [string]::IsNullOrWhiteSpace($currentSubagentUuid)) {
-        $registeredSession = Resolve-MconRegisteredSubagentSession `
-            -OpenClawRoot $openClawRoot `
-            -AgentName $workerSessionAgentNames `
-            -SubagentUuid $currentSubagentUuid `
-            -TaskId $TaskId
-    }
-
-    if (-not $registeredSession) {
-        $registeredSession = Resolve-MconRegisteredSubagentSessionByTask `
-            -OpenClawRoot $openClawRoot `
-            -AgentName $workerSessionAgentNames `
-            -TaskId $TaskId
-    }
-
-    if (-not $registeredSession) {
-        return [ordered]@{
-            ok            = $false
-            phase         = 'session_lookup'
-            error         = "Could not find a registered OpenClaw subagent session for task $TaskId for worker agent names ($($workerSessionAgentNames -join ', '))."
-            taskId        = $TaskId
-            workerAgentId = $WorkerAgentId
-            subagent_uuid = $currentSubagentUuid
-        }
-    }
-
-    $childSessionKey = [string]$registeredSession.childSessionKey
-    $resolvedSubagentUuid = if ($registeredSession.PSObject.Properties.Name -contains 'subagentUuid') {
-        [string]$registeredSession.subagentUuid
-    } elseif ($registeredSession.PSObject.Properties.Name -contains 'subagent_uuid') {
-        [string]$registeredSession.subagent_uuid
-    } else {
-        $currentSubagentUuid
-    }
-
-    if ([string]::IsNullOrWhiteSpace($currentSubagentUuid) -and -not [string]::IsNullOrWhiteSpace($resolvedSubagentUuid)) {
-        # Use lead token for task metadata updates; agents do not have permission.
-        $null = Invoke-MconApi -Method Patch -Uri $taskUri -Token $leadConfig.auth_token -Body @{
-            custom_field_values = @{ subagent_uuid = $resolvedSubagentUuid }
-        }
-    }
-    $subagentAgentId = if ($registeredSession.PSObject.Properties.Name -contains 'registryAgentId') {
-        [string]$registeredSession.registryAgentId
-    } else {
-        $workerSpawnAgentId
-    }
+    # Use deterministic task-scoped session key
+    $childSessionKey = "agent:$workerSpawnAgentId:task:$TaskId"
 
     $taskBundlePaths = Get-MconAssignTaskBundlePaths -LeadWorkspacePath $workspacePath -TaskId $TaskId
 
@@ -226,7 +172,7 @@ $Message
 
         $deferredPayload = [ordered]@{
             workspace_path        = $workspacePath
-            invocation_agent      = $subagentAgentId
+            invocation_agent      = $workerSpawnAgentId
             session_key           = $childSessionKey
             message               = $reworkPrompt
             task_id               = $TaskId
@@ -263,7 +209,6 @@ $Message
         workerAgentId         = $WorkerAgentId
         workerSpawnAgentId    = $workerSpawnAgentId
         workerLegacyAgentName = $workerLegacyAgentName
-        subagent_uuid         = $resolvedSubagentUuid
         childSessionKey       = $childSessionKey
         bundlePath            = $bundlePath
         workerTaskDataPath    = $workerTaskDataPath

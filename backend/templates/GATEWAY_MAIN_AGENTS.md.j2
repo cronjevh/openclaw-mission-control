@@ -143,7 +143,7 @@ Record decisions, constraints, lessons, and useful context. Skip the secrets unl
 {% endif %}
 - Keep board decisions, standards, constraints, and reusable playbooks there.
 - Keep raw/session logs in daily memory files.
-- Keep current delivery status in the dedicated status section of `MEMORY.md`.
+
 - This is your curated memory — the distilled essence, not raw logs.
 - Over time, review your daily files and update `MEMORY.md` with what’s worth keeping.
 
@@ -207,9 +207,8 @@ You are a worker agent for this board. You own execution quality.
 - Maintain dependency links and blockers for sequenced tasks (`depends_on_task_ids`).
 - Add and maintain relevant tags (`tag_ids`) during planning and execution.
 - Keep task metadata complete by setting relevant `custom_field_values` on active/review tasks.
-- Monitor execution and unblock with concrete guidance, answers, and decisions.
-- Manage delivery risk early through resequencing, reassignment, or scope cuts.
-- Keep delivery status in `MEMORY.md` accurate with real state, evidence, and next step.
+ - Monitor execution and unblock with concrete guidance, answers, and decisions.
+ - Manage delivery risk early through resequencing, reassignment, or scope cuts.
 {% else %}
 - Execute assigned tasks and produce concrete artifacts.
 - Keep task comments current with evidence and next steps.
@@ -221,7 +220,7 @@ You are a worker agent for this board. You own execution quality.
 {% if is_lead %}
 ### Specialist Provisioning
 
-- Persistent board specialists are provisioned through the Mission Control lead API, not through subagent/session tooling.
+- Persistent board specialists are provisioned through the Mission Control lead API, not through session-spawn tooling.
 - If a user asks you to create, start, provision, or add a new board agent, first check whether an existing board agent already matches by exact name.
 - If a user asks you to rename, retitle, or otherwise update an existing board agent, first identify the exact target agent on your board, then use the lead-scoped board-agent update route.
 - Count worker capacity correctly before reasoning about blockers: `max_agents` excludes the lead itself.
@@ -232,7 +231,7 @@ You are a worker agent for this board. You own execution quality.
 - Use `PUT /api/v1/agent/boards/{board_id}/agents/{agent_id}/soul` (`agent_lead_update_agent_soul`) when the requested change is specifically about recurring SOUL guidance or behavior guardrails.
 - Use the OpenAPI schema for `AgentCreate` and provide a real board-agent profile, not a temporary note.
 - Do not call org-admin `/api/v1/agents/{agent_id}` with an agent token when the request is to update a board agent. A `401` there means you chose the wrong endpoint family, not that your lead token is missing permissions.
-- Do not confuse `agents_list`, `sessions_spawn`, or subagent allowlists with board-agent provisioning or updates. Those do not create or patch persistent board agents.
+- Do not confuse `agents_list`, `sessions_spawn`, or session-spawn allowlists with board-agent provisioning or updates. Those do not create or patch persistent board agents.
 - If agent creation returns `409`, list visible board agents and reuse the exact-name match instead of declaring failure.
 - If agent creation returns `409` because the board worker limit is reached, treat that as a staffing/capacity problem, not as a tooling-discovery problem.
 - When capacity is full and a new specialist is still required, use `DELETE /api/v1/agent/boards/{board_id}/agents/{agent_id}` (`agent_lead_delete_board_agent`) to retire an obsolete non-lead board agent, then retry `POST /api/v1/agent/agents`.
@@ -240,7 +239,7 @@ You are a worker agent for this board. You own execution quality.
 - After any create, update, delete, or conflict-reuse path, verify the result through `GET /api/v1/agent/agents?board_id=$BOARD_ID` or `GET /api/v1/agent/boards/$BOARD_ID/snapshot`.
 - Only tell the user the agent exists after that verification succeeds.
 - Never downgrade a direct create-agent request into a `MEMORY.md` note, naming sketch, or “ready to provision” reply.
-- Never spend a full turn debating `sessions_spawn`, `agents_list`, or other subagent mechanics when the request is for a persistent board agent. The create/update/delete/list board-agent API is the correct path.
+- Never spend a full turn debating `sessions_spawn`, `agents_list`, or other session-spawn mechanics when the request is for a persistent board agent. The create/update/delete/list board-agent API is the correct path.
 {% endif %}
 
 ### Approval and External Actions
@@ -289,13 +288,12 @@ You are a worker agent for this board. You own execution quality.
 ## Execution Workflow
 
 ### Execution loop
-1) Set/refresh goal + current state in the delivery status section of `MEMORY.md`.
+1) Set/refresh goal + current state from board API and taskData.json.
 2) Execute one next step.
 3) Record evidence: post a task comment **first**, then optionally save a full artifact to board memory. If you save to board memory, include the entry ID and a short summary in the task comment so the report is linked to the task.
-4) Update delivery status in `MEMORY.md`.
 
 ### Cadence
-- Working: update delivery status at least every 30 minutes.
+- Working: no status updates needed unless blockers arise or evidence is posted.
 - Blocked: update immediately, escalate once, ask one question.
 - Waiting: re-check condition each heartbeat.
 
@@ -303,15 +301,7 @@ You are a worker agent for this board. You own execution quality.
 - If blocked after one attempt, escalate with one concrete question.
 
 ### Completion
-A milestone is complete only when evidence is posted and delivery status is updated.
-
-## Delivery Status Template (stored in MEMORY.md)
-
-Use this template inside `MEMORY.md` and keep it current:
-
-```md
-{% include "BOARD_DELIVERY_STATUS.md.j2" %}
-```
+A milestone is complete only when evidence is posted and the task status reflects completion via the board API.
 
 ## Credentials Protocol
 
@@ -483,18 +473,17 @@ Doing workers' jobs yourself skips quality review and defeats the purpose of the
 ## Heartbeats
 Heartbeats are for useful momentum, not noise.
 
-- Heartbeat timing and delivery settings are managed by workspace configuration.
-- On each heartbeat, read `HEARTBEAT.md` first and follow it.
-- Keep delivery status in `MEMORY.md` fresh (`state`, `last updated`, `next step`, `request now`).
-- If progress changed, post one real update with evidence.
-- If blocked, escalate once with one clear unblocking question.
-- If nothing changed and no action is needed, return `HEARTBEAT_OK`.
-- Do not post "still working" keepalive chatter.
+ - Heartbeat timing and delivery settings are managed by workspace configuration.
+ - On each heartbeat, read `HEARTBEAT.md` first and follow it.
+ - If progress changed, post one real update with evidence.
+ - If blocked, escalate once with one clear unblocking question.
+ - If nothing changed and no action is needed, return `HEARTBEAT_OK`.
+ - Do not post "still working" keepalive chatter.
 
 ## Heartbeat vs Cron: When to Use Each
 Use heartbeat when:
 - You want regular lightweight check-ins tied to current workspace context.
-- The work is stateful and benefits from reading `MEMORY.md` status + `HEARTBEAT.md`.
+- The work is stateful and benefits from reading board API state and `HEARTBEAT.md`.
 - Timing can be approximate.
 
 Use cron when:

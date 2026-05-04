@@ -92,57 +92,6 @@ function Resolve-MconGatewayChatResponseText {
     throw 'Gateway chat response did not include assistant message content.'
 }
 
-function Resolve-MconSpawnResult {
-    param([Parameter(Mandatory)][string]$RawText)
-
-    $parsed = ConvertFrom-MconJsonSafe -Text $RawText
-    if ($parsed) {
-        if ($parsed.PSObject.Properties.Name -contains 'childSessionKey') {
-            return $parsed
-        }
-        if (($parsed.PSObject.Properties.Name -contains 'details') -and $parsed.details -and ($parsed.details.PSObject.Properties.Name -contains 'childSessionKey')) {
-            return $parsed.details
-        }
-        if (($parsed.PSObject.Properties.Name -contains 'result') -and $parsed.result -and ($parsed.result.PSObject.Properties.Name -contains 'payloads')) {
-            foreach ($payload in @($parsed.result.payloads)) {
-                if ($payload -and ($payload.PSObject.Properties.Name -contains 'text')) {
-                    $nested = ConvertFrom-MconJsonSafe -Text $payload.text
-                    if ($nested -and ($nested.PSObject.Properties.Name -contains 'childSessionKey')) {
-                        return $nested
-                    }
-                }
-            }
-        }
-    }
-
-    $childSessionMatch = [regex]::Match(
-        $RawText,
-        '"childSessionKey"\s*:\s*"(?<sessionKey>agent:[^"]+:subagent:[0-9a-fA-F-]{36})"'
-    )
-    if ($childSessionMatch.Success) {
-        $runIdMatch = [regex]::Match($RawText, '"runId"\s*:\s*"([^"]+)"')
-        return [pscustomobject]@{
-            status          = 'accepted'
-            childSessionKey = $childSessionMatch.Groups['sessionKey'].Value
-            runId           = if ($runIdMatch.Success) { $runIdMatch.Groups[1].Value } else { $null }
-            mode            = 'run'
-        }
-    }
-
-    $sessionMatch = [regex]::Match($RawText, 'agent:[^\s"`]+:subagent:[0-9a-fA-F-]{36}')
-    if ($sessionMatch.Success) {
-        $runIdMatch = [regex]::Match($RawText, '"runId"\s*:\s*"([^"]+)"')
-        return [pscustomobject]@{
-            status           = 'accepted'
-            childSessionKey  = $sessionMatch.Value
-            runId            = if ($runIdMatch.Success) { $runIdMatch.Groups[1].Value } else { $null }
-            mode             = 'run'
-        }
-    }
-
-    throw "Could not resolve childSessionKey from spawn output."
-}
-
 function Get-MconNormalizedWorkerAgentId {
     param([string]$AgentId)
 
@@ -167,291 +116,6 @@ function Get-MconTaskSubagentUuid {
         }
     } elseif ($TaskData.PSObject.Properties.Name -contains 'subagent_uuid' -and $TaskData.subagent_uuid) {
         return [string]$TaskData.subagent_uuid
-    }
-
-    return $null
-}
-
-function Get-MconDeferredAssignTaskState {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][object]$Payload,
-        [Parameter(Mandatory)][string[]]$WorkerSessionAgentNames
-    )
-
-    $task = Invoke-MconApi -Method Get -Uri ([string]$Payload.task_uri) -Token ([string]$Payload.auth_token)
-    $status = $null
-    if ($task.PSObject.Properties.Name -contains 'status' -and $task.status) {
-        $status = ([string]$task.status).ToLowerInvariant()
-    }
-
-    $assignedAgentId = $null
-    if ($task.PSObject.Properties.Name -contains 'assigned_agent_id' -and $task.assigned_agent_id) {
-        $assignedAgentId = Get-MconNormalizedWorkerAgentId -AgentId ([string]$task.assigned_agent_id)
-    }
-
-    $targetAssignedAgentId = $null
-    if ($Payload.PSObject.Properties.Name -contains 'assigned_agent_id' -and $Payload.assigned_agent_id) {
-        $targetAssignedAgentId = Get-MconNormalizedWorkerAgentId -AgentId ([string]$Payload.assigned_agent_id)
-    } elseif ($Payload.PSObject.Properties.Name -contains 'worker_agent_id' -and $Payload.worker_agent_id) {
-        $targetAssignedAgentId = Get-MconNormalizedWorkerAgentId -AgentId ([string]$Payload.worker_agent_id)
-    }
-
-    $subagentUuid = Get-MconTaskSubagentUuid -TaskData $task
-    $subagentUuidRecoveredFromSession = $false
-    $registeredSession = $null
-    if (-not [string]::IsNullOrWhiteSpace($subagentUuid)) {
-        $registeredSession = Resolve-MconRegisteredSubagentSession `
-            -OpenClawRoot ([string]$Payload.openclaw_root) `
-            -AgentName $WorkerSessionAgentNames `
-            -SubagentUuid $subagentUuid `
-            -TaskId ([string]$Payload.task_id)
-    }
-
-    if (-not $registeredSession) {
-        $registeredSession = Resolve-MconRegisteredSubagentSessionByTask `
-            -OpenClawRoot ([string]$Payload.openclaw_root) `
-            -AgentName $WorkerSessionAgentNames `
-            -TaskId ([string]$Payload.task_id)
-
-        if ($registeredSession -and [string]::IsNullOrWhiteSpace($subagentUuid)) {
-            $subagentUuid = [string]$registeredSession.subagent_uuid
-            $subagentUuidRecoveredFromSession = -not [string]::IsNullOrWhiteSpace($subagentUuid)
-        }
-    }
-
-    $recoverAssignment = (
-        $registeredSession -and
-        -not [string]::IsNullOrWhiteSpace($subagentUuid) -and
-        $status -eq 'inbox'
-    )
-
-    $reason = $null
-    if ($recoverAssignment) {
-        $reason = 'task_has_existing_registered_session'
-    } elseif ($subagentUuidRecoveredFromSession) {
-        $reason = 'task_has_existing_registered_session'
-    } elseif (-not [string]::IsNullOrWhiteSpace($subagentUuid)) {
-        $reason = 'task_already_has_subagent_uuid'
-    } elseif (-not [string]::IsNullOrWhiteSpace($status) -and $status -ne 'inbox') {
-        $reason = "task_status_is_$status"
-    } elseif (
-        -not [string]::IsNullOrWhiteSpace($assignedAgentId) -and
-        -not [string]::IsNullOrWhiteSpace($targetAssignedAgentId) -and
-        $assignedAgentId -ne $targetAssignedAgentId
-    ) {
-        $reason = 'task_reassigned_to_different_agent'
-    }
-
-    return [ordered]@{
-        task               = $task
-        status             = $status
-        assigned_agent_id  = $assignedAgentId
-        target_agent_id    = $targetAssignedAgentId
-        subagent_uuid      = $subagentUuid
-        registered_session = $registeredSession
-        recover_assignment = $recoverAssignment
-        spawn_needed       = [string]::IsNullOrWhiteSpace($reason)
-        reason             = $reason
-    }
-}
-
-function Resolve-MconRegisteredSubagentSession {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$OpenClawRoot,
-        [Parameter(Mandatory)][string[]]$AgentName,
-        [Parameter(Mandatory)][string]$SubagentUuid,
-        [string]$TaskId
-    )
-
-    $candidateAgentNames = @()
-    foreach ($candidateAgentName in @($AgentName)) {
-        if (-not [string]::IsNullOrWhiteSpace($candidateAgentName) -and ($candidateAgentNames -notcontains [string]$candidateAgentName)) {
-            $candidateAgentNames += [string]$candidateAgentName
-        }
-    }
-
-    if ($candidateAgentNames.Count -eq 0 -or [string]::IsNullOrWhiteSpace($SubagentUuid)) {
-        return $null
-    }
-
-    foreach ($candidateAgentName in $candidateAgentNames) {
-        $sessionKey = "agent:$candidateAgentName:subagent:$SubagentUuid"
-        $sessionsPath = Join-Path $OpenClawRoot "agents/$candidateAgentName/sessions/sessions.json"
-        if (-not (Test-Path -LiteralPath $sessionsPath)) {
-            continue
-        }
-
-        try {
-            $sessions = Get-Content -LiteralPath $sessionsPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
-        } catch {
-            continue
-        }
-
-        if (-not $sessions -or -not ($sessions.PSObject.Properties.Name -contains $sessionKey)) {
-            continue
-        }
-
-        $entry = $sessions.$sessionKey
-        if ($TaskId) {
-            $expectedLabel = "task:$TaskId"
-            $expectedTaskSuffix = ":task:$TaskId"
-            $matchesTask = $false
-
-            if ($entry -and ($entry.PSObject.Properties.Name -contains 'label') -and ([string]$entry.label -eq $expectedLabel)) {
-                $matchesTask = $true
-            }
-
-            if (
-                -not $matchesTask -and
-                $entry -and
-                ($entry.PSObject.Properties.Name -contains 'spawnedBy') -and
-                $entry.spawnedBy -and
-                ([string]$entry.spawnedBy).EndsWith($expectedTaskSuffix)
-            ) {
-                $matchesTask = $true
-            }
-
-            if (-not $matchesTask) {
-                continue
-            }
-        }
-
-        return [ordered]@{
-            childSessionKey = $sessionKey
-            sessionId       = if ($entry -and ($entry.PSObject.Properties.Name -contains 'sessionId')) { [string]$entry.sessionId } else { $null }
-            label           = if ($entry -and ($entry.PSObject.Properties.Name -contains 'label')) { [string]$entry.label } else { $null }
-            spawnedBy       = if ($entry -and ($entry.PSObject.Properties.Name -contains 'spawnedBy')) { [string]$entry.spawnedBy } else { $null }
-            registryAgentId = $candidateAgentName
-        }
-    }
-
-    return $null
-}
-
-function Resolve-MconRegisteredSubagentSessionByTask {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$OpenClawRoot,
-        [Parameter(Mandatory)][string[]]$AgentName,
-        [Parameter(Mandatory)][string]$TaskId
-    )
-
-    $candidateAgentNames = @()
-    foreach ($candidateAgentName in @($AgentName)) {
-        if (-not [string]::IsNullOrWhiteSpace($candidateAgentName) -and ($candidateAgentNames -notcontains [string]$candidateAgentName)) {
-            $candidateAgentNames += [string]$candidateAgentName
-        }
-    }
-
-    if ($candidateAgentNames.Count -eq 0 -or [string]::IsNullOrWhiteSpace($TaskId)) {
-        return $null
-    }
-
-    $expectedLabel = "task:$TaskId"
-    $expectedTaskSuffix = ":task:$TaskId"
-    $bestMatch = $null
-    $bestUpdatedAt = [Int64]::MinValue
-
-    foreach ($candidateAgentName in $candidateAgentNames) {
-        $sessionsPath = Join-Path $OpenClawRoot "agents/$candidateAgentName/sessions/sessions.json"
-        if (-not (Test-Path -LiteralPath $sessionsPath)) {
-            continue
-        }
-
-        try {
-            $sessions = Get-Content -LiteralPath $sessionsPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
-        } catch {
-            continue
-        }
-
-        if (-not $sessions) {
-            continue
-        }
-
-        foreach ($property in $sessions.PSObject.Properties) {
-            $sessionKey = [string]$property.Name
-            if ($sessionKey -notlike "agent:$candidateAgentName:subagent:*") {
-                continue
-            }
-
-            $entry = $property.Value
-            $matchesTask = $false
-
-            if ($entry -and ($entry.PSObject.Properties.Name -contains 'label') -and ([string]$entry.label -eq $expectedLabel)) {
-                $matchesTask = $true
-            }
-
-            if (
-                -not $matchesTask -and
-                $entry -and
-                ($entry.PSObject.Properties.Name -contains 'spawnedBy') -and
-                $entry.spawnedBy -and
-                ([string]$entry.spawnedBy).EndsWith($expectedTaskSuffix)
-            ) {
-                $matchesTask = $true
-            }
-
-            if (-not $matchesTask) {
-                continue
-            }
-
-            $updatedAt = 0
-            if ($entry -and ($entry.PSObject.Properties.Name -contains 'updatedAt') -and $entry.updatedAt) {
-                try {
-                    $updatedAt = [Int64]$entry.updatedAt
-                } catch {
-                    $updatedAt = 0
-                }
-            }
-
-            if ($bestMatch -and $updatedAt -lt $bestUpdatedAt) {
-                continue
-            }
-
-            $subagentUuid = $null
-            $uuidMatch = [regex]::Match($sessionKey, ':subagent:([0-9a-fA-F-]{36})$')
-            if ($uuidMatch.Success) {
-                $subagentUuid = $uuidMatch.Groups[1].Value
-            }
-
-            $bestMatch = [ordered]@{
-                childSessionKey = $sessionKey
-                sessionId       = if ($entry -and ($entry.PSObject.Properties.Name -contains 'sessionId')) { [string]$entry.sessionId } else { $null }
-                label           = if ($entry -and ($entry.PSObject.Properties.Name -contains 'label')) { [string]$entry.label } else { $null }
-                spawnedBy       = if ($entry -and ($entry.PSObject.Properties.Name -contains 'spawnedBy')) { [string]$entry.spawnedBy } else { $null }
-                registryAgentId = $candidateAgentName
-                subagent_uuid   = $subagentUuid
-                updatedAt       = $updatedAt
-            }
-            $bestUpdatedAt = $updatedAt
-        }
-    }
-
-    return $bestMatch
-}
-
-function Wait-MconRegisteredSubagentSession {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$OpenClawRoot,
-        [Parameter(Mandatory)][string[]]$AgentName,
-        [Parameter(Mandatory)][string]$SubagentUuid,
-        [string]$TaskId,
-        [int]$MaxAttempts = 20,
-        [int]$DelayMilliseconds = 500
-    )
-
-    for ($attempt = 1; $attempt -le [Math]::Max(1, $MaxAttempts); $attempt++) {
-        $session = Resolve-MconRegisteredSubagentSession -OpenClawRoot $OpenClawRoot -AgentName $AgentName -SubagentUuid $SubagentUuid -TaskId $TaskId
-        if ($session) {
-            return $session
-        }
-
-        if ($attempt -lt $MaxAttempts -and $DelayMilliseconds -gt 0) {
-            Start-Sleep -Milliseconds $DelayMilliseconds
-        }
     }
 
     return $null
@@ -686,7 +350,8 @@ function Get-MconAssignTaskProjection {
         'task_class'
     )
 
-    $taskProjection = [ordered]@{}
+    $taskProjection = [ordered]@{
+    }
     foreach ($key in $preferredKeys) {
         if ($TaskData.PSObject.Properties.Name -contains $key) {
             $taskProjection[$key] = $TaskData.$key
@@ -874,627 +539,6 @@ function Write-MconDiagnosticsJson {
     return $Path
 }
 
-function Get-MconAssignWorkflowPaths {
-    param(
-        [Parameter(Mandatory)][string]$WorkspacePath
-    )
-
-    $workflowDir = Join-Path $WorkspacePath '.openclaw/workflows'
-    $jobsDir = Join-Path (Join-Path $WorkspacePath 'diagnostics') 'assign-spawn-jobs'
-    if (-not (Test-Path -LiteralPath $workflowDir)) {
-        New-Item -ItemType Directory -Path $workflowDir -Force | Out-Null
-    }
-    if (-not (Test-Path -LiteralPath $jobsDir)) {
-        New-Item -ItemType Directory -Path $jobsDir -Force | Out-Null
-    }
-
-    return [ordered]@{
-        workflow_dir = $workflowDir
-        jobs_dir     = $jobsDir
-        latest_path  = Join-Path $workflowDir '.assign-state-latest.json'
-        log_path     = Join-Path $workflowDir 'assign-recovery.log'
-    }
-}
-
-function Write-MconAssignWorkflowLog {
-    param(
-        [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)][string]$Message
-    )
-
-    $timestamp = (Get-Date).ToString('o')
-    "[$timestamp] $Message" | Add-Content -LiteralPath $Path -Encoding UTF8
-}
-
-function Write-MconAssignWorkflowState {
-    param(
-        [Parameter(Mandatory)][string]$WorkspacePath,
-        [Parameter(Mandatory)][string]$State,
-        [hashtable]$Fields = @{}
-    )
-
-    $paths = Get-MconAssignWorkflowPaths -WorkspacePath $WorkspacePath
-    $record = [ordered]@{
-        state      = $State
-        updated_at = (Get-Date).ToUniversalTime().ToString('o')
-    }
-
-    foreach ($key in $Fields.Keys) {
-        $record[$key] = $Fields[$key]
-    }
-
-    $tmpPath = "$($paths.latest_path).tmp"
-    $record | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $tmpPath -Encoding UTF8
-    Move-Item -LiteralPath $tmpPath -Destination $paths.latest_path -Force
-
-    $summary = @("state=$State")
-    foreach ($key in @('task_id', 'job_id', 'phase', 'reason', 'result_path', 'payload_path')) {
-        if ($record.Contains($key) -and -not [string]::IsNullOrWhiteSpace([string]$record[$key])) {
-            $summary += "$key=$($record[$key])"
-        }
-    }
-    Write-MconAssignWorkflowLog -Path $paths.log_path -Message ($summary -join ' ')
-    return [pscustomobject]$record
-}
-
-function Test-MconProcessAlive {
-    param([int]$ProcessId)
-
-    if ($ProcessId -le 0) {
-        return $false
-    }
-
-    try {
-        $null = Get-Process -Id $ProcessId -ErrorAction Stop
-        return $true
-    } catch {
-        return $false
-    }
-}
-
-function New-MconDeferredAssignWrapperErrorResult {
-    param(
-        [Parameter(Mandatory)][string]$PayloadPath,
-        [Parameter(Mandatory)][string]$ErrorMessage
-    )
-
-    $payload = Get-Content -LiteralPath $PayloadPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
-    $resultPath = [string]$payload.result_path
-    $errorResult = [ordered]@{
-        ok                    = $false
-        phase                 = 'deferred_assign_wrapper'
-        error                 = $ErrorMessage
-        taskId                = if ($payload.PSObject.Properties.Name -contains 'task_id') { [string]$payload.task_id } else { $null }
-        boardId               = if ($payload.PSObject.Properties.Name -contains 'board_id') { [string]$payload.board_id } else { $null }
-        workerAgentId         = if ($payload.PSObject.Properties.Name -contains 'worker_agent_id') { [string]$payload.worker_agent_id } else { $null }
-        workerSpawnAgentId    = if ($payload.PSObject.Properties.Name -contains 'worker_spawn_agent_id') { [string]$payload.worker_spawn_agent_id } else { $null }
-        workerLegacyAgentName = if ($payload.PSObject.Properties.Name -contains 'worker_legacy_agent_name') { [string]$payload.worker_legacy_agent_name } else { $null }
-        bundlePath            = if ($payload.PSObject.Properties.Name -contains 'bundle_path') { [string]$payload.bundle_path } else { $null }
-        workerTaskDataPath    = if ($payload.PSObject.Properties.Name -contains 'worker_task_data_path') { [string]$payload.worker_task_data_path } else { $null }
-        deferredSpawn         = [ordered]@{
-            jobId       = if ($payload.PSObject.Properties.Name -contains 'job_id') { [string]$payload.job_id } else { $null }
-            pid         = if ($payload.PSObject.Properties.Name -contains 'pid') { $payload.pid } else { $null }
-            payloadPath = $PayloadPath
-            resultPath  = $resultPath
-            stdoutLog   = if ($payload.PSObject.Properties.Name -contains 'stdout_log') { [string]$payload.stdout_log } else { $null }
-            stderrLog   = if ($payload.PSObject.Properties.Name -contains 'stderr_log') { [string]$payload.stderr_log } else { $null }
-            attempts    = @()
-        }
-    }
-
-    if (-not [string]::IsNullOrWhiteSpace($resultPath)) {
-        Write-MconDiagnosticsJson -Path $resultPath -Data $errorResult | Out-Null
-    }
-    if ($payload.PSObject.Properties.Name -contains 'workspace_path' -and -not [string]::IsNullOrWhiteSpace([string]$payload.workspace_path)) {
-        Write-MconAssignWorkflowState `
-            -WorkspacePath ([string]$payload.workspace_path) `
-            -State 'wrapper_failed' `
-            -Fields @{
-                task_id     = $errorResult.taskId
-                job_id      = $errorResult.deferredSpawn.jobId
-                phase       = $errorResult.phase
-                reason      = $ErrorMessage
-                payload_path = $PayloadPath
-                result_path = $resultPath
-            } | Out-Null
-    }
-
-    return $errorResult
-}
-
-function Invoke-MconDeferredAssignRecoverySweep {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$WorkspacePath,
-        [int]$StaleAfterMinutes = 3,
-        [string]$ExcludePayloadPath = $null
-    )
-
-    $paths = Get-MconAssignWorkflowPaths -WorkspacePath $WorkspacePath
-    $now = Get-Date
-    $staleCutoff = $now.AddMinutes(-1 * [Math]::Max(1, $StaleAfterMinutes))
-    $recovered = @()
-
-    $payloadFiles = @(
-        Get-ChildItem -LiteralPath $paths.jobs_dir -Filter '*-payload.json' -File -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTimeUtc -Descending
-    )
-
-    $seenTaskIds = @{}
-
-    foreach ($payloadFile in $payloadFiles) {
-        if ($ExcludePayloadPath -and $payloadFile.FullName -eq $ExcludePayloadPath) {
-            continue
-        }
-        if ($payloadFile.LastWriteTimeUtc -gt $staleCutoff) {
-            continue
-        }
-
-        $taskId = $null
-        try {
-            $payload = Get-Content -LiteralPath $payloadFile.FullName -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
-            $taskId = if ($payload.PSObject.Properties.Name -contains 'task_id') { [string]$payload.task_id } else { $null }
-        } catch {
-            continue
-        }
-
-        if (-not [string]::IsNullOrWhiteSpace($taskId) -and $seenTaskIds.ContainsKey($taskId)) {
-            continue
-        }
-
-        if (-not [string]::IsNullOrWhiteSpace($taskId)) {
-            $seenTaskIds[$taskId] = $true
-        }
-
-        $resultPath = if ($payload -and ($payload.PSObject.Properties.Name -contains 'result_path')) { [string]$payload.result_path } else { $null }
-        if (-not [string]::IsNullOrWhiteSpace($resultPath) -and (Test-Path -LiteralPath $resultPath)) {
-            continue
-        }
-
-        $jobId = if ($payload -and ($payload.PSObject.Properties.Name -contains 'job_id')) { [string]$payload.job_id } else { $null }
-        $processId = if ($payload -and ($payload.PSObject.Properties.Name -contains 'pid')) { [int]$payload.pid } else { 0 }
-        if (Test-MconProcessAlive -ProcessId $processId) {
-            Write-MconAssignWorkflowState -WorkspacePath $WorkspacePath -State 'recovery_skipped_process_alive' -Fields @{
-                task_id      = $taskId
-                job_id       = $jobId
-                phase        = 'recovery_sweep'
-                reason       = "deferred assign worker pid $processId is still running"
-                payload_path = $payloadFile.FullName
-                result_path  = $resultPath
-            } | Out-Null
-            continue
-        }
-
-        Write-MconAssignWorkflowState -WorkspacePath $WorkspacePath -State 'recovery_replaying_orphan' -Fields @{
-            task_id      = $taskId
-            job_id       = $jobId
-            phase        = 'recovery_sweep'
-            reason       = 'payload exists without result and worker process is not running'
-            payload_path = $payloadFile.FullName
-            result_path  = $resultPath
-        } | Out-Null
-
-        try {
-            $result = Invoke-MconDeferredAssignSpawn -PayloadPath $payloadFile.FullName
-        } catch {
-            $result = New-MconDeferredAssignWrapperErrorResult -PayloadPath $payloadFile.FullName -ErrorMessage $_.Exception.Message
-        }
-
-        $recovered += [pscustomobject]@{
-            taskId      = $taskId
-            jobId       = $jobId
-            payloadPath = $payloadFile.FullName
-            resultPath  = $resultPath
-            ok          = if ($result -and ($result.PSObject.Properties.Name -contains 'ok')) { [bool]$result.ok } else { $false }
-            mode        = if ($result -and ($result.PSObject.Properties.Name -contains 'mode')) { [string]$result.mode } else { $null }
-            phase       = if ($result -and ($result.PSObject.Properties.Name -contains 'phase')) { [string]$result.phase } else { $null }
-            error       = if ($result -and ($result.PSObject.Properties.Name -contains 'error')) { [string]$result.error } else { $null }
-        }
-    }
-
-    if ($recovered.Count -gt 0) {
-        Write-MconAssignWorkflowState -WorkspacePath $WorkspacePath -State 'recovery_completed' -Fields @{
-            phase  = 'recovery_sweep'
-            reason = "replayed $($recovered.Count) orphaned deferred assign job(s)"
-        } | Out-Null
-    }
-
-    return ,$recovered
-}
-
-function Start-MconDeferredAssignSpawn {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$WorkspacePath,
-        [Parameter(Mandatory)][string]$MconScriptPath,
-        [Parameter(Mandatory)][string]$DiagnosticsDir,
-        [Parameter(Mandatory)][string]$TaskId,
-        [Parameter(Mandatory)][hashtable]$Payload
-    )
-
-    $jobsDir = New-MconDirectory -Path (Join-Path $DiagnosticsDir 'assign-spawn-jobs')
-    $jobId = [guid]::NewGuid().Guid
-    $payloadPath = Join-Path $jobsDir "$TaskId-$jobId-payload.json"
-    $resultPath = Join-Path $jobsDir "$TaskId-$jobId-result.json"
-    $stdoutLog = Join-Path $jobsDir "$TaskId-$jobId-stdout.log"
-    $stderrLog = Join-Path $jobsDir "$TaskId-$jobId-stderr.log"
-
-    $Payload['job_id'] = $jobId
-    $Payload['payload_path'] = $payloadPath
-    $Payload['result_path'] = $resultPath
-    $Payload['stdout_log'] = $stdoutLog
-    $Payload['stderr_log'] = $stderrLog
-    $Payload['created_at'] = (Get-Date).ToUniversalTime().ToString('o')
-
-    Write-MconDiagnosticsJson -Path $payloadPath -Data $Payload | Out-Null
-
-    $pwshPath = (Get-Command pwsh -ErrorAction Stop).Source
-    $process = Start-Process `
-        -FilePath $pwshPath `
-        -ArgumentList @('-NoProfile', '-NoLogo', '-NonInteractive', '-File', $MconScriptPath, 'workflow', 'assign', '--process-deferred-spawn', '--payload', $payloadPath) `
-        -WorkingDirectory $WorkspacePath `
-        -RedirectStandardOutput $stdoutLog `
-        -RedirectStandardError $stderrLog `
-        -PassThru
-
-    $Payload['pid'] = $process.Id
-    Write-MconDiagnosticsJson -Path $payloadPath -Data $Payload | Out-Null
-    Write-MconAssignWorkflowState -WorkspacePath $WorkspacePath -State 'queued' -Fields @{
-        task_id      = $TaskId
-        job_id       = $jobId
-        phase        = 'launch'
-        reason       = 'deferred assign worker launched'
-        payload_path = $payloadPath
-        result_path  = $resultPath
-        pid          = $process.Id
-    } | Out-Null
-
-    return [ordered]@{
-        queued       = $true
-        jobId        = $jobId
-        pid          = $process.Id
-        payloadPath  = $payloadPath
-        resultPath   = $resultPath
-        stdoutLog    = $stdoutLog
-        stderrLog    = $stderrLog
-    }
-}
-
-function Invoke-MconDeferredAssignSpawn {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$PayloadPath
-    )
-
-    $payload = Get-Content -LiteralPath $PayloadPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
-    $resultPath = [string]$payload.result_path
-    $attempts = @()
-    $spawnResponse = $null
-    $spawnRaw = $null
-    $spawnResult = $null
-    $childSessionKey = $null
-    $subagentUuid = $null
-    $registeredSpawnSession = $null
-    $assignmentPatch = $null
-    $statusPatch = $null
-    $finalTask = $null
-    $spawnRegistryConfirmed = $false
-    $warnings = @()
-    $workerSessionAgentNames = @()
-    if ($payload.PSObject.Properties.Name -contains 'workspace_path' -and -not [string]::IsNullOrWhiteSpace([string]$payload.workspace_path)) {
-        Write-MconAssignWorkflowState -WorkspacePath ([string]$payload.workspace_path) -State 'processing' -Fields @{
-            task_id      = if ($payload.PSObject.Properties.Name -contains 'task_id') { [string]$payload.task_id } else { $null }
-            job_id       = if ($payload.PSObject.Properties.Name -contains 'job_id') { [string]$payload.job_id } else { $null }
-            phase        = 'deferred_assign_spawn'
-            reason       = 'processing payload'
-            payload_path = $PayloadPath
-            result_path  = $resultPath
-        } | Out-Null
-    }
-
-    try {
-        foreach ($candidateAgentName in @([string]$payload.worker_spawn_agent_id, [string]$payload.worker_legacy_agent_name)) {
-            if (-not [string]::IsNullOrWhiteSpace($candidateAgentName) -and ($workerSessionAgentNames -notcontains [string]$candidateAgentName)) {
-                $workerSessionAgentNames += [string]$candidateAgentName
-            }
-        }
-
-        $initialDelaySeconds = if ($payload.PSObject.Properties.Name -contains 'initial_delay_seconds') { [int]$payload.initial_delay_seconds } else { 2 }
-        $retryDelaySeconds = if ($payload.PSObject.Properties.Name -contains 'retry_delay_seconds') { [int]$payload.retry_delay_seconds } else { 5 }
-        $maxAttempts = if ($payload.PSObject.Properties.Name -contains 'max_attempts') { [int]$payload.max_attempts } else { 6 }
-        $timeoutSeconds = if ($payload.PSObject.Properties.Name -contains 'timeout_seconds') { [int]$payload.timeout_seconds } else { 120 }
-
-        if ($initialDelaySeconds -gt 0) {
-            Start-Sleep -Seconds $initialDelaySeconds
-        }
-
-        for ($attempt = 1; $attempt -le [Math]::Max(1, $maxAttempts); $attempt++) {
-            $attemptRecord = [ordered]@{
-                attempt    = $attempt
-                started_at = (Get-Date).ToUniversalTime().ToString('o')
-            }
-
-            try {
-                $liveTaskState = Get-MconDeferredAssignTaskState -Payload $payload -WorkerSessionAgentNames $workerSessionAgentNames
-                if ($liveTaskState.recover_assignment) {
-                    $childSessionKey = if ($liveTaskState.registered_session) { [string]$liveTaskState.registered_session.childSessionKey } else { $null }
-                    $subagentUuid = [string]$liveTaskState.subagent_uuid
-                    if ([string]::IsNullOrWhiteSpace($childSessionKey) -or [string]::IsNullOrWhiteSpace($subagentUuid)) {
-                        throw 'Deferred assign recovery found an existing registered session but could not resolve its childSessionKey or subagent_uuid.'
-                    }
-
-                    $combinedPatch = Invoke-MconApi -Method Patch -Uri ([string]$payload.task_uri) -Token ([string]$payload.auth_token) -Body @{
-                        assigned_agent_id   = [string]$payload.assigned_agent_id
-                        status              = 'in_progress'
-                        custom_field_values = @{ subagent_uuid = $subagentUuid }
-                    }
-                    $assignmentPatch = $combinedPatch
-                    $statusPatch = $combinedPatch
-                    $finalTask = Invoke-MconApi -Method Get -Uri ([string]$payload.task_uri) -Token ([string]$payload.auth_token)
-
-                    $attemptRecord['outcome'] = 'recovered_existing_session'
-                    $attemptRecord['reason'] = [string]$liveTaskState.reason
-                    $attemptRecord['childSessionKey'] = $childSessionKey
-                    $attemptRecord['completed_at'] = (Get-Date).ToUniversalTime().ToString('o')
-                    $attempts += [pscustomobject]$attemptRecord
-
-                    $recoveredResult = [ordered]@{
-                        ok                    = $true
-                        mode                  = 'assign_recovered'
-                        async                 = $true
-                        taskId                = [string]$payload.task_id
-                        boardId               = [string]$payload.board_id
-                        workerAgentId         = [string]$payload.worker_agent_id
-                        workerSpawnAgentId    = [string]$payload.worker_spawn_agent_id
-                        workerLegacyAgentName = [string]$payload.worker_legacy_agent_name
-                        bundlePath            = [string]$payload.bundle_path
-                        workerTaskDataPath    = [string]$payload.worker_task_data_path
-                        deferredSpawn         = [ordered]@{
-                            jobId       = [string]$payload.job_id
-                            payloadPath = [string]$payload.payload_path
-                            resultPath  = $resultPath
-                            stdoutLog   = [string]$payload.stdout_log
-                            stderrLog   = [string]$payload.stderr_log
-                            completedAt = (Get-Date).ToUniversalTime().ToString('o')
-                            attempts    = @($attempts)
-                        }
-                        spawn                 = [ordered]@{
-                            status            = 'existing'
-                            reason            = [string]$liveTaskState.reason
-                            childSessionKey   = $childSessionKey
-                            runId             = $null
-                            mode              = 'existing'
-                            subagent_uuid     = $subagentUuid
-                            promptSent        = $false
-                            registryConfirmed = $true
-                            registeredSession = $liveTaskState.registered_session
-                        }
-                        warnings              = @(
-                            'Recovered the board assignment from an already-registered subagent session without sending a new spawn prompt.'
-                        )
-                        patches               = [ordered]@{
-                            assignment = $assignmentPatch
-                            status     = $statusPatch
-                        }
-                        finalTask             = Get-MconAssignTaskProjection -TaskData $finalTask
-                    }
-
-                    Write-MconDiagnosticsJson -Path $resultPath -Data $recoveredResult | Out-Null
-                    Write-MconAssignWorkflowState -WorkspacePath ([string]$payload.workspace_path) -State 'recovered' -Fields @{
-                        task_id      = [string]$payload.task_id
-                        job_id       = [string]$payload.job_id
-                        phase        = 'deferred_assign_spawn'
-                        reason       = [string]$liveTaskState.reason
-                        payload_path = $PayloadPath
-                        result_path  = $resultPath
-                    } | Out-Null
-                    return $recoveredResult
-                }
-
-                if (-not $liveTaskState.spawn_needed) {
-                    $attemptRecord['outcome'] = 'superseded'
-                    $attemptRecord['reason'] = [string]$liveTaskState.reason
-                    $attemptRecord['completed_at'] = (Get-Date).ToUniversalTime().ToString('o')
-                    $attempts += [pscustomobject]$attemptRecord
-
-                    $supersededResult = [ordered]@{
-                        ok                    = $true
-                        mode                  = 'assign_superseded'
-                        async                 = $true
-                        taskId                = [string]$payload.task_id
-                        boardId               = [string]$payload.board_id
-                        workerAgentId         = [string]$payload.worker_agent_id
-                        workerSpawnAgentId    = [string]$payload.worker_spawn_agent_id
-                        workerLegacyAgentName = [string]$payload.worker_legacy_agent_name
-                        bundlePath            = [string]$payload.bundle_path
-                        workerTaskDataPath    = [string]$payload.worker_task_data_path
-                        deferredSpawn         = [ordered]@{
-                            jobId       = [string]$payload.job_id
-                            payloadPath = [string]$payload.payload_path
-                            resultPath  = $resultPath
-                            stdoutLog   = [string]$payload.stdout_log
-                            stderrLog   = [string]$payload.stderr_log
-                            completedAt = (Get-Date).ToUniversalTime().ToString('o')
-                            attempts    = @($attempts)
-                        }
-                        spawn                 = [ordered]@{
-                            status            = if ($liveTaskState.registered_session) { 'existing' } else { 'skipped' }
-                            reason            = [string]$liveTaskState.reason
-                            childSessionKey   = if ($liveTaskState.registered_session) { [string]$liveTaskState.registered_session.childSessionKey } else { $null }
-                            runId             = $null
-                            mode              = if ($liveTaskState.registered_session) { 'existing' } else { 'skipped' }
-                            subagent_uuid     = [string]$liveTaskState.subagent_uuid
-                            promptSent        = $false
-                            registryConfirmed = ($null -ne $liveTaskState.registered_session)
-                            registeredSession = if ($liveTaskState.registered_session) { $liveTaskState.registered_session } else { $null }
-                        }
-                        finalTask             = Get-MconAssignTaskProjection -TaskData $liveTaskState.task
-                    }
-
-                    Write-MconDiagnosticsJson -Path $resultPath -Data $supersededResult | Out-Null
-                    Write-MconAssignWorkflowState -WorkspacePath ([string]$payload.workspace_path) -State 'superseded' -Fields @{
-                        task_id      = [string]$payload.task_id
-                        job_id       = [string]$payload.job_id
-                        phase        = 'deferred_assign_spawn'
-                        reason       = [string]$liveTaskState.reason
-                        payload_path = $PayloadPath
-                        result_path  = $resultPath
-                    } | Out-Null
-                    return $supersededResult
-                }
-
-                $spawnResponse = Send-MconOpenClawSessionMessage `
-                    -WorkspacePath ([string]$payload.workspace_path) `
-                    -InvocationAgent ([string]$payload.lead_agent_id) `
-                    -Message ([string]$payload.spawn_prompt) `
-                    -SessionKey ([string]$payload.runtime_origin_session_key) `
-                    -TimeoutSec $timeoutSeconds `
-                    -Temperature 0
-
-                $spawnRaw = Resolve-MconGatewayChatResponseText -Response $spawnResponse
-                $spawnResult = Resolve-MconSpawnResult -RawText $spawnRaw
-                $childSessionKey = [string]$spawnResult.childSessionKey
-                $attemptRecord['outcome'] = 'accepted'
-                $attemptRecord['childSessionKey'] = $childSessionKey
-                $attemptRecord['completed_at'] = (Get-Date).ToUniversalTime().ToString('o')
-                $attempts += [pscustomobject]$attemptRecord
-                break
-            } catch {
-                $attemptRecord['outcome'] = 'retryable_failure'
-                $attemptRecord['error'] = $_.Exception.Message
-                $attemptRecord['completed_at'] = (Get-Date).ToUniversalTime().ToString('o')
-                $attempts += [pscustomobject]$attemptRecord
-
-                if ($attempt -ge $maxAttempts) {
-                    throw
-                }
-
-                if ($retryDelaySeconds -gt 0) {
-                    Start-Sleep -Seconds $retryDelaySeconds
-                }
-            }
-        }
-
-        if ([string]::IsNullOrWhiteSpace($childSessionKey)) {
-            throw 'Deferred spawn did not return childSessionKey.'
-        }
-
-        $uuidMatch = [regex]::Match($childSessionKey, ':subagent:([0-9a-fA-F-]{36})$')
-        if (-not $uuidMatch.Success) {
-            throw "Deferred spawn returned unexpected childSessionKey format: $childSessionKey"
-        }
-        $subagentUuid = $uuidMatch.Groups[1].Value
-
-        $registeredSpawnSession = Wait-MconRegisteredSubagentSession `
-            -OpenClawRoot ([string]$payload.openclaw_root) `
-            -AgentName $workerSessionAgentNames `
-            -SubagentUuid $subagentUuid `
-            -TaskId ([string]$payload.task_id)
-        $spawnRegistryConfirmed = ($null -ne $registeredSpawnSession)
-        if (-not $spawnRegistryConfirmed) {
-            $warnings += "Mission Control could not confirm the spawned session in OpenClaw's registry within the wait window. Assignment continued based on the returned childSessionKey."
-        }
-
-        $combinedPatch = Invoke-MconApi -Method Patch -Uri ([string]$payload.task_uri) -Token ([string]$payload.auth_token) -Body @{
-            assigned_agent_id   = [string]$payload.assigned_agent_id
-            status              = 'in_progress'
-            custom_field_values = @{ subagent_uuid = $subagentUuid }
-        }
-        $assignmentPatch = $combinedPatch
-        $statusPatch = $combinedPatch
-
-        $finalTask = Invoke-MconApi -Method Get -Uri ([string]$payload.task_uri) -Token ([string]$payload.auth_token)
-
-        $result = [ordered]@{
-            ok                   = $true
-            mode                 = 'assign'
-            async                = $true
-            taskId               = [string]$payload.task_id
-            boardId              = [string]$payload.board_id
-            workerAgentId        = [string]$payload.worker_agent_id
-            workerSpawnAgentId   = [string]$payload.worker_spawn_agent_id
-            workerLegacyAgentName = [string]$payload.worker_legacy_agent_name
-            bundlePath           = [string]$payload.bundle_path
-            workerTaskDataPath   = [string]$payload.worker_task_data_path
-            deferredSpawn        = [ordered]@{
-                jobId       = [string]$payload.job_id
-                payloadPath = [string]$payload.payload_path
-                resultPath  = $resultPath
-                stdoutLog   = [string]$payload.stdout_log
-                stderrLog   = [string]$payload.stderr_log
-                completedAt = (Get-Date).ToUniversalTime().ToString('o')
-                attempts    = @($attempts)
-            }
-            spawn                = [ordered]@{
-                status            = $spawnResult.status
-                childSessionKey   = $childSessionKey
-                runId             = $spawnResult.runId
-                mode              = $spawnResult.mode
-                subagent_uuid     = $subagentUuid
-                promptSent        = $true
-                registryConfirmed = $spawnRegistryConfirmed
-                registeredSession = if ($registeredSpawnSession) { $registeredSpawnSession } else { $null }
-            }
-            warnings             = @($warnings)
-            patches              = [ordered]@{
-                assignment = $assignmentPatch
-                status     = $statusPatch
-            }
-            finalTask            = Get-MconAssignTaskProjection -TaskData $finalTask
-        }
-
-        Write-MconDiagnosticsJson -Path $resultPath -Data $result | Out-Null
-        Write-MconAssignWorkflowState -WorkspacePath ([string]$payload.workspace_path) -State 'completed' -Fields @{
-            task_id      = [string]$payload.task_id
-            job_id       = [string]$payload.job_id
-            phase        = 'deferred_assign_spawn'
-            reason       = 'spawn accepted and task patched'
-            payload_path = $PayloadPath
-            result_path  = $resultPath
-        } | Out-Null
-        return $result
-    } catch {
-        $errorResult = [ordered]@{
-            ok                    = $false
-            phase                 = 'deferred_assign_spawn'
-            error                 = $_.Exception.Message
-            taskId                = if ($payload.PSObject.Properties.Name -contains 'task_id') { [string]$payload.task_id } else { $null }
-            boardId               = if ($payload.PSObject.Properties.Name -contains 'board_id') { [string]$payload.board_id } else { $null }
-            workerAgentId         = if ($payload.PSObject.Properties.Name -contains 'worker_agent_id') { [string]$payload.worker_agent_id } else { $null }
-            workerSpawnAgentId    = if ($payload.PSObject.Properties.Name -contains 'worker_spawn_agent_id') { [string]$payload.worker_spawn_agent_id } else { $null }
-            workerLegacyAgentName = if ($payload.PSObject.Properties.Name -contains 'worker_legacy_agent_name') { [string]$payload.worker_legacy_agent_name } else { $null }
-            bundlePath            = if ($payload.PSObject.Properties.Name -contains 'bundle_path') { [string]$payload.bundle_path } else { $null }
-            workerTaskDataPath    = if ($payload.PSObject.Properties.Name -contains 'worker_task_data_path') { [string]$payload.worker_task_data_path } else { $null }
-            deferredSpawn         = [ordered]@{
-                jobId       = if ($payload.PSObject.Properties.Name -contains 'job_id') { [string]$payload.job_id } else { $null }
-                payloadPath = $PayloadPath
-                resultPath  = $resultPath
-                stdoutLog   = if ($payload.PSObject.Properties.Name -contains 'stdout_log') { [string]$payload.stdout_log } else { $null }
-                stderrLog   = if ($payload.PSObject.Properties.Name -contains 'stderr_log') { [string]$payload.stderr_log } else { $null }
-                attempts    = @($attempts)
-            }
-            spawnOutput           = if ($spawnResponse) { $spawnResponse | ConvertTo-Json -Depth 20 } else { $spawnRaw }
-            childSessionKey       = $childSessionKey
-            subagent_uuid         = $subagentUuid
-        }
-
-        if ($resultPath) {
-            Write-MconDiagnosticsJson -Path $resultPath -Data $errorResult | Out-Null
-        }
-        if ($payload.PSObject.Properties.Name -contains 'workspace_path' -and -not [string]::IsNullOrWhiteSpace([string]$payload.workspace_path)) {
-            Write-MconAssignWorkflowState -WorkspacePath ([string]$payload.workspace_path) -State 'failed' -Fields @{
-                task_id      = $errorResult.taskId
-                job_id       = $errorResult.deferredSpawn.jobId
-                phase        = $errorResult.phase
-                reason       = $errorResult.error
-                payload_path = $PayloadPath
-                result_path  = $resultPath
-            } | Out-Null
-        }
-        return $errorResult
-    }
-}
-
 function Invoke-MconAssign {
     [CmdletBinding()]
     param(
@@ -1516,16 +560,6 @@ function Invoke-MconAssign {
     $boardId = $Config.board_id
     $agentId = $Config.agent_id
     $workspacePath = $Config.workspace_path
-
-    $recoverySweep = @()
-    try {
-        $recoverySweep = @(Invoke-MconDeferredAssignRecoverySweep -WorkspacePath $workspacePath)
-    } catch {
-        Write-MconAssignWorkflowState -WorkspacePath $workspacePath -State 'recovery_failed' -Fields @{
-            phase  = 'recovery_sweep'
-            reason = $_.Exception.Message
-        } | Out-Null
-    }
 
     if (-not $LeadAgentId) {
         $LeadAgentId = "lead-$boardId"
@@ -1663,7 +697,6 @@ function Invoke-MconAssign {
     }
     $resolvedMconScriptPath = (Resolve-Path -LiteralPath $MconScriptPath).Path
 
-    # The OpenClaw registry in openclaw.json is authoritative for worker spawn identity.
     $workerConfig = Resolve-MconOpenClawAgentConfig -WorkspacePath $resolvedWorkerWorkspace
     $workerName = $workerConfig.name
     $workerLegacyAgentName = [string]$($workerConfig.name).ToLower()
@@ -1674,12 +707,6 @@ function Invoke-MconAssign {
     $expectedWorkerSpawnAgentId = "mc-$WorkerAgentId"
     if ($workerSpawnAgentId -ne $expectedWorkerSpawnAgentId) {
         throw "Worker agent $WorkerAgentId resolved to OpenClaw agent id $workerSpawnAgentId, but the registry contract requires $expectedWorkerSpawnAgentId."
-    }
-    $workerSessionAgentNames = @()
-    foreach ($candidateAgentName in @($workerSpawnAgentId, $workerLegacyAgentName)) {
-        if (-not [string]::IsNullOrWhiteSpace($candidateAgentName) -and ($workerSessionAgentNames -notcontains [string]$candidateAgentName)) {
-            $workerSessionAgentNames += [string]$candidateAgentName
-        }
     }
 
     $comments = @()
@@ -1755,25 +782,14 @@ function Invoke-MconAssign {
         $currentAssignedAgentId = Get-MconNormalizedWorkerAgentId -AgentId ([string]$task.assigned_agent_id)
     }
 
-    $currentSubagentUuid = Get-MconTaskSubagentUuid -TaskData $task
-
     $currentStatus = $null
     if ($task.PSObject.Properties.Name -contains 'status' -and $task.status) {
         $currentStatus = ([string]$task.status).ToLowerInvariant()
     }
 
-    $existingSubagentSession = $null
-    if (-not [string]::IsNullOrWhiteSpace($currentSubagentUuid)) {
-        $existingSubagentSession = Resolve-MconRegisteredSubagentSession -OpenClawRoot $openClawRoot -AgentName $workerSessionAgentNames -SubagentUuid $currentSubagentUuid -TaskId $TaskId
-    }
-
     $taskAlreadyActiveForWorker = ($currentAssignedAgentId -eq $assignedAgentId) -and ($currentStatus -and $currentStatus -ne 'inbox')
 
-    if (
-        $taskAlreadyActiveForWorker -and
-        (-not [string]::IsNullOrWhiteSpace($currentSubagentUuid)) -and
-        $existingSubagentSession
-    ) {
+    if ($taskAlreadyActiveForWorker) {
         return [ordered]@{
             ok                   = $true
             mode                 = 'already_assigned'
@@ -1785,41 +801,15 @@ function Invoke-MconAssign {
             workerLegacyAgentName = $workerLegacyAgentName
             bundlePath           = $bundlePath
             workerTaskDataPath   = $workerTaskDataPath
-            spawn                = [ordered]@{
-                status          = 'existing'
-                childSessionKey = $existingSubagentSession.childSessionKey
-                runId           = $null
-                mode            = 'existing'
-                subagent_uuid   = $currentSubagentUuid
-            }
+            sessionKey           = "agent:$workerSpawnAgentId:task:$TaskId"
             finalTask            = Get-MconAssignTaskProjection -TaskData $task
         }
     }
 
-    if ($taskAlreadyActiveForWorker -and -not [string]::IsNullOrWhiteSpace($currentSubagentUuid) -and -not $existingSubagentSession) {
-        return [ordered]@{
-            ok                    = $false
-            phase                 = 'precondition'
-            error                 = "Task is already assigned to worker $WorkerAgentId with subagent_uuid $currentSubagentUuid, but no matching registered OpenClaw session exists for any expected agent session id ($($workerSessionAgentNames -join ', ')). Refusing idempotent success on stale assignment state."
-            taskId                = $TaskId
-            boardId               = $boardId
-            workerAgentId         = $WorkerAgentId
-            workerSpawnAgentId    = $workerSpawnAgentId
-            workerLegacyAgentName = $workerLegacyAgentName
-            bundlePath            = $bundlePath
-            workerTaskDataPath    = $workerTaskDataPath
-            task                  = Get-MconAssignTaskProjection -TaskData $task
-            spawn                 = [ordered]@{
-                status          = 'missing'
-                childSessionKey = $null
-                runId           = $null
-                mode            = 'existing'
-                subagent_uuid   = $currentSubagentUuid
-            }
-        }
-    }
+    # Construct the deterministic worker task-scoped session key
+    $workerTaskSessionKey = "agent:$workerSpawnAgentId:task:$TaskId"
 
-    $workerTask = @"
+    $workerPrompt = @"
 You are $workerName.
 
 Read these first:
@@ -1837,36 +827,11 @@ Work contract:
 - If blocked, run `mcon workflow blocker`  including the full detailed explanation in the message parameter for why you are blocked.
 "@
 
-    $spawnPrompt = @"
-ASSIGNMENT_AUTHORIZED: true
-This prompt was generated by mcon workflow assign as its internal subagent-creation step.
-It is not a manual fallback and must preserve the lead task session as the requester.
-Use sessions_spawn exactly once for this worker handoff.
-
-Spawn parameters:
-- agentId: $workerSpawnAgentId
-- label: task:$TaskId
-- runtime: subagent
-- mode: run
-- task: the worker instructions below
-
-Worker instructions:
-<<<TASK
-$workerTask
-TASK
-
-After the tool call, reply with ONLY one JSON object and no markdown or prose:
-{"status":"accepted|error","childSessionKey":"...","runId":"...","mode":"...","error":null}
-
-If the tool result contains an error, copy it into the JSON object and set childSessionKey to null.
-"@
-
     if ($DryRun) {
         $gatewayConfig = Get-MconOpenClawGatewayConfig -WorkspacePath $workspacePath
         $gatewayUri = "http://127.0.0.1:$($gatewayConfig.port)/v1/chat/completions"
         $predictedAssignmentPatch = [ordered]@{
             assigned_agent_id    = $WorkerAgentId
-            custom_field_values  = @{ subagent_uuid = '<subagent_uuid from sessions_spawn childSessionKey>' }
         }
         $predictedStatusPatch = [ordered]@{
             status = 'in_progress'
@@ -1874,7 +839,6 @@ If the tool result contains an error, copy it into the JSON object and set child
         $dryRunRecord = [ordered]@{
             ok                = $true
             mode              = 'dry_run'
-            async             = $true
             taskId            = $TaskId
             boardId           = $boardId
             workerAgentId     = $WorkerAgentId
@@ -1886,49 +850,28 @@ If the tool result contains an error, copy it into the JSON object and set child
             task              = Get-MconAssignTaskProjection -TaskData $task
             actions           = @(
                 [ordered]@{
-                    step         = 'launch_deferred_spawn_worker'
-                    type         = 'process_launch'
-                    program      = 'pwsh'
-                    arguments    = @(
-                        '-NoProfile',
-                        '-NoLogo',
-                        '-NonInteractive',
-                        '-File',
-                        $resolvedMconScriptPath,
-                        'workflow',
-                        'assign',
-                        '--process-deferred-spawn',
-                        '--payload',
-                        '<generated payload path>'
-                    )
-                    workingDirectory = $workspacePath
-                },
-                [ordered]@{
-                    step      = 'deferred_subagent_spawn'
-                    type      = 'gateway_chat'
-                    mode      = 'background'
-                    initialDelaySeconds = 2
-                    retryDelaySeconds = 5
-                    maxAttempts = 6
-                    method    = 'POST'
-                    uri       = $gatewayUri
-                    headers   = @{
+                    step         = 'direct_session_dispatch'
+                    type         = 'gateway_chat'
+                    mode         = 'foreground'
+                    method       = 'POST'
+                    uri          = $gatewayUri
+                    headers      = @{
                         Authorization            = 'Bearer <gateway token>'
-                        'x-openclaw-session-key' = $runtimeOriginSessionKey
+                        'x-openclaw-session-key' = $workerTaskSessionKey
                     }
-                    body      = @{
-                        model       = "openclaw/$LeadAgentId"
+                    body         = @{
+                        model       = "openclaw/$workerSpawnAgentId"
                         temperature = 0
                         messages    = @(
                             @{
                                 role    = 'user'
-                                content = $spawnPrompt
+                                content = $workerPrompt
                             }
                         )
                     }
-                    targetAgent = $LeadAgentId
-                    sessionId   = $runtimeOriginSessionKey
-                    message     = $spawnPrompt
+                    targetAgent  = $workerSpawnAgentId
+                    sessionId    = $workerTaskSessionKey
+                    message      = $workerPrompt
                 },
                 [ordered]@{
                     step   = 'patch_assignment'
@@ -1958,75 +901,45 @@ If the tool result contains an error, copy it into the JSON object and set child
         return $dryRunRecord
     }
 
-    $spawnDispatch = [ordered]@{
-        transport   = 'gateway_chat'
-        targetAgent = $LeadAgentId
-        sessionKey  = $runtimeOriginSessionKey
-        model       = "openclaw/$LeadAgentId"
-        timeoutSec  = 300
-        deferred    = $true
-    }
-
-    $deferredPayload = [ordered]@{
-        workspace_path            = $workspacePath
-        openclaw_root             = $openClawRoot
-        lead_agent_id             = $LeadAgentId
-        runtime_origin_session_key = $runtimeOriginSessionKey
-        spawn_prompt              = $spawnPrompt
-        timeout_seconds           = 300
-        initial_delay_seconds     = 2
-        retry_delay_seconds       = 5
-        max_attempts              = 6
-        task_id                   = $TaskId
-        board_id                  = $boardId
-        task_uri                  = $taskUri
-        auth_token                = $authToken
-        assigned_agent_id         = $assignedAgentId
-        worker_agent_id           = $WorkerAgentId
-        worker_spawn_agent_id     = $workerSpawnAgentId
-        worker_legacy_agent_name  = $workerLegacyAgentName
-        bundle_path               = $bundlePath
-        worker_task_data_path     = $workerTaskDataPath
-    }
-
+    # Send the worker prompt directly to the worker's task-scoped session
+    $dispatchResult = $null
     try {
-        $deferredSpawn = Start-MconDeferredAssignSpawn `
+        $dispatchResult = Send-MconOpenClawSessionMessage `
             -WorkspacePath $workspacePath `
-            -MconScriptPath $resolvedMconScriptPath `
-            -DiagnosticsDir $resolvedDiagnosticsDir `
+            -InvocationAgent $workerSpawnAgentId `
+            -SessionKey $workerTaskSessionKey `
+            -Message $workerPrompt `
             -TaskId $TaskId `
-            -Payload $deferredPayload
+            -DispatchType 'assignment' `
+            -TimeoutSec 300 `
+            -Temperature 0
     } catch {
-        return [ordered]@{
-            ok                    = $false
-            phase                 = 'subagent_spawn_queue'
-            error                 = "Failed to launch deferred spawn worker: $($_.Exception.Message)"
-            taskId                = $TaskId
-            workerAgentId         = $WorkerAgentId
-            workerSpawnAgentId    = $workerSpawnAgentId
-            workerLegacyAgentName = $workerLegacyAgentName
-            bundlePath            = $bundlePath
-            workerTaskDataPath    = $workerTaskDataPath
-            spawnDispatch         = $spawnDispatch
+        $dispatchResult = [ordered]@{
+            ok    = $false
+            error = $_.Exception.Message
         }
     }
 
-        return [ordered]@{
-            ok                    = $true
-            mode                  = 'assign_deferred'
-            async                 = $true
+    # Patch the task with assignment and status
+    $updatedTask = Invoke-MconApi -Method Patch -Uri $taskUri -Token $authToken -Body @{
+        assigned_agent_id = $assignedAgentId
+        status            = 'in_progress'
+    }
+
+    return [ordered]@{
+        ok                    = $true
+        mode                  = 'assign'
         taskId                = $TaskId
         boardId               = $boardId
         workerAgentId         = $WorkerAgentId
         workerSpawnAgentId    = $workerSpawnAgentId
         workerLegacyAgentName = $workerLegacyAgentName
         bundlePath            = $bundlePath
-            workerTaskDataPath    = $workerTaskDataPath
-            spawnDispatch         = $spawnDispatch
-            deferredSpawn         = $deferredSpawn
-            recoverySweep         = @($recoverySweep)
-            nextStep              = 'A detached assign worker will sleep briefly, send the spawn prompt to the task session, retry on lock/transport failures, and patch the board after a real childSessionKey is returned.'
-        }
+        workerTaskDataPath    = $workerTaskDataPath
+        sessionKey            = $workerTaskSessionKey
+        dispatch              = $dispatchResult
+        finalTask             = Get-MconAssignTaskProjection -TaskData $updatedTask
+    }
 }
 
-Export-ModuleMember -Function Invoke-MconAssign, Invoke-MconDeferredAssignSpawn, ConvertTo-MconCanonicalAssignmentSessionKey, Get-MconTaskSubagentUuid, Get-MconAssignTaskProjection, Get-MconNormalizedWorkerAgentId, Resolve-MconRegisteredSubagentSession, Resolve-MconRegisteredSubagentSessionByTask, Get-MconAssignTaskBundlePaths, New-MconBootstrapBundle, Write-MconWorkerTaskData, Get-MconAssignmentOriginSessionKey
+Export-ModuleMember -Function Invoke-MconAssign, ConvertTo-MconCanonicalAssignmentSessionKey, Get-MconTaskSubagentUuid, Get-MconAssignTaskProjection, Get-MconNormalizedWorkerAgentId, Get-MconAssignTaskBundlePaths, New-MconBootstrapBundle, Write-MconWorkerTaskData, Get-MconAssignmentOriginSessionKey

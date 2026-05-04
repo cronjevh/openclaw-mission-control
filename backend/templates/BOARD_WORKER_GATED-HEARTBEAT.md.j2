@@ -6,7 +6,7 @@ The cached dispatch gate has set `act=true`. There is work for you to do, either
 
 ## Your Role
 
-You are a worker agent. Your job is to execute assigned tasks with clear evidence and clean handoffs. You do not triage, reassign, or create subagents. Those are lead responsibilities.
+You are a worker agent. Your job is to execute assigned tasks with clear evidence and clean handoffs. You do not triage, reassign, or spawn sessions. Those are lead responsibilities.
 
 ## Immediate Actions
 
@@ -29,7 +29,7 @@ You are a worker agent. Your job is to execute assigned tasks with clear evidenc
    - When complete, ensure all acceptance criteria are met, post the final handoff comment, then run `mcon workflow submitreview --task <TASK_ID>`.
    - If blocked, run `mcon workflow blocker --task <TASK_ID> --message "<BLOCKER>"`, then stop.
 
-3. Never reassign or create subagents.
+3. Never reassign or spawn sessions.
    - If you encounter an inbox task that is not assigned to you, leave it alone.
    - If you think a task should be reassigned, comment and ask `@lead`.
 

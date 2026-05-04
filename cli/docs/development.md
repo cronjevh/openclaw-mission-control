@@ -194,11 +194,11 @@ Key exports:
 - `Invoke-MconHeartbeatQueueProcessor` - Process all queued heartbeat items
 - `Add-MconHeartbeatQueueItem` - Enqueue a dispatch state
 - `Start-MconHeartbeatQueueProcessor` - Spawn background processor
-- `Invoke-MconRecoveryPrompt` - Send recovery prompt to stalled subagent
+- `Invoke-MconRecoveryPrompt` - Send recovery prompt to stalled worker session
 
 ### Assign.psm1
 
-Worker handoff workflow. Builds bootstrap bundle with task context and project knowledge, spawns worker subagent via OpenClaw, patches task assignment and status.
+Worker handoff workflow. Builds bootstrap bundle with task context and project knowledge, creates the worker task-scoped session via OpenClaw, patches task assignment and status.
 
 Key exports:
 - `Invoke-MconAssign` - Full assignment workflow with optional `--bundle-only` and `--dry-run`

@@ -1166,14 +1166,51 @@ function Invoke-MconRecoveryPrompt {
     $taskId = if ($TaskId) { $TaskId } else { $DispatchState.task_id }
     $recoveryAttempt = $DispatchState.recovery_attempt
     $stallReason = $DispatchState.stall_reason
-    $subagentSessionKey = $DispatchState.subagent_session_key
-    $subagentAgentId = $DispatchState.subagent_agent_id
     $taskDataPath = $DispatchState.task_data_path
 
+    # Support both new task-scoped field names and legacy subagent field names
+    $taskSessionKey = if ($DispatchState.PSObject.Properties.Name -contains 'task_session_key') { $DispatchState.task_session_key } else { $null }
+    $taskAgentId = if ($DispatchState.PSObject.Properties.Name -contains 'task_agent_id') { $DispatchState.task_agent_id } else { $null }
+    $subagentSessionKey = if ($DispatchState.PSObject.Properties.Name -contains 'subagent_session_key') { $DispatchState.subagent_session_key } else { $null }
+    $subagentAgentId = if ($DispatchState.PSObject.Properties.Name -contains 'subagent_agent_id') { $DispatchState.subagent_agent_id } else { $null }
+
+    $sessionKey = if ($taskSessionKey) { $taskSessionKey } else { $subagentSessionKey }
+    $agentId = if ($taskAgentId) { $taskAgentId } else { $subagentAgentId }
+
     if (-not $taskId) { throw "Missing task_id in recovery dispatch_state" }
-    if (-not $subagentSessionKey) { throw "Missing subagent_session_key in recovery dispatch_state" }
-    if (-not $subagentAgentId) { throw "Missing subagent_agent_id in recovery dispatch_state" }
     if (-not $taskDataPath) { throw "Missing task_data_path in recovery dispatch_state" }
+
+    # If session key or agent id are missing, try to derive them from task data
+    if (-not $sessionKey -or -not $agentId) {
+        if (Test-Path -LiteralPath $taskDataPath) {
+            $taskData = Get-Content -LiteralPath $taskDataPath -Raw | ConvertFrom-Json -Depth 50
+            $assignedAgentId = $null
+            if ($taskData.task.PSObject.Properties.Name -contains 'assigned_agent_id' -and $taskData.task.assigned_agent_id) {
+                $assignedAgentId = [string]$taskData.task.assigned_agent_id
+            }
+            if ($assignedAgentId) {
+                $openClawRoot = Split-Path -Parent $WorkspacePath
+                $workerWorkspacePath = Join-Path $openClawRoot "workspace-mc-$assignedAgentId"
+                if (Test-Path -LiteralPath $workerWorkspacePath) {
+                    try {
+                        $workerConfig = Resolve-MconOpenClawAgentConfig -WorkspacePath $workerWorkspacePath
+                        $workerSpawnAgentId = if ($workerConfig.PSObject.Properties.Name -contains 'spawn_agent_id') { [string]$workerConfig.spawn_agent_id } else { $null }
+                        if (-not [string]::IsNullOrWhiteSpace($workerSpawnAgentId)) {
+                            if (-not $sessionKey) {
+                                $sessionKey = "agent:$workerSpawnAgentId:task:$taskId"
+                            }
+                            if (-not $agentId) {
+                                $agentId = $workerSpawnAgentId
+                            }
+                        }
+                    } catch {}
+                }
+            }
+        }
+    }
+
+    if (-not $sessionKey) { throw "Missing task_session_key (or subagent_session_key) in recovery dispatch_state" }
+    if (-not $agentId) { throw "Missing task_agent_id (or subagent_agent_id) in recovery dispatch_state" }
 
     if (-not (Test-Path -LiteralPath $taskDataPath)) {
         throw "taskData.json not found at $taskDataPath"
@@ -1216,15 +1253,15 @@ Do not add commentary outside this structure. If you cannot comply, respond with
 "@
 
     if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
-        Write-MconQueueLog -Path $LogPath -Message "recovery_prompt begin task=$taskId queue_item=$QueueItemId session_key=$subagentSessionKey agent=$subagentAgentId attempt=$recoveryAttempt"
+        Write-MconQueueLog -Path $LogPath -Message "recovery_prompt begin task=$taskId queue_item=$QueueItemId session_key=$sessionKey agent=$agentId attempt=$recoveryAttempt"
     }
 
     $startTime = Get-Date
     $response = Send-MconOpenClawSessionMessage `
         -WorkspacePath $WorkspacePath `
-        -InvocationAgent $subagentAgentId `
+        -InvocationAgent $agentId `
         -Message $recoveryPrompt `
-        -SessionKey $subagentSessionKey `
+        -SessionKey $sessionKey `
         -TimeoutSec $TimeoutSec `
         -LogPath $LogPath `
         -TaskId $taskId `
@@ -1256,7 +1293,7 @@ Do not add commentary outside this structure. If you cannot comply, respond with
     } catch {
         $parseSuccess = $false
         $parsedReply = $null
-        Write-Warning "Failed to parse subagent reply as valid JSON: $_"
+        Write-Warning "Failed to parse worker reply as valid JSON: $_"
         if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
             Write-MconQueueLog -Path $LogPath -Message "recovery_prompt parse_failed task=$taskId queue_item=$QueueItemId error=$($_.Exception.Message)"
         }
@@ -1275,8 +1312,8 @@ Do not add commentary outside this structure. If you cannot comply, respond with
     $evidence = [ordered]@{
         timestamp           = (Get-Date).ToUniversalTime().ToString('o')
         task_id             = $taskId
-        subagent_session_key = $subagentSessionKey
-        subagent_agent_id   = $subagentAgentId
+        task_session_key    = $sessionKey
+        task_agent_id       = $agentId
         recovery_attempt    = $recoveryAttempt
         stall_reason        = $stallReason
         prompt_sent         = $recoveryPrompt
@@ -1295,7 +1332,7 @@ Do not add commentary outside this structure. If you cannot comply, respond with
     $commentBody = @"
 **[RECOVERY TURN #$recoveryAttempt]** — Stall detected: $stallReason
 
-Subagent response: $($parsedReply ? $parsedReply.recovery_action : 'PARSE_ERROR')
+Worker response: $($parsedReply ? $parsedReply.recovery_action : 'PARSE_ERROR')
 - Next step: $($parsedReply ? $parsedReply.next_step_description : 'N/A')
 - Needs from lead: $($parsedReply ? $parsedReply.required_input : 'N/A')
 - Est. completion: $($parsedReply ? $parsedReply.estimated_completion_cycles : 'N/A')

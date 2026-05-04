@@ -947,7 +947,6 @@ function Invoke-MconVerifyRun {
     $reworkDispatch = $null
     $escalationResult = $null
     if (-not $executionResult.passed) {
-        $subagentUuid = Get-MconTaskSubagentUuid -Task $task
         $assignedAgentId = if ($task.PSObject.Properties.Name -contains 'assigned_agent_id' -and $task.assigned_agent_id) {
             [string]$task.assigned_agent_id
         } else { $null }
@@ -955,68 +954,20 @@ function Invoke-MconVerifyRun {
         $openClawRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
         $openClawRoot = if ($leadConfig.workspace_path) { Split-Path -Parent $leadConfig.workspace_path } else { $openClawRoot }
 
-        $sessionAgentNames = @()
-
-        # Build agent names from assigned_agent_id workspace if available
+        $workerSpawnAgentId = $null
         if ($assignedAgentId) {
             $workerWorkspacePath = Join-Path $openClawRoot "workspace-mc-$assignedAgentId"
             if (Test-Path -LiteralPath $workerWorkspacePath) {
                 try {
                     $workerConfig = Resolve-MconOpenClawAgentConfig -WorkspacePath $workerWorkspacePath
-                    $workerAgentId = if ($workerConfig.PSObject.Properties.Name -contains 'agent_id') { [string]$workerConfig.agent_id } else { $null }
-                    $workerConfigId = if ($workerConfig.PSObject.Properties.Name -contains 'config_id') { [string]$workerConfig.config_id } else { $null }
-                    $workerName = if ($workerConfig.PSObject.Properties.Name -contains 'name') { [string]$workerConfig.name } else { $null }
-                    $mcDirName = "mc-$assignedAgentId"
-                    foreach ($candidate in @($workerConfigId, $workerAgentId, $workerName, $mcDirName)) {
-                        if (-not [string]::IsNullOrWhiteSpace($candidate) -and ($sessionAgentNames -notcontains $candidate)) {
-                            $sessionAgentNames += $candidate
-                        }
-                    }
+                    $workerSpawnAgentId = if ($workerConfig.PSObject.Properties.Name -contains 'spawn_agent_id') { [string]$workerConfig.spawn_agent_id } else { $null }
                 } catch {}
             }
         }
 
-        # Fallback: search all board agents from keybag for session registry
-        if ($sessionAgentNames.Count -eq 0) {
-            try {
-                $keybag = Get-MconDecryptedKeybag
-                if ($keybag -and $keybag.agents) {
-                    foreach ($aid in $keybag.agents.PSObject.Properties.Name) {
-                        $agent = $keybag.agents.$aid
-                        if ($agent.board_id -eq $boardId -and -not $agent.is_board_lead -and -not [string]::IsNullOrWhiteSpace($agent.name)) {
-                            $name = [string]$agent.name
-                            if ($sessionAgentNames -notcontains $name) {
-                                $sessionAgentNames += $name
-                            }
-                        }
-                    }
-                }
-            } catch {}
-        }
-
-        $registeredSession = $null
-        if ($sessionAgentNames.Count -gt 0) {
-            if (-not [string]::IsNullOrWhiteSpace($subagentUuid)) {
-                $registeredSession = Resolve-MconRegisteredSubagentSession `
-                    -OpenClawRoot $openClawRoot `
-                    -AgentName $sessionAgentNames `
-                    -SubagentUuid $subagentUuid `
-                    -TaskId $TaskId
-            }
-
-            if (-not $registeredSession) {
-                $registeredSession = Resolve-MconRegisteredSubagentSessionByTask `
-                    -OpenClawRoot $openClawRoot `
-                    -AgentName $sessionAgentNames `
-                    -TaskId $TaskId
-            }
-        }
-
-        if ($registeredSession) {
-            $childSessionKey = [string]$registeredSession.childSessionKey
-            $subagentAgentId = if ($registeredSession.PSObject.Properties.Name -contains 'registryAgentId') {
-                [string]$registeredSession.registryAgentId
-            } else { $sessionAgentNames[0] }
+        if (-not [string]::IsNullOrWhiteSpace($workerSpawnAgentId)) {
+            # Use deterministic task-scoped session key
+            $childSessionKey = "agent:$workerSpawnAgentId:task:$TaskId"
 
             try {
                 # Generate rework bootstrap and worker task data
@@ -1060,7 +1011,7 @@ $commentMessage
                 $diagnosticsDir = Join-Path $taskBundlePaths.evidence_directory 'session-dispatch'
                 $deferredPayload = [ordered]@{
                     workspace_path        = [string]$leadConfig.workspace_path
-                    invocation_agent      = $subagentAgentId
+                    invocation_agent      = $workerSpawnAgentId
                     session_key           = $childSessionKey
                     message               = $reworkPrompt
                     task_id               = $TaskId
@@ -1078,7 +1029,7 @@ $commentMessage
                 $reworkDispatch = [ordered]@{
                     ok          = $true
                     session_key = $childSessionKey
-                    agent_id    = $subagentAgentId
+                    agent_id    = $workerSpawnAgentId
                     queued      = $true
                     dispatch    = $response
                 }
@@ -1092,8 +1043,8 @@ $commentMessage
         } else {
             $reworkDispatch = [ordered]@{
                 ok     = $false
-                reason = 'no_registered_session'
-                note   = 'Could not find a registered subagent session for rework dispatch.'
+                reason = 'no_worker_spawn_agent_id'
+                note   = 'Could not resolve worker spawn_agent_id for rework dispatch.'
             }
         }
 
@@ -1241,69 +1192,26 @@ function Invoke-MconVerifyFail {
 
     $reworkDispatch = $null
     $escalationResult = $null
-    $subagentUuid = Get-MconTaskSubagentUuid -Task $task
     $openClawRoot = Split-Path -Parent $leadConfig.workspace_path
     # Precompute task bundle paths and fetch comments for bootstrap generation
     $taskBundlePaths = Get-MconAssignTaskBundlePaths -LeadWorkspacePath $leadConfig.workspace_path -TaskId $TaskId
     $commentsUri = "$taskUri/comments"
     $commentsResponse = Invoke-MconApi -Method Get -Uri $commentsUri -Token $authToken
 
-    $sessionAgentNames = @()
+    $workerSpawnAgentId = $null
     if ($assignedAgentId) {
         $workerWorkspacePath = Join-Path $openClawRoot "workspace-mc-$assignedAgentId"
         if (Test-Path -LiteralPath $workerWorkspacePath) {
             try {
                 $workerConfig = Resolve-MconOpenClawAgentConfig -WorkspacePath $workerWorkspacePath
-                $workerAgentId = if ($workerConfig.PSObject.Properties.Name -contains 'agent_id') { [string]$workerConfig.agent_id } else { $null }
-                $workerConfigId = if ($workerConfig.PSObject.Properties.Name -contains 'config_id') { [string]$workerConfig.config_id } else { $null }
-                $workerName = if ($workerConfig.PSObject.Properties.Name -contains 'name') { [string]$workerConfig.name } else { $null }
-                foreach ($candidate in @($workerConfigId, $workerAgentId, $workerName)) {
-                    if (-not [string]::IsNullOrWhiteSpace($candidate) -and ($sessionAgentNames -notcontains $candidate)) {
-                        $sessionAgentNames += $candidate
-                    }
-                }
+                $workerSpawnAgentId = if ($workerConfig.PSObject.Properties.Name -contains 'spawn_agent_id') { [string]$workerConfig.spawn_agent_id } else { $null }
             } catch {}
         }
     }
-    if ($sessionAgentNames.Count -eq 0) {
-        try {
-            $keybag = Get-MconDecryptedKeybag
-            if ($keybag -and $keybag.agents) {
-                foreach ($aid in $keybag.agents.PSObject.Properties.Name) {
-                    $agent = $keybag.agents.$aid
-                    if ($agent.board_id -eq $boardId -and -not $agent.is_board_lead -and -not [string]::IsNullOrWhiteSpace($agent.name)) {
-                        $name = [string]$agent.name
-                        if ($sessionAgentNames -notcontains $name) {
-                            $sessionAgentNames += $name
-                        }
-                    }
-                }
-            }
-        } catch {}
-    }
 
-    $registeredSession = $null
-    if ($sessionAgentNames.Count -gt 0) {
-        if (-not [string]::IsNullOrWhiteSpace($subagentUuid)) {
-            $registeredSession = Resolve-MconRegisteredSubagentSession `
-                -OpenClawRoot $openClawRoot `
-                -AgentName $sessionAgentNames `
-                -SubagentUuid $subagentUuid `
-                -TaskId $TaskId
-        }
-        if (-not $registeredSession) {
-            $registeredSession = Resolve-MconRegisteredSubagentSessionByTask `
-                -OpenClawRoot $openClawRoot `
-                -AgentName $sessionAgentNames `
-                -TaskId $TaskId
-        }
-    }
-
-    if ($registeredSession) {
-        $childSessionKey = [string]$registeredSession.childSessionKey
-        $subagentAgentId = if ($registeredSession.PSObject.Properties.Name -contains 'registryAgentId') {
-            [string]$registeredSession.registryAgentId
-        } else { $sessionAgentNames[0] }
+    if (-not [string]::IsNullOrWhiteSpace($workerSpawnAgentId)) {
+        # Use deterministic task-scoped session key
+        $childSessionKey = "agent:$workerSpawnAgentId:task:$TaskId"
 
         try {
             # Generate rework bootstrap and worker task data
@@ -1348,7 +1256,7 @@ $Message
             $diagnosticsDir = Join-Path $taskBundlePaths.evidence_directory 'session-dispatch'
             $deferredPayload = [ordered]@{
                 workspace_path        = [string]$leadConfig.workspace_path
-                invocation_agent      = $subagentAgentId
+                invocation_agent      = $workerSpawnAgentId
                 session_key           = $childSessionKey
                 message               = $reworkPrompt
                 task_id               = $TaskId
@@ -1366,7 +1274,7 @@ $Message
             $reworkDispatch = [ordered]@{
                 ok          = $true
                 session_key = $childSessionKey
-                agent_id    = $subagentAgentId
+                agent_id    = $workerSpawnAgentId
                 queued      = $true
                 dispatch    = $response
             }
@@ -1379,8 +1287,8 @@ $Message
     } else {
         $reworkDispatch = [ordered]@{
             ok     = $false
-            reason = 'no_registered_session'
-            note   = 'Could not find a registered subagent session for rework dispatch.'
+            reason = 'no_worker_spawn_agent_id'
+            note   = 'Could not resolve worker spawn_agent_id for rework dispatch.'
         }
     }
 

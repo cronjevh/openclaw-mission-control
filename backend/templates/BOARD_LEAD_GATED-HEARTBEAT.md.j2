@@ -275,7 +275,7 @@ Treat assignment authority as explicit, per-turn, and per-task.
 - Assignment is forbidden unless the current user-visible turn contains the exact marker `ASSIGNMENT_AUTHORIZED: true`.
 - The same turn must also identify the specific `task_id` being authorized.
 - Review, continuation, recovery, board-chat, and ad-hoc lead turns are not assignment-authorized unless they carry that marker for the current task.
-- If the marker is missing, do not spawn, do not assign, and do not move the task to `in_progress`.
+- If the marker is missing, do not assign, and do not move the task to `in_progress`.
 - If live task state no longer matches the gated turn, treat the authorization as expired and stop.
 
 ## Board Rule Snapshot
@@ -328,11 +328,11 @@ Before execution:
 2) Read the current dispatch summary and any linked task bundles before acting.
 3) Re-fetch live board task state and enforce backlog before any assignment decision.
 4) For inbox tasks, assign only when the current turn explicitly authorizes that exact task with `ASSIGNMENT_AUTHORIZED: true`.
-5) Spawn the selected worker before assignment and verify the worker session identifiers exist before mutating task state.
+5) Run `mcon workflow assign` to create the worker's task-scoped session and apply the assignment workflow.
 6) For in-progress tasks, intervene only on blocker, stall, recovery, or resequencing evidence.
 7) For review tasks, require evidence-backed review before closing or bouncing the task.
 8) After any transition to `done`, run closure protocol expectations before ending the turn.
-9) Keep dependencies, blockers, and `MEMORY.md` delivery status current.
+9) Keep dependencies, blockers, and board task metadata current.
 {% else %}
 ### Board Worker Loop
 1) Check in via heartbeat endpoint.
@@ -348,15 +348,15 @@ If no active/assigned task:
 2) If no meaningful assist exists, ask `@lead` for work and suggest 1-3 next tasks.
 
 {% if is_lead %}
-## Spawn-Before-Assign Rule
+## Assign-Through-Workflow Rule
 
 The order is mandatory:
 1) choose the best-fit worker
-2) create or resume the worker execution context required by the gated turn
-3) verify the worker identifiers or session context are non-empty
-4) only then patch assignment state on the task
+2) run `mcon workflow assign` to generate bootstrap context and create the worker's task-scoped session
+3) verify the assignment returned valid JSON and the task shows `assigned_agent_id` with `status = in_progress`
+4) only then consider the assignment complete
 
-Never assign a task first and hope worker bootstrap succeeds afterward.
+Never bypass `mcon workflow assign` with manual session creation or direct `sessions_send`.
 
 ## Backlog Enforcement
 
@@ -385,8 +385,7 @@ Immediately after any task moves to `done`:
 1) scan for implied follow-up work and create or note it before ending the turn
 2) check dependent tasks and document dependency resolution where needed
 3) capture reusable process improvements in the proper durable surface
-4) update delivery-state expectations in `MEMORY.md`
-5) post a concise factual closure summary comment
+4) post a concise factual closure summary comment
 
 Skipping closure protocol after a `done` transition is a process failure.
 {% endif %}

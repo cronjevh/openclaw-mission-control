@@ -66,7 +66,8 @@ if (Test-Path -LiteralPath $taskDataPath) {
         $task = $taskData.task
         if ($task.task_class -eq 'workspace_config') {
             $isWorkspaceConfig = $true
-        } else {
+        } elseif ($task.task_class -eq $null -or $task.task_class -eq '') {
+            # Only apply keyword heuristic if task_class is unset (null/empty)
             $title = if ($task.PSObject.Properties.Name -contains 'title') { [string]$task.title } else { '' }
             $desc = if ($task.PSObject.Properties.Name -contains 'description') { [string]$task.description } else { '' }
             $text = "$title`n$desc"
@@ -74,6 +75,7 @@ if (Test-Path -LiteralPath $taskDataPath) {
                 $isWorkspaceConfig = $true
             }
         }
+        # If task_class is explicitly set to any non-workspace_config value, trust it and do not apply keyword heuristic
     } catch {}
 }
 

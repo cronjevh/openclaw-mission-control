@@ -267,7 +267,7 @@ Default reasoning intensity for turns.
 #### Concurrency Controls
 
 - `agents.defaults.maxConcurrent`: max parallel top-level runs.
-- `agents.defaults.subagents.maxConcurrent`: max parallel subagent runs.
+- `agents.defaults.subagents.maxConcurrent`: max parallel task-scoped session runs.
 
 Use these to control throughput versus host/API pressure.
 
@@ -492,7 +492,7 @@ When adding a gateway in Mission Control:
 
 ## Why This Baseline Works
 
-- Sensible concurrency defaults for both primary and subagents.
+- Sensible concurrency defaults for both primary agents and task-scoped sessions.
 - Context-pruning + compaction settings tuned to reduce context bloat.
 - Memory flush before compaction to preserve durable notes.
 - Conservative command deny-list for risky node capabilities.

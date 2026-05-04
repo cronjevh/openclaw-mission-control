@@ -793,9 +793,6 @@ Statuses: inbox, in_progress, review, done, blocked
                 $originSessionKey = $null
                 $bundleOnly = $false
                 $dryRun = $false
-                $processDeferredSpawn = $false
-                $payloadPath = $null
-                $messageFile = $null
                 $i = 0
                 while ($i -lt $wfArgs.Count) {
                     switch ($wfArgs[$i]) {
@@ -805,46 +802,9 @@ Statuses: inbox, in_progress, review, done, blocked
                         '--origin-session-key' { $originSessionKey = $wfArgs[++$i]; break }
                         '--bundle-only' { $bundleOnly = $true; break }
                         '--dry-run' { $dryRun = $true; break }
-                        '--process-deferred-spawn' { $processDeferredSpawn = $true; break }
-                        '--payload' { $payloadPath = $wfArgs[++$i]; break }
                         default { Write-MconError -Message "Unknown flag: $($wfArgs[$i])" -Code 'usage' }
                     }
                     $i++
-                }
-
-                if ($processDeferredSpawn) {
-                    if (-not $payloadPath) {
-                        Write-MconError -Message '--payload <PATH> is required with --process-deferred-spawn.' -Code 'usage'
-                    }
-
-                    try {
-                        $result = Invoke-MconDeferredAssignSpawn -PayloadPath $payloadPath
-                        if ($result.ok) {
-                            Write-MconResult -Data ([ordered]@{
-                                    ok     = $true
-                                    action = 'workflow.assign.deferred'
-                                    result = $result
-                                })
-                            return
-                        }
-                        else {
-                            Write-MconError -Message "$($result.phase): $($result.error)" -Code 'assign_error'
-                        }
-                    }
-                    catch {
-                        Write-MconError -Message $_.Exception.Message -Code 'assign_error'
-                    }
-                }
-
-                # Handle --message-file for workflow commands (read message from file)
-                if ($messageFile) {
-                    if ($message) {
-                        Write-MconError -Message 'Use either --message <TEXT> or --message-file <PATH>, not both.' -Code 'usage'
-                    }
-                    if (-not (Test-Path -LiteralPath $messageFile)) {
-                        Write-MconError -Message \"Message file not found: $messageFile\" -Code 'validation'
-                    }
-                    $message = Get-Content -LiteralPath $messageFile -Raw -Encoding UTF8
                 }
 
                 if (-not $taskId) {
@@ -882,7 +842,6 @@ Statuses: inbox, in_progress, review, done, blocked
                         TaskId           = $taskId
                         WorkerAgentId    = $workerAgentId
                         OriginSessionKey = $originSessionKey
-                        MconScriptPath   = $PSCommandPath
                     }
                     if ($workerWorkspacePath) { $assignParams.WorkerWorkspacePath = $workerWorkspacePath }
                     if ($bundleOnly) { $assignParams.BundleOnly = $true }

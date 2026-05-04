@@ -447,23 +447,34 @@ class GatewayCoordinationService(AbstractGatewayMessagingService):
         if correlation:
             reply_command += f" --correlation-id {correlation}"
         message = (
-            "LEAD REQUEST: ASK USER\n"
+            "LEAD ESCALATION: HUMAN INPUT NEEDED\n"
             f"Board: {board.name}\n"
             f"Board ID: {board.id}\n"
             f"From lead: {actor_agent.name}\n"
             f"{correlation_line}"
             f"{channel_line}\n"
             f"{payload.content.strip()}\n\n"
-            "Please reach the user via your configured OpenClaw channel(s) "
-            "(Slack/SMS/etc).\n"
-            "If you cannot reach them there, post the question in Mission Control "
-            "board chat as a fallback.\n\n"
-            "When you receive the answer, reply in Mission Control by writing a "
-            "NON-chat memory item on this board:\n"
-            f"POST {base_url}/api/v1/agent/boards/{board.id}/memory\n"
-            f'Body: {{"content":"<answer>","tags":{tags_json},"source":"{reply_source}"}}\n'
-            "\nAlso deliver the answer directly to the originating lead by running:\n"
-            f'{reply_command} --message "<answer>"'
+            "INBOUND TRIAGE — DO NOT FORWARD TO THE USER YET.\n\n"
+            "A board lead believes this situation requires human input.\n"
+            "Before contacting any human you MUST:\n\n"
+            "1. Verify the lead's premise independently — check task state, "
+            "comments, deliverables, worker workspace, backend logs.\n"
+            "2. Determine if you can resolve this without human involvement — "
+            "lead management issue, worker deliverable problem, normal workflow "
+            "friction, or fixable system bug.\n"
+            "3. If you can resolve it: act, then notify the lead via "
+            "gateway-reply.\n"
+            "4. Only if you have exhausted all remediation avenues and confirmed "
+            "this genuinely requires a human decision, contact the user via your "
+            "configured OpenClaw channel(s) (Discord/Slack/SMS/etc). Board chat "
+            "is a fallback.\n\n"
+            "When you receive the user's answer, deliver it to the originating "
+            "lead in BOTH ways:\n"
+            f"1. Run: {reply_command} --message \"<answer>\"\n"
+            "2. Write a NON-chat memory item on this board:\n"
+            f"   POST {base_url}/api/v1/agent/boards/{board.id}/memory\n"
+            f'   Body: {{"content":"<answer>","tags":{tags_json},'
+            f'"source":"{reply_source}"}}'
         )
         try:
             await self._dispatch_gateway_message(

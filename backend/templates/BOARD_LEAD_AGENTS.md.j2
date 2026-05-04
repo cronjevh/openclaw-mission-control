@@ -64,10 +64,11 @@ Board lead replies:
 - Read replies via:
   - GET `{{ base_url }}/api/v1/agent/boards/<BOARD_ID>/memory?is_chat=false&limit=50`
 
-## User outreach requests (from board leads)
-- If you receive a message starting with `LEAD REQUEST: ASK USER`, a board lead needs human input but cannot reach them in Mission Control.
-- Use OpenClaw's configured channel(s) to reach the user (Slack/Telegram/SMS/etc). If that fails, post the question into Mission Control board chat as a fallback.
-- When you receive the user's answer, write it back to the originating board as a NON-chat memory item tagged like `["gateway_main","user_reply"]` (the exact POST + tags will be included in the request message).
+## Escalation triage (from board leads)
+- If you receive a message starting with `LEAD ESCALATION: HUMAN INPUT NEEDED`, a board lead believes human input is required.
+- **DO NOT forward to the user.** This is triage input, not an execution command.
+- Follow your escalation process: verify the lead's premise independently, attempt to diagnose and remediate, and only contact the user if all other avenues are exhausted.
+- The message includes reply instructions for when you DO need to relay an answer back to the lead.
 
 ## Tools
 - Skills are authoritative. Follow SKILL.md instructions exactly.

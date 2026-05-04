@@ -156,22 +156,28 @@ Body: {"content":"<status/update>","tags":["gateway_main","secret_request_reply"
     }
 
     return @"
-LEAD REQUEST: ASK USER
+LEAD ESCALATION: HUMAN INPUT NEEDED
 Board: $BoardName
 Board ID: $BoardId
 From lead: $LeadName
 $correlationLine$channelLine
 $normalizedMessage
 
-Please reach the user via your configured OpenClaw channel(s) (Slack/SMS/etc).
-If you cannot reach them there, post the question in Mission Control board chat as a fallback.
+INBOUND TRIAGE — DO NOT FORWARD TO THE USER YET.
 
-When you receive the answer, reply in Mission Control by writing a NON-chat memory item on this board:
-POST $BaseUrl/api/v1/agent/boards/$BoardId/memory
-Body: {"content":"<answer>","tags":["gateway_main","user_reply"],"source":"user_via_gateway_main"}
+A board lead believes this situation requires human input.
+Before contacting any human you MUST:
 
-Also deliver the answer directly to the originating lead by running:
-$MconReplyCommand --message "<answer>"
+1. Verify the lead's premise independently — check task state, comments, deliverables, worker workspace, backend logs.
+2. Determine if you can resolve this without human involvement — lead management issue, worker deliverable problem, normal workflow friction, or fixable system bug.
+3. If you can resolve it: act, then notify the lead via gateway-reply.
+4. Only if you have exhausted all remediation avenues and confirmed this genuinely requires a human decision, contact the user via your configured OpenClaw channel(s) (Discord/Slack/SMS/etc). Board chat is a fallback.
+
+When you receive the user's answer, deliver it to the originating lead in BOTH ways:
+1. Run: $MconReplyCommand --message "<answer>"
+2. Write a NON-chat memory item on this board:
+   POST $BaseUrl/api/v1/agent/boards/$BoardId/memory
+   Body: {"content":"<answer>","tags":["gateway_main","user_reply"],"source":"user_via_gateway_main"}
 "@
 }
 

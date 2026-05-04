@@ -514,15 +514,15 @@ $out = pwsh -NoProfile -File $mconScript task comment --task 00000000-0000-0000-
 Assert-ExitCode -Label 'comment-no-msg-exit1' -Expected 1 -Actual $LASTEXITCODE
 Assert-OutputContains -Label 'comment-no-msg-error' -Output ($out -join '') -Expected 'required'
 
-# Test: task move without --status
+# Test: task move without --board
 $out = pwsh -NoProfile -File $mconScript task move --task 00000000-0000-0000-0000-000000000001 2>&1
-Assert-ExitCode -Label 'move-no-status-exit1' -Expected 1 -Actual $LASTEXITCODE
-Assert-OutputContains -Label 'move-no-status-error' -Output ($out -join '') -Expected 'requires either'
+Assert-ExitCode -Label 'move-no-board-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'move-no-board-error' -Output ($out -join '') -Expected 'requires --board'
 
-# Test: task move with invalid status
-$out = pwsh -NoProfile -File $mconScript task move --task 00000000-0000-0000-0000-000000000001 --status flying 2>&1
-Assert-ExitCode -Label 'move-bad-status-exit1' -Expected 1 -Actual $LASTEXITCODE
-Assert-OutputContains -Label 'move-bad-status-error' -Output ($out -join '') -Expected 'Invalid status'
+# Test: task move with --status is rejected
+$out = pwsh -NoProfile -File $mconScript task move --task 00000000-0000-0000-0000-000000000001 --status done 2>&1
+Assert-ExitCode -Label 'move-status-rejected-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'move-status-rejected-error' -Output ($out -join '') -Expected 'no longer supported'
 
 # Test: unknown flag
 $out = pwsh -NoProfile -File $mconScript task show --task 00000000-0000-0000-0000-000000000001 --bogus 2>&1
@@ -661,19 +661,19 @@ function Invoke-MconProcess {
 
 # Test: worker denied task move
 Write-Host '--- worker denied task move ---'
-$out = Invoke-MconProcess -Arguments @('task','move','--task','00000000-0000-0000-0000-000000000001','--status','done') -Wsp 'workspace-mc-testagent'
+$out = Invoke-MconProcess -Arguments @('task','move','--task','00000000-0000-0000-0000-000000000001','--board','00000000-0000-0000-0000-000000000000','--comment','moving') -Wsp 'workspace-mc-testagent'
 Assert-ExitCode -Label 'worker-move-denied-exit1' -Expected 1 -Actual $LASTEXITCODE
 Assert-OutputContains -Label 'worker-move-denied-msg' -Output $out -Expected 'Permission denied'
 
-# Test: lead denied task move
-Write-Host '--- lead denied task move ---'
-$out = Invoke-MconProcess -Arguments @('task','move','--task','00000000-0000-0000-0000-000000000001','--status','done') -Wsp 'workspace-lead-testboard'
-Assert-ExitCode -Label 'lead-move-denied-exit1' -Expected 1 -Actual $LASTEXITCODE
-Assert-OutputContains -Label 'lead-move-denied-msg' -Output $out -Expected 'Permission denied'
+# Test: lead allowed task move (will fail at API but not at permission)
+Write-Host '--- lead passes permission check (API fails) ---'
+$out = Invoke-MconProcess -Arguments @('task','move','--task','00000000-0000-0000-0000-000000000001','--board','00000000-0000-0000-0000-000000000000','--comment','moving') -Wsp 'workspace-lead-testboard'
+Assert-ExitCode -Label 'lead-move-api-error-exit1' -Expected 1 -Actual $LASTEXITCODE
+Assert-OutputContains -Label 'lead-move-passes-perm' -Output $out -Expected 'Connection refused'
 
 # Test: gateway allowed task move (will fail at API but not at permission)
 Write-Host '--- gateway passes permission check (API fails) ---'
-$out = Invoke-MconProcess -Arguments @('task','move','--task','00000000-0000-0000-0000-000000000001','--status','done') -Wsp 'workspace-gateway-testgw'
+$out = Invoke-MconProcess -Arguments @('task','move','--task','00000000-0000-0000-0000-000000000001','--board','00000000-0000-0000-0000-000000000000','--comment','moving') -Wsp 'workspace-gateway-testgw'
 Assert-ExitCode -Label 'gateway-move-api-error-exit1' -Expected 1 -Actual $LASTEXITCODE
 Assert-OutputContains -Label 'gateway-move-passes-perm' -Output $out -Expected 'Connection refused'
 

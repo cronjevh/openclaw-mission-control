@@ -65,7 +65,6 @@ Usage:
   mcon task show        [--board <BOARD_ID>] --task <TASK_ID>
   mcon task show        [--board <BOARD_ID>] --tags <TAG_ID|SLUG|NAME,...>
    mcon task comment    --task <TASK_ID> (--message <TEXT>|--message-file <PATH>)
-   mcon task move       --task <TASK_ID> --status <STATUS>
    mcon task move       --task <TASK_ID> --board <BOARD_ID> --comment <TEXT> [--source-board <BOARD_ID>]
   mcon task create     --title <TITLE> [--description <TEXT>|--message-file <PATH>] [--priority <LEVEL>] [--backlog <true|false>] [--tags <TAG_ID,...>] [--depends-on <TASK_ID,...>]
   mcon task update     --task <TASK_ID> [--title <TITLE>] [--description <TEXT>|--message-file <PATH>] [--priority <LEVEL>] [--backlog <true|false>] [--tags <TAG_ID,...>] [--depends-on <TASK_ID,...>]
@@ -93,7 +92,6 @@ Roles (derived from MCON_WSP):
 
 Permissions:
   task.list            → all
-  task.move            → gateway only
   task.movetoboard     → gateway, lead only
   task.update          → lead, gateway only
   admin.gettokens      → gateway only
@@ -319,32 +317,23 @@ Statuses: inbox, in_progress, review, done, blocked
                 }
             }
             'move' {
-                if ($status -and $targetBoard) {
-                    Write-MconError -Message 'Use either --status <STATUS> for status change or --board <BOARD_ID> for board move, not both.' -Code 'usage'
-                }
                 if ($status) {
-                    $status = $status.ToLowerInvariant()
-                    if (-not (Test-MconValidStatus -Status $status)) {
-                        $valid = (Get-MconValidStatuses) -join ', '
-                        Write-MconError -Message "Invalid status '$status'. Valid: $valid" -Code 'validation'
-                    }
+                    Write-MconError -Message 'task move --status is no longer supported. Use task move --board <BOARD_ID> --comment <TEXT>.' -Code 'usage'
                 }
-                elseif ($targetBoard) {
-                    if ($targetBoard -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
-                        Write-MconError -Message "Invalid target board ID format: $targetBoard" -Code 'validation'
-                    }
-                    if ($sourceBoard -and $sourceBoard -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
-                        Write-MconError -Message "Invalid source board ID format: $sourceBoard" -Code 'validation'
-                    }
-                    if (-not $moveComment) {
-                        Write-MconError -Message '--comment <TEXT> is required when moving a task to another board.' -Code 'usage'
-                    }
-                    if ([string]::IsNullOrWhiteSpace($moveComment)) {
-                        Write-MconError -Message 'Comment must not be empty.' -Code 'validation'
-                    }
+                if (-not $targetBoard) {
+                    Write-MconError -Message 'task move requires --board <BOARD_ID> --comment <TEXT>.' -Code 'usage'
                 }
-                else {
-                    Write-MconError -Message 'task move requires either --status <STATUS> or --board <BOARD_ID> --comment <TEXT>.' -Code 'usage'
+                if ($targetBoard -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                    Write-MconError -Message "Invalid target board ID format: $targetBoard" -Code 'validation'
+                }
+                if ($sourceBoard -and $sourceBoard -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                    Write-MconError -Message "Invalid source board ID format: $sourceBoard" -Code 'validation'
+                }
+                if (-not $moveComment) {
+                    Write-MconError -Message '--comment <TEXT> is required when moving a task to another board.' -Code 'usage'
+                }
+                if ([string]::IsNullOrWhiteSpace($moveComment)) {
+                    Write-MconError -Message 'Comment must not be empty.' -Code 'validation'
                 }
             }
             'create' {
@@ -449,7 +438,7 @@ Statuses: inbox, in_progress, review, done, blocked
             Write-MconError -Message $_.Exception.Message -Code 'config_error'
         }
 
-        $actionKey = if ($action -eq 'move' -and $targetBoard) { 'task.movetoboard' } else { "task.$action" }
+        $actionKey = if ($action -eq 'move') { 'task.movetoboard' } else { "task.$action" }
         if (-not (Test-MconPermission -Action $actionKey -Role $role)) {
             $msg = Get-MconDeniedMessage -Action $actionKey -Role $role
             Write-MconError -Message $msg -Code 'forbidden'
@@ -540,28 +529,22 @@ Statuses: inbox, in_progress, review, done, blocked
             }
             'move' {
                 try {
-                    if ($targetBoard) {
-                        $effectiveSourceBoard = if ($sourceBoard) { $sourceBoard } else { $config.board_id }
-                        if (-not $effectiveSourceBoard) {
-                            Write-MconError -Message '--source-board <BOARD_ID> is required (no board context from workspace).' -Code 'usage'
-                        }
-
-                        $result = Move-MconTaskBetweenBoards -BaseUrl $config.base_url -Token $config.auth_token -TargetBoardId $targetBoard -SourceBoardId $effectiveSourceBoard -TaskId $task -Comment $moveComment
-
-                        Write-MconResult -Data ([ordered]@{
-                            ok            = $true
-                            action        = 'task.movetoboard'
-                            source_board  = $result.source_board_id
-                            target_board  = $result.target_board_id
-                            source_task   = $result.source_task_id
-                            new_task      = $result.new_task_id
-                            task          = $result.task
-                        })
+                    $effectiveSourceBoard = if ($sourceBoard) { $sourceBoard } else { $config.board_id }
+                    if (-not $effectiveSourceBoard) {
+                        Write-MconError -Message '--source-board <BOARD_ID> is required (no board context from workspace).' -Code 'usage'
                     }
-                    else {
-                        $result = Set-MconTaskStatus -BaseUrl $config.base_url -Token $config.auth_token -BoardId $config.board_id -TaskId $task -Status $status
-                        Write-MconResult -Data ([ordered]@{ ok = $true; task = $result })
-                    }
+
+                    $result = Move-MconTaskBetweenBoards -BaseUrl $config.base_url -Token $config.auth_token -TargetBoardId $targetBoard -SourceBoardId $effectiveSourceBoard -TaskId $task -Comment $moveComment
+
+                    Write-MconResult -Data ([ordered]@{
+                        ok            = $true
+                        action        = 'task.movetoboard'
+                        source_board  = $result.source_board_id
+                        target_board  = $result.target_board_id
+                        source_task   = $result.source_task_id
+                        new_task      = $result.new_task_id
+                        task          = $result.task
+                    })
                 }
                 catch {
                     Write-MconError -Message $_.Exception.Message -Code (Get-MconErrorCodeFromException -Exception $_.Exception)

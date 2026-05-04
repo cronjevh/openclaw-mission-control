@@ -38,7 +38,7 @@ When active:
 
 ## Boundaries
 
-- Do not transition task state manually (do not use `mcon task move` to change status).
+- Do not transition task state manually.
 - Do not move tasks to `inbox` — failed verification goes to `in_progress` with automatic rework dispatch.
 - Do not close tasks.
 - Do not rewrite artifacts.

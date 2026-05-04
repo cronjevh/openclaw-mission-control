@@ -58,7 +58,6 @@ The CLI auto-detects the workspace from `$PWD`, decrypts the keybag, and execute
 | `mcon task show --task <ID>` | View task details | all |
 | `mcon task show --tags <TAG_ID\|SLUG\|NAME,...>` | Summarize board work for one or more tags, including objective/KRs from tag description markdown | all |
 | `mcon task comment --task <ID> --message <TEXT>` | Add comment to task | all |
-| `mcon task move --task <ID> --status <STATUS>` | Change task status | gateway |
 | `mcon task move --task <ID> --board <BOARD_ID> --comment <TEXT> [--source-board <BOARD_ID>]` | Move inbox task to another board (creates new task on target, deletes from source) | gateway, lead |
 | `mcon task create --title <TITLE> [--description <TEXT>] [--priority <LEVEL>] [--backlog <true\|false>] [--tags <TAG_ID,...>] [--depends-on <TASK_ID,...>]` | Create a new task | all |
 | `mcon task update --task <ID> [--title <TITLE>] [--description <TEXT>] [--priority <LEVEL>] [--backlog <true\|false>] [--tags <TAG_ID,...>] [--depends-on <TASK_ID,...>]` | Update task fields | lead, gateway |
@@ -127,7 +126,6 @@ Permissions matrix:
 |--------|------|---------|--------|----------|
 | `task.show` | yes | yes | yes | yes |
 | `task.comment` | yes | yes | yes | yes |
-| `task.move` | | yes | | |
 | `task.movetoboard` | yes | yes | | |
 | `task.create` | yes | yes | yes | yes |
 | `task.update` | yes | yes | | |

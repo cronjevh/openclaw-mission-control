@@ -1197,7 +1197,7 @@ function Invoke-MconRecoveryPrompt {
                         $workerSpawnAgentId = if ($workerConfig.PSObject.Properties.Name -contains 'spawn_agent_id') { [string]$workerConfig.spawn_agent_id } else { $null }
                         if (-not [string]::IsNullOrWhiteSpace($workerSpawnAgentId)) {
                             if (-not $sessionKey) {
-                                $sessionKey = "agent:$workerSpawnAgentId:task:$taskId"
+                                $sessionKey = "agent:$workerSpawnAgentId`:task:$taskId"
                             }
                             if (-not $agentId) {
                                 $agentId = $workerSpawnAgentId

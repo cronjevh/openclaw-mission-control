@@ -75,9 +75,9 @@ Use this for direct board-task visibility questions in board chat, such as:
 
 Rules:
 
-1. Read `BASE_URL`, `BOARD_ID`, and `AUTH_TOKEN` from `TOOLS.md`.
+1. Read `BASE_URL`, `BOARD_ID` from `TOOLS.md`.
 2. Use only approved board-scoped task access paths.
-3. Make at most one extra board-agent lookup to map IDs to names.
+3. For all mission control board operations, use `mcon` cli actions only run from your workspace directory. DO NOT add any additional authentication, or made up parameters. If you encounter an error, it's most likely you didn't use mcon cli correctly, read help, wiki - and if an cli problem is confirmed escalate to gateway agent and wait for feedback.
 4. Reply immediately with task facts; skip pre-flight chatter, startup narration, and discovery monologue.
 5. Never end silently. On failure, emit one short failure line with reason and next retry action.
 6. If equivalent task data is already in context this session, answer directly without re-reading.

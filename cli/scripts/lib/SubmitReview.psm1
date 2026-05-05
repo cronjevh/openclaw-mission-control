@@ -263,7 +263,9 @@ function Invoke-MconSubmitReview {
     $commentsUri = "$taskUri/comments"
     Invoke-MconApi -Method Post -Uri $commentsUri -Token $authToken -Body @{ message = $handoffMessage } | Out-Null
 
-    $updatedTask = Invoke-MconApi -Method Patch -Uri $taskUri -Token $authToken -Body @{ status = 'review' }
+    # Use LOCAL_AUTH_TOKEN (user endpoint) for status transitions
+    $userTaskUri = "$baseUrl/api/v1/boards/$encodedBoardId/tasks/$encodedTaskId"
+    $updatedTask = Invoke-MconLocalAuthApi -Method Patch -Uri $userTaskUri -Body @{ status = 'review' }
 
     return [ordered]@{
         ok         = $true

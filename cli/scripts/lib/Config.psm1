@@ -379,4 +379,60 @@ function Resolve-MconOpenClawAgentName {
     return (Resolve-MconOpenClawAgentConfig -WorkspacePath $WorkspacePath).name
 }
 
-Export-ModuleMember -Function Resolve-MconConfig, Resolve-MconWsp, Test-MconValidStatus, Get-MconValidStatuses, Resolve-MconKeybagAgent, Get-MconWorkspacePathFromWsp, Get-MconDecryptedKeybag, Resolve-MconLeadAgentConfig, Get-MconOpenClawConfigPath, Get-MconOpenClawConfig, Resolve-MconOpenClawAgentConfig, Resolve-MconOpenClawAgentName
+function Get-MconLocalAuthToken {
+    <#
+    .SYNOPSIS
+        Resolve the LOCAL_AUTH_TOKEN for user-endpoint API calls.
+    .DESCRIPTION
+        Reads LOCAL_AUTH_TOKEN from (in order):
+        1. $env:LOCAL_AUTH_TOKEN
+        2. Gateway workspace TOOLS.md
+        3. Backend .env file at repo root
+        Throws if not found.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $token = $env:LOCAL_AUTH_TOKEN
+    if ($token) {
+        return $token
+    }
+
+    $gatewayWorkspace = Join-Path $env:HOME '.openclaw' 'workspace-gateway-51dc1cd1-b182-4c91-92fb-bb7768e1b1fc'
+    if (-not (Test-Path -LiteralPath $gatewayWorkspace)) {
+        $gatewayWorkspace = Join-Path $env:HOME '.openclaw' 'workspace-gateway-test'
+    }
+    $toolsPath = Join-Path $gatewayWorkspace 'TOOLS.md'
+    if (Test-Path -LiteralPath $toolsPath) {
+        $toolsMap = Read-MconToolsMd -Path $toolsPath
+        if ($toolsMap.ContainsKey('LOCAL_AUTH_TOKEN')) {
+            $token = $toolsMap['LOCAL_AUTH_TOKEN']
+        }
+    }
+
+    if (-not $token) {
+        # Try multiple possible repo root paths (lib -> scripts -> cli -> repo root)
+        $possibleRepoRoots = @(
+            (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
+            (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+        )
+        foreach ($repoRoot in $possibleRepoRoots) {
+            $backendEnvPath = Join-Path $repoRoot '.env'
+            if (Test-Path -LiteralPath $backendEnvPath) {
+                $envMap = Read-MconToolsMd -Path $backendEnvPath
+                if ($envMap.ContainsKey('LOCAL_AUTH_TOKEN')) {
+                    $token = $envMap['LOCAL_AUTH_TOKEN']
+                    break
+                }
+            }
+        }
+    }
+
+    if (-not $token) {
+        throw "LOCAL_AUTH_TOKEN not found. Set env var, gateway TOOLS.md, or backend .env."
+    }
+
+    return $token
+}
+
+Export-ModuleMember -Function Resolve-MconConfig, Resolve-MconWsp, Test-MconValidStatus, Get-MconValidStatuses, Resolve-MconKeybagAgent, Get-MconWorkspacePathFromWsp, Get-MconDecryptedKeybag, Resolve-MconLeadAgentConfig, Get-MconOpenClawConfigPath, Get-MconOpenClawConfig, Resolve-MconOpenClawAgentConfig, Resolve-MconOpenClawAgentName, Get-MconLocalAuthToken

@@ -101,7 +101,7 @@ function Invoke-MconRework {
     $workerLegacyAgentName = [string]($workerConfig.name).ToLower()
 
     # Use deterministic task-scoped session key
-    $childSessionKey = "agent:$workerSpawnAgentId:task:$TaskId"
+    $childSessionKey = "agent:$workerSpawnAgentId`:task:$TaskId"
 
     $taskBundlePaths = Get-MconAssignTaskBundlePaths -LeadWorkspacePath $workspacePath -TaskId $TaskId
 

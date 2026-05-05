@@ -61,13 +61,13 @@ mcon workflow submitreview --task <TASK_ID>
 
 ## Worker Boundaries
 
-- Use `mcon task show` to inspect the current task and confirm context.
 - Use `mcon task comment` for acknowledgement and handoff comments.
 - Use `mcon workflow blocker` when you are stuck and need lead intervention.
 - Use `mcon workflow submitreview` to transition finished work into `review`.
 - If an action is not available through `mcon`, use the approved workflow script for that action.
 - If `mcon` denies an action, do not work around it with raw API calls.
 - Never search for secrets, tokens, or direct endpoint details.
+- Never use `mcon task show` on current task, the taskData.json was already updated at the start of the turn. You may use `mcon task` only to look up details from other related tasks if that's needed for you to complete the task.
 
 ## Failure Handling
 

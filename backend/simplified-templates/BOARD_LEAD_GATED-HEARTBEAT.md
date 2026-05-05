@@ -47,7 +47,6 @@ If inbox tasks exist:
   1. Read the task's `taskData.json`.
   2. **DEPENDENCY CHECK:** If `depends_on_task_ids` is non-empty OR `is_blocked` is true:
      - Post a comment listing each dependency and its current status.
-     - Set `backlog=true` to defer.
      - Skip assignment for this cycle.
      - Continue to next task.
   3. **SCOPE CHECK:** If the task description is unclear or acceptance criteria are ambiguous:

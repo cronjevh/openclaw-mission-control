@@ -801,13 +801,13 @@ function Invoke-MconAssign {
             workerLegacyAgentName = $workerLegacyAgentName
             bundlePath           = $bundlePath
             workerTaskDataPath   = $workerTaskDataPath
-            sessionKey           = "agent:$workerSpawnAgentId:task:$TaskId"
+            sessionKey           = "agent:$workerSpawnAgentId`:task:$TaskId"
             finalTask            = Get-MconAssignTaskProjection -TaskData $task
         }
     }
 
     # Construct the deterministic worker task-scoped session key
-    $workerTaskSessionKey = "agent:$workerSpawnAgentId:task:$TaskId"
+    $workerTaskSessionKey = "agent:$workerSpawnAgentId`:task:$TaskId"
 
     $workerPrompt = @"
 You are $workerName.
@@ -920,8 +920,9 @@ Work contract:
         }
     }
 
-    # Patch the task with assignment and status
-    $updatedTask = Invoke-MconApi -Method Patch -Uri $taskUri -Token $authToken -Body @{
+    # Patch the task with assignment and status using LOCAL_AUTH_TOKEN (user endpoint)
+    $userTaskUri = "$baseUrl/api/v1/boards/$encodedBoardId/tasks/$encodedTaskId"
+    $updatedTask = Invoke-MconLocalAuthApi -Method Patch -Uri $userTaskUri -Body @{
         assigned_agent_id = $assignedAgentId
         status            = 'in_progress'
     }

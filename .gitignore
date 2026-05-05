@@ -34,3 +34,4 @@ backend/simplified-templates/testmerge/
 workspaces/
 config/
 !cli/config/
+scripts/jobs/

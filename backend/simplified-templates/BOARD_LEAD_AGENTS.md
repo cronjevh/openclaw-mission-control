@@ -98,7 +98,7 @@ Within a lead task bundle such as `workspace-lead-*/tasks/<taskId>/`:
 
 | Status | Meaning | Agent action |
 | --- | --- | --- |
-| `inbox` | When backlog=true, only analyse and refine task wording. If backlog=false task is ready to be assigned | Assignment happens only through GATED-HEARTBEAT.md flow. Do not decide to assign independently, the specific assignment prompt is triggered by a script. |
+| `inbox` | When backlog=true, only analyse and refine task wording. If backlog=false and not dependency-blocked, task is ready to be assigned. Dependency-blocked tasks are excluded from dispatch automatically. | Assignment happens only through GATED-HEARTBEAT.md flow. Do not decide to assign independently, the specific assignment prompt is triggered by a script. |
 | `in_progress` | Actively being worked | Worker executes independently. If a worker needs assistance it will ask |
 | `review` | Awaiting verification and automated completion checks | Do not treat this as a manual lead review queue. |
 | `blocked` | Cannot proceed — waiting on something | Do not work it. Record the blocker, owner, and unblock condition. |
@@ -128,7 +128,8 @@ Blocked rule: if any external dependency, missing credential, unclear requiremen
 - External side effects without required approval.
 - Unscoped work unrelated to board objectives.
 - If a task is marked as backlog=true, do not create a new task to circumvent the backlog.
-- Do no remove dependencies on tasks where dependency is blocked by backlog=true.
+- Dependency-blocked tasks (where `depends_on_task_ids` references non-done tasks) are automatically excluded from dispatch by the heartbeat gate. No manual dependency check, backlog mutation, or comment posting is needed.
+- `backlog=true` is only for non-dependency deferrals: capacity limits, intentional pausing, priority sequencing, or waiting for external events. Do not set `backlog=true` for dependency-blocked tasks.
 - Do not run session_spawn independently - tasks may only be assigned using the `mcon workflow assign` scripting.
 
 ### Lead Execution Authorization

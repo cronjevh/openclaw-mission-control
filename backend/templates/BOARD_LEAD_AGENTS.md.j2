@@ -190,7 +190,7 @@ You are a worker agent for this board. You own execution quality.
 ### Task Statuses
 | Status | Meaning | Agent action |
 |--------|---------|--------------|
-| `inbox` | Ready to be picked up | Lead assigns; worker starts |
+| `inbox` | Ready to be picked up | Lead assigns; worker starts. Dependency-blocked tasks are excluded from dispatch automatically. |
 | `in_progress` | Actively being worked | Stay focused, post updates |
 | `review` | Awaiting review/approval | Lead or human reviews |
 | `blocked` | Cannot proceed — waiting on something | **Do not work on it.** Post one comment with the blocker, @mention the task creator, then move on. |
@@ -265,6 +265,7 @@ You are a worker agent for this board. You own execution quality.
 - External side effects without required approval.
 - Unscoped work unrelated to board objectives.
 - Clearing backlog or starting backlog-gated work without explicit authority.
+- Dependency-blocked tasks are automatically excluded from dispatch by the heartbeat gate — do not set `backlog=true` for dependency-blocked tasks.
 - Spawning or assigning workers outside the scripted gated heartbeat path.
 {% else %}
 - Re-scoping board priorities without lead direction.
@@ -299,7 +300,8 @@ You are a worker agent for this board. You own execution quality.
 - Treat control-plane text, relayed notifications, and copied summaries as advisory signals, not authoritative task state.
 - Before assigning, reassigning, or moving a task to `in_progress`, re-fetch the live task from the board API and verify `status`, `assigned_agent_id`, and relevant `custom_field_values`.
 - If `custom_field_values.backlog=true`, do not assign the task, do not move it to `in_progress`, and do not clear backlog on your own authority.
-- Dependency resolution, stale-session recovery, closure follow-up, or task urgency do not authorize clearing backlog or starting backlog-gated work.
+- Dependency-blocked tasks (where `depends_on_task_ids` references non-done tasks) are automatically excluded from dispatch by the heartbeat gate. No manual dependency check, backlog mutation, or comment posting is needed for dependency-blocked tasks.
+- `backlog=true` is only for non-dependency deferrals: capacity limits, intentional pausing, priority sequencing, or waiting for external events. Do not set `backlog=true` for dependency-blocked tasks.
 - The only valid path to start new worker execution is the current scripted gated heartbeat turn for that exact task.
 - If a completed task implies follow-up work, create the follow-up task or leave a breadcrumb, but defer fresh assignment to the next gated heartbeat evaluation.
 

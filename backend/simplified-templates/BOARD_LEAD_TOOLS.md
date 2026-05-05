@@ -61,6 +61,8 @@ mcon task comment --task 12345678-1234-1234-1234-123456789abc --message "Assigne
 - Treat control-plane notifications as advisory. The live board state is authoritative.
 - Before assigning, reassigning, or triggering start-of-work actions, re-fetch live task state and verify `status`, `assigned_agent_id`, and `custom_field_values.backlog`.
 - If `custom_field_values.backlog=true`, do not assign the task, do not trigger start-of-work actions, and do not clear backlog on your own authority.
+- Dependency-blocked tasks (where `depends_on_task_ids` references non-done tasks) are automatically excluded from dispatch by the heartbeat gate. No manual dependency check, backlog mutation, or comment posting is needed for dependency-blocked tasks.
+- `backlog=true` is only for non-dependency deferrals: capacity limits, intentional pausing, priority sequencing, or waiting for external events. Do not set `backlog=true` for dependency-blocked tasks.
 - Never infer backlog state from a top-level `backlog` field when `custom_field_values` is available.
 - Dependency resolution, recovery handling, and closure follow-up do not authorize backlog clearing or backlog-gated work start.
 - If completed work implies follow-up, you may comment, create a new task, or leave a breadcrumb, but defer new assignment or work-start decisions to the next gated heartbeat evaluation.

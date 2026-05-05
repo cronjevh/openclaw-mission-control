@@ -36,6 +36,36 @@ def test_blocked_by_dependency_ids_flags_not_done_and_missing_status():
     ) == [b, c]
 
 
+def test_blocked_by_dependency_ids_nonexistent_dep_is_unresolved():
+    a = uuid4()
+    b = uuid4()
+
+    status_by_id = {
+        a: task_dependencies.DONE_STATUS,
+        # b is not in status_by_id (non-existent task ID)
+    }
+
+    assert task_dependencies.blocked_by_dependency_ids(
+        dependency_ids=[a, b],
+        status_by_id=status_by_id,
+    ) == [b]
+
+
+def test_blocked_by_dependency_ids_all_done_is_empty():
+    a = uuid4()
+    b = uuid4()
+
+    status_by_id = {
+        a: task_dependencies.DONE_STATUS,
+        b: task_dependencies.DONE_STATUS,
+    }
+
+    assert task_dependencies.blocked_by_dependency_ids(
+        dependency_ids=[a, b],
+        status_by_id=status_by_id,
+    ) == []
+
+
 @pytest.mark.parametrize(
     ("nodes", "edges", "expected"),
     [

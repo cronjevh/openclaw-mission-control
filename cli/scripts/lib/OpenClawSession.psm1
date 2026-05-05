@@ -425,13 +425,14 @@ function Send-MconTaskReflectionPrompt {
 
     .DESCRIPTION
         Fire-and-forget reflection prompt for worker or verifier agents after task completion.
-        Uses a short timeout and swallows errors — the session may have expired and that is fine.
+        Uses the same HTTP gateway delivery path as assignment/rework prompts so the reflection
+        reaches the exact same session where the task work was performed.
 
     .PARAMETER WorkspacePath
         Path to the lead workspace (used to resolve gateway config).
 
      .PARAMETER InvocationAgent
-         The agent's spawn_agent_id (e.g., 'mc-466803cc-1793-45e6-9dc0-437c505d49b4'). This is the identifier used in session keys, not the display name.
+          The agent's spawn_agent_id (e.g., 'mc-466803cc-1793-45e6-9dc0-437c505d49b4').
 
     .PARAMETER TaskId
         The board task ID.

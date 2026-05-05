@@ -85,6 +85,8 @@ WORKSPACE_PATH={{ workspace_path }}
 
 - Treat `custom_field_values.backlog` as authoritative when present.
 - Never start or assign a task while `custom_field_values.backlog=true`.
+- Dependency-blocked tasks (where `depends_on_task_ids` references non-done tasks) are automatically excluded from dispatch by the heartbeat gate. No manual dependency check, backlog mutation, or comment posting is needed for dependency-blocked tasks.
+- `backlog=true` is only for non-dependency deferrals: capacity limits, intentional pausing, priority sequencing, or waiting for external events. Do not set `backlog=true` for dependency-blocked tasks.
 - Do not clear backlog as a side effect of dependency resolution, recovery handling, or closure follow-up.
 - Re-fetch live task state before assignment instead of trusting copied summaries or stale artifacts.
 {% endif %}

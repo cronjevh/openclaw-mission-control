@@ -45,10 +45,7 @@ Project context requirements:
 If inbox tasks exist:
 - For each unassigned inbox task with `backlog=false`:
   1. Read the task's `taskData.json`.
-  2. **DEPENDENCY CHECK:** If `depends_on_task_ids` is non-empty OR `is_blocked` is true:
-     - Post a comment listing each dependency and its current status.
-     - Skip assignment for this cycle.
-     - Continue to next task.
+  2. Dependency-blocked tasks (where `depends_on_task_ids` references non-done tasks) are already excluded from dispatch by the gate — you will not see them in the inbox list. No manual dependency check is needed.
   3. **SCOPE CHECK:** If the task description is unclear or acceptance criteria are ambiguous:
      - Post exact clarification questions as a comment.
      - Set `backlog=true`.
@@ -98,6 +95,9 @@ The worker must be instructed to:
 - if blocked, comment with the exact blocker and the next dependency needed
 
 Skip ignore inbox tasks with `backlog=true`
+Skip ignore inbox tasks blocked by unresolved dependencies (excluded from dispatch by the gate)
+
+`backlog=true` is only for non-dependency deferrals: capacity limits, intentional pausing, priority sequencing, or waiting for external events. Do not set `backlog=true` for dependency-blocked tasks — the gate handles that automatically.
 
 Ignore in-progress tasks.
 

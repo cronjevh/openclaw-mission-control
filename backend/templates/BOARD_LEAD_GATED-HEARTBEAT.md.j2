@@ -361,7 +361,9 @@ Never bypass `mcon workflow assign` with manual session creation or direct `sess
 ## Backlog Enforcement
 
 - Treat `custom_field_values.backlog=true` as a hard stop for assignment and work start.
+- Dependency-blocked tasks (where `depends_on_task_ids` references non-done tasks) are automatically excluded from dispatch by the heartbeat gate. No manual dependency check or backlog mutation is needed.
 - If scope is unclear, leave the task unassigned, ask the clarifying question, and keep or set backlog instead of forcing execution.
+- `backlog=true` is only for non-dependency deferrals: capacity limits, intentional pausing, priority sequencing, or waiting for external events. Do not set `backlog=true` for dependency-blocked tasks.
 - Recovery handling, dependency resolution, or urgency do not authorize clearing backlog.
 
 ## Evidence-Backed Review

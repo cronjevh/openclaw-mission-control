@@ -35,6 +35,65 @@ function Test-MconTaskBacklog {
     return $false
 }
 
+function Test-MconTaskDependencyBlocked {
+    param($Task)
+
+    if ($null -eq $Task) { return $false }
+
+    if ($Task.PSObject.Properties.Name -contains 'is_blocked' -and $Task.is_blocked) {
+        return [bool]$Task.is_blocked
+    }
+
+    if ($Task.PSObject.Properties.Name -contains 'blocked_by_task_ids') {
+        $blockedBy = $Task.blocked_by_task_ids
+        if ($null -ne $blockedBy) {
+            if ($blockedBy -is [System.Collections.IEnumerable] -and -not ($blockedBy -is [string])) {
+                return (@($blockedBy)).Count -gt 0
+            }
+            if ($blockedBy -is [string] -and [string]::IsNullOrEmpty($blockedBy)) {
+                return $false
+            }
+            return $true
+        }
+    }
+
+    if ($Task.PSObject.Properties.Name -contains 'depends_on_task_ids') {
+        $deps = $Task.depends_on_task_ids
+        if ($null -ne $deps) {
+            if ($deps -is [System.Collections.IEnumerable] -and -not ($deps -is [string])) {
+                return (@($deps)).Count -gt 0
+            }
+            if ($deps -is [string] -and [string]::IsNullOrEmpty($deps)) {
+                return $false
+            }
+            return $true
+        }
+    }
+
+    if ($Task.PSObject.Properties.Name -contains 'task_data' -and $null -ne $Task.task_data) {
+        $innerTask = $Task.task_data
+        if ($innerTask.PSObject.Properties.Name -contains 'task') {
+            $innerTask = $innerTask.task
+        }
+        if ($null -ne $innerTask) {
+            if ($innerTask.PSObject.Properties.Name -contains 'is_blocked' -and $innerTask.is_blocked) {
+                return [bool]$innerTask.is_blocked
+            }
+            if ($innerTask.PSObject.Properties.Name -contains 'blocked_by_task_ids') {
+                $blockedBy = $innerTask.blocked_by_task_ids
+                if ($null -ne $blockedBy) {
+                    if ($blockedBy -is [System.Collections.IEnumerable] -and -not ($blockedBy -is [string])) {
+                        return (@($blockedBy)).Count -gt 0
+                    }
+                    return $true
+                }
+            }
+        }
+    }
+
+    return $false
+}
+
 function Get-MconLeadWorkspacePath {
     param(
         [Parameter(Mandatory)][string]$BoardId
@@ -411,7 +470,7 @@ function Invoke-MconDispatch {
             $inboxResponse = Invoke-MconApi -Method Get -Uri $inboxUri -Token $authToken
 
             $reviewTasks = @(Get-MconResponseItems -Response $reviewResponse)
-            $inboxTasks = @(Get-MconResponseItems -Response $inboxResponse | Where-Object { -not (Test-MconTaskBacklog -Task $_) })
+            $inboxTasks = @(Get-MconResponseItems -Response $inboxResponse | Where-Object { -not (Test-MconTaskBacklog -Task $_) -and -not (Test-MconTaskDependencyBlocked -Task $_) })
 
             $inboxCount = $inboxTasks.Count
 
@@ -510,8 +569,8 @@ function Invoke-MconDispatch {
             $assignedInboxResponse = Invoke-MconApi -Method Get -Uri $assignedInboxUri -Token $authToken
             $assignedInProgressResponse = Invoke-MconApi -Method Get -Uri $assignedInProgressUri -Token $authToken
 
-            $assignedInboxTasks = @(Get-MconResponseItems -Response $assignedInboxResponse | Where-Object { -not (Test-MconTaskBacklog -Task $_) })
-            $assignedInProgressTasks = @(Get-MconResponseItems -Response $assignedInProgressResponse | Where-Object { -not (Test-MconTaskBacklog -Task $_) })
+            $assignedInboxTasks = @(Get-MconResponseItems -Response $assignedInboxResponse | Where-Object { -not (Test-MconTaskBacklog -Task $_) -and -not (Test-MconTaskDependencyBlocked -Task $_) })
+            $assignedInProgressTasks = @(Get-MconResponseItems -Response $assignedInProgressResponse | Where-Object { -not (Test-MconTaskBacklog -Task $_) -and -not (Test-MconTaskDependencyBlocked -Task $_) })
 
             $summary.assignedInbox = ($assignedInboxTasks.Count -gt 0)
             $summary.assignedInProgress = ($assignedInProgressTasks.Count -gt 0)
@@ -566,4 +625,4 @@ function Invoke-MconDispatch {
     }
 }
 
-Export-ModuleMember -Function Invoke-MconDispatch, New-MconDispatchResult, Get-MconResponseItems, Write-MconDispatchState, Get-MconDispatchStatePath, Get-MconLeadWorkspacePath, Read-MconAgentRoster
+Export-ModuleMember -Function Invoke-MconDispatch, New-MconDispatchResult, Get-MconResponseItems, Write-MconDispatchState, Get-MconDispatchStatePath, Get-MconLeadWorkspacePath, Read-MconAgentRoster, Test-MconTaskDependencyBlocked

@@ -162,16 +162,30 @@ function Invoke-MconVerifierAgent {
     )
 
     $prompt = New-MconVerifierPrompt -WorkspacePath $WorkspacePath -DispatchState $DispatchState -AuthToken $AuthToken -SessionKey $SessionKey
-    $result = Invoke-MconOpenClawAgentSession `
-        -InvocationAgent $InvocationAgent `
-        -SessionKey $SessionKey `
-        -Message $prompt `
-        -TimeoutSec $TimeoutSec
 
-    return [ordered]@{
-        exit_code      = $result.exit_code
-        output         = $result.output
-        command_output = $result.output
+    $firstTask = @($DispatchState.tasks | Where-Object { $_ -and $_.id }) | Select-Object -First 1
+    $taskId = if ($firstTask -and $firstTask.id) { $firstTask.id } else { $null }
+
+    try {
+        $response = Send-MconOpenClawSessionMessage `
+            -WorkspacePath $WorkspacePath `
+            -InvocationAgent $InvocationAgent `
+            -SessionKey $SessionKey `
+            -Message $prompt `
+            -TaskId $taskId `
+            -DispatchType 'verifier' `
+            -TimeoutSec $TimeoutSec
+        return [ordered]@{
+            ok             = $true
+            output         = ($response | ConvertTo-Json -Depth 5 -Compress)
+            command_output = ($response | ConvertTo-Json -Depth 5 -Compress)
+        }
+    } catch {
+        return [ordered]@{
+            ok             = $false
+            output         = $_.Exception.Message
+            command_output = $_.Exception.Message
+        }
     }
 }
 

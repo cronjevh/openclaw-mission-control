@@ -466,8 +466,125 @@ try {
     Remove-Item -LiteralPath $dispatchSmokeWorkspace -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-Write-Host '=== mcon smoke tests ==='
 Write-Host ''
+
+# --- Test: Test-MconTaskDependencyBlocked ---
+Write-Host '=== Dependency-blocking dispatch gate tests ==='
+Write-Host ''
+
+# Task with is_blocked=true should be blocked
+$blockedTask = [pscustomobject]@{
+    id   = 'dep-task-1'
+    is_blocked = $true
+    blocked_by_task_ids = @('dep-0001')
+    depends_on_task_ids = @('dep-0001')
+    custom_field_values = @{ backlog = $false }
+}
+if (Test-MconTaskDependencyBlocked -Task $blockedTask) {
+    $passCount++
+    Write-Host 'PASS: is_blocked=true task is dependency-blocked'
+} else {
+    Write-Host 'FAIL: is_blocked=true task should be dependency-blocked'
+    $failCount++
+}
+
+# Task with non-empty blocked_by_task_ids should be blocked
+$blockedByTask = [pscustomobject]@{
+    id   = 'dep-task-2'
+    is_blocked = $false
+    blocked_by_task_ids = @('dep-0002')
+    depends_on_task_ids = @('dep-0002')
+    custom_field_values = @{ backlog = $false }
+}
+if (Test-MconTaskDependencyBlocked -Task $blockedByTask) {
+    $passCount++
+    Write-Host 'PASS: non-empty blocked_by_task_ids task is dependency-blocked'
+} else {
+    Write-Host 'FAIL: non-empty blocked_by_task_ids task should be dependency-blocked'
+    $failCount++
+}
+
+# Task with non-empty depends_on_task_ids but empty blocked_by_task_ids should NOT be blocked
+# (all dependencies are done)
+$depsDoneTask = [pscustomobject]@{
+    id   = 'dep-task-3'
+    is_blocked = $false
+    blocked_by_task_ids = @()
+    depends_on_task_ids = @('dep-0003')
+    custom_field_values = @{ backlog = $false }
+}
+if (-not (Test-MconTaskDependencyBlocked -Task $depsDoneTask)) {
+    $passCount++
+    Write-Host 'PASS: depends_on_task_ids with empty blocked_by_task_ids is not blocked'
+} else {
+    Write-Host 'FAIL: task with all deps done should not be dependency-blocked'
+    $failCount++
+}
+
+# Task with no dependencies at all should not be blocked
+$noDepsTask = [pscustomobject]@{
+    id   = 'dep-task-4'
+    is_blocked = $false
+    blocked_by_task_ids = @()
+    depends_on_task_ids = @()
+    custom_field_values = @{ backlog = $false }
+}
+if (-not (Test-MconTaskDependencyBlocked -Task $noDepsTask)) {
+    $passCount++
+    Write-Host 'PASS: task with no dependencies is not blocked'
+} else {
+    Write-Host 'FAIL: task with no dependencies should not be blocked'
+    $failCount++
+}
+
+# Task with only custom_field_values.backlog=true and no dependency block should not be dependency-blocked
+# (backlog is a separate check via Test-MconTaskBacklog)
+$backlogOnlyTask = [pscustomobject]@{
+    id   = 'dep-task-5'
+    is_blocked = $false
+    blocked_by_task_ids = @()
+    depends_on_task_ids = @()
+    custom_field_values = @{ backlog = $true }
+}
+if (-not (Test-MconTaskDependencyBlocked -Task $backlogOnlyTask)) {
+    $passCount++
+    Write-Host 'PASS: backlog-only task is not dependency-blocked'
+} else {
+    Write-Host 'FAIL: backlog-only task should not be dependency-blocked'
+    $failCount++
+}
+
+# Null task should return false
+if (-not (Test-MconTaskDependencyBlocked -Task $null)) {
+    $passCount++
+    Write-Host 'PASS: null task is not dependency-blocked'
+} else {
+    Write-Host 'FAIL: null task should not be dependency-blocked'
+    $failCount++
+}
+
+# Task with task_data nested structure should detect is_blocked
+$nestedBlockedTask = [pscustomobject]@{
+    id   = 'dep-task-6'
+    task_data = [pscustomobject]@{
+        task = [pscustomobject]@{
+            id = 'dep-task-6'
+            is_blocked = $true
+            blocked_by_task_ids = @('dep-0001')
+            depends_on_task_ids = @('dep-0001')
+        }
+    }
+}
+if (Test-MconTaskDependencyBlocked -Task $nestedBlockedTask) {
+    $passCount++
+    Write-Host 'PASS: nested task_data with is_blocked=true is dependency-blocked'
+} else {
+    Write-Host 'FAIL: nested task_data with is_blocked=true should be dependency-blocked'
+    $failCount++
+}
+
+Write-Host ''
+Write-Host '=== End dependency-blocking dispatch gate tests ==='
 
 # Test: no args -> usage error
 $out = pwsh -NoProfile -File $mconScript 2>&1

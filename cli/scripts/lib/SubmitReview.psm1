@@ -88,11 +88,13 @@ function Test-MconSubmitReviewReadiness {
         [string]$PrimaryDeliverablePath
     )
 
+    $leadWorkspaceNote = " Deliverables must be placed in the LEAD workspace task bundle directory, not your local worker workspace. Your workspace is for experiments only."
+
     if (-not (Test-Path -LiteralPath $DeliverablesDir)) {
         return [ordered]@{
             ready  = $false
             code   = 'missing_deliverables_directory'
-            reason = "Cannot submit task for review: deliverables directory does not exist at $DeliverablesDir"
+            reason = "Cannot submit task for review: deliverables directory does not exist at $DeliverablesDir.$leadWorkspaceNote"
         }
     }
 
@@ -101,7 +103,7 @@ function Test-MconSubmitReviewReadiness {
         return [ordered]@{
             ready  = $false
             code   = 'missing_deliverables_directory'
-            reason = "Cannot submit task for review: deliverables path is not a directory: $DeliverablesDir"
+            reason = "Cannot submit task for review: deliverables path is not a directory: $DeliverablesDir.$leadWorkspaceNote"
         }
     }
 
@@ -109,7 +111,7 @@ function Test-MconSubmitReviewReadiness {
         return [ordered]@{
             ready  = $false
             code   = 'missing_primary_deliverable'
-            reason = 'Cannot submit task for review: no primary deliverable found in deliverables directory.'
+            reason = "Cannot submit task for review: no primary deliverable found in deliverables directory.$leadWorkspaceNote"
         }
     }
 
@@ -117,7 +119,7 @@ function Test-MconSubmitReviewReadiness {
         return [ordered]@{
             ready  = $false
             code   = 'missing_primary_deliverable'
-            reason = "Cannot submit task for review: primary deliverable not found at $PrimaryDeliverablePath"
+            reason = "Cannot submit task for review: primary deliverable not found at $PrimaryDeliverablePath.$leadWorkspaceNote"
         }
     }
 
@@ -126,7 +128,7 @@ function Test-MconSubmitReviewReadiness {
         return [ordered]@{
             ready  = $false
             code   = 'missing_primary_deliverable'
-            reason = "Cannot submit task for review: primary deliverable path is a directory, not a file: $PrimaryDeliverablePath"
+            reason = "Cannot submit task for review: primary deliverable path is a directory, not a file: $PrimaryDeliverablePath.$leadWorkspaceNote"
         }
     }
 
@@ -134,7 +136,7 @@ function Test-MconSubmitReviewReadiness {
         return [ordered]@{
             ready  = $false
             code   = 'empty_primary_deliverable'
-            reason = "Cannot submit task for review: primary deliverable is empty (0 bytes): $PrimaryDeliverablePath"
+            reason = "Cannot submit task for review: primary deliverable is empty (0 bytes): $PrimaryDeliverablePath.$leadWorkspaceNote"
         }
     }
 
@@ -142,7 +144,7 @@ function Test-MconSubmitReviewReadiness {
         return [ordered]@{
             ready  = $false
             code   = 'missing_verification_artifact'
-            reason = "Cannot submit task for review: required verification artifact is missing at $VerificationArtifactPath"
+            reason = "Cannot submit task for review: required verification artifact is missing at $VerificationArtifactPath.$leadWorkspaceNote"
         }
     }
 
@@ -151,7 +153,7 @@ function Test-MconSubmitReviewReadiness {
         return [ordered]@{
             ready  = $false
             code   = 'missing_verification_artifact'
-            reason = "Cannot submit task for review: verification artifact path is a directory, not a file: $VerificationArtifactPath"
+            reason = "Cannot submit task for review: verification artifact path is a directory, not a file: $VerificationArtifactPath.$leadWorkspaceNote"
         }
     }
 
@@ -159,7 +161,7 @@ function Test-MconSubmitReviewReadiness {
         return [ordered]@{
             ready  = $false
             code   = 'empty_verification_artifact'
-            reason = "Cannot submit task for review: verification artifact is empty (0 bytes): $VerificationArtifactPath"
+            reason = "Cannot submit task for review: verification artifact is empty (0 bytes): $VerificationArtifactPath.$leadWorkspaceNote"
         }
     }
 
@@ -194,25 +196,35 @@ function Invoke-MconSubmitReview {
     $deliverablesDir = $null
     $taskData = $null
 
-    $taskDataPath = Join-Path (Join-Path $workspacePath "tasks/$TaskId") 'taskData.json'
+    # Deliverables must be in the lead workspace task bundle directory
+    $leadWorkspacePath = "/home/cronjev/.openclaw/workspace-lead-$boardId"
+    $leadTaskBundlePath = Join-Path $leadWorkspacePath "tasks/$TaskId"
+    $deliverablesDir = Join-Path $leadTaskBundlePath 'deliverables'
+
+    # Update taskData.json to reflect the correct lead workspace path
+    $taskDataPath = Join-Path $leadTaskBundlePath 'taskData.json'
     if (Test-Path -LiteralPath $taskDataPath) {
         $taskData = Get-Content -LiteralPath $taskDataPath -Raw | ConvertFrom-Json -Depth 50
 
+        # Update deliverables_directory in taskData to point to lead workspace
         if ($taskData.PSObject.Properties.Name -contains 'deliverables_directory') {
-            $deliverablesDir = [string]$taskData.deliverables_directory
-        } elseif ($taskData.PSObject.Properties.Name -contains 'task_context') {
+            $taskData.deliverables_directory = $deliverablesDir
+        }
+
+        # Update task_context.task_bundle_paths if present
+        if ($taskData.PSObject.Properties.Name -contains 'task_context') {
             $tc = $taskData.task_context
             if ($tc -and $tc.PSObject.Properties.Name -contains 'task_bundle_paths') {
-                $paths = $tc.task_bundle_paths
-                if ($paths -and $paths.PSObject.Properties.Name -contains 'deliverables_directory') {
-                    $deliverablesDir = [string]$paths.deliverables_directory
+                if ($null -eq $tc.task_bundle_paths) {
+                    $tc.task_bundle_paths = [ordered]@{}
                 }
+                $tc.task_bundle_paths.deliverables_directory = $deliverablesDir
+                $tc.task_bundle_paths.evidence_directory = Join-Path $leadTaskBundlePath 'evidence'
             }
         }
-    }
 
-    if (-not $deliverablesDir) {
-        $deliverablesDir = Join-Path (Join-Path $workspacePath "tasks/$TaskId") 'deliverables'
+        # Save updated taskData back
+        $taskData | ConvertTo-Json -Depth 50 | Set-Content -LiteralPath $taskDataPath -Encoding UTF8
     }
 
     $verificationArtifactPath = Resolve-MconVerificationArtifactPath `

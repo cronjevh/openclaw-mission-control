@@ -398,7 +398,7 @@ async def _notify_group_memory_targets(
     if len(snippet) > MAX_SNIPPET_LENGTH:
         snippet = f"{snippet[: MAX_SNIPPET_LENGTH - 3]}..."
 
-    base_url = settings.base_url or "http://localhost:8000"
+    base_url = settings.base_url or "http://localhost:8002"
 
     dispatch = GatewayDispatchService(session)
 

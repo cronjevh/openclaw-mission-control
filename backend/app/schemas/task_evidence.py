@@ -16,6 +16,7 @@ TaskClass = Literal[
     "docs_content",
     "component_test",
     "workspace_config",
+    "sysadmin_script_review",
 ]
 TaskClosureMode = Literal["manual_review", "evidence_packet", "passing_checks"]
 TaskEvidencePacketStatus = Literal["draft", "submitted", "accepted", "rejected"]

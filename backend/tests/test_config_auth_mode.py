@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from app.core.auth_mode import AuthMode
 from app.core.config import Settings
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost:8002"
 
 
 def test_local_mode_requires_non_empty_token() -> None:
@@ -107,8 +107,8 @@ def test_base_url_field_is_required(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.parametrize(
     "base_url",
     [
-        "localhost:8000",
-        "ws://localhost:8000",
+        "localhost:8002",
+        "ws://localhost:8002",
     ],
 )
 def test_base_url_requires_absolute_http_url(base_url: str) -> None:
@@ -130,7 +130,7 @@ def test_base_url_is_normalized_without_trailing_slash() -> None:
         _env_file=None,
         auth_mode=AuthMode.LOCAL,
         local_auth_token=token,
-        base_url="http://localhost:8000/ ",
+        base_url="http://localhost:8002/ ",
     )
 
     assert settings.base_url == BASE_URL

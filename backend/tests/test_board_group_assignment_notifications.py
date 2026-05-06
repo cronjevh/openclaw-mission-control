@@ -594,7 +594,7 @@ async def test_notify_chat_targets_propagates_new_control_command(monkeypatch: p
 
 def test_board_reply_instructions_use_quote_safe_payload_pattern() -> None:
     message = board_memory._quote_safe_board_reply_instructions(
-        base_url="http://localhost:8000",
+        base_url="http://localhost:8002",
         board_id=uuid4(),
     )
 
@@ -606,7 +606,7 @@ def test_board_reply_instructions_use_quote_safe_payload_pattern() -> None:
 
 def test_group_reply_instructions_use_quote_safe_payload_pattern() -> None:
     message = board_group_memory._quote_safe_group_reply_instructions(
-        post_url="http://localhost:8000/api/v1/board-groups/abc/memory",
+        post_url="http://localhost:8002/api/v1/board-groups/abc/memory",
         reply_label="group chat",
     )
 

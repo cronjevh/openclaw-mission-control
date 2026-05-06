@@ -118,7 +118,7 @@ class Settings(BaseSettings):
         parsed_base_url = urlparse(base_url)
         if parsed_base_url.scheme not in {"http", "https"} or not parsed_base_url.netloc:
             raise ValueError(
-                "BASE_URL must be an absolute http(s) URL (e.g. http://localhost:8000).",
+                "BASE_URL must be an absolute http(s) URL (e.g. http://localhost:8002).",
             )
         self.base_url = base_url.rstrip("/")
 

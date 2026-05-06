@@ -36,18 +36,8 @@ SCRIPT_MAP_ENV = "MC_UTILITY_JOB_SCRIPTS_JSON"
 SCRIPT_FILE_ENV = "MC_UTILITY_JOB_SCRIPTS_FILE"
 SCRIPT_KEY_RE = re.compile(r"^[a-zA-Z0-9_.-]+$")
 
-_DEFAULT_SCRIPT_OPTIONS: dict[str, dict[str, str | None]] = {
-    "daily_conversation_review": {
-        "label": "Daily conversation review",
-        "description": "Compile conversation context and create the daily review task.",
-        "command": "/home/cronjev/mission-control-tfsmrt/scripts/jobs/daily-conversation-review.ps1",
-    },
-    "sysadmin_orchestrator": {
-        "label": "Sysadmin orchestrator",
-        "description": "Run curated sudo scripts from the sysadmin directory tree (once/cadence/daily).",
-        "command": "/home/cronjev/mission-control-tfsmrt/scripts/jobs/sysadmin/orchestrator/run-sysadmin.sh",
-    },
-}
+# No built-in scripts. All scripts must be configured via MC_UTILITY_JOB_SCRIPTS_FILE
+# or MC_UTILITY_JOB_SCRIPTS_JSON. An empty allowlist is the secure default.
 
 
 @dataclass(frozen=True)
@@ -102,7 +92,7 @@ def _load_script_options() -> dict[str, dict[str, str | None]]:
     else:
         raw = os.getenv(SCRIPT_MAP_ENV)
         if not raw:
-            return _DEFAULT_SCRIPT_OPTIONS
+            return {}
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError as exc:

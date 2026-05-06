@@ -484,6 +484,46 @@ function Get-MconVerificationPaths {
     # Task class overrides keyword-based detection
     $taskClass = if ($Task.PSObject.Properties.Name -contains 'task_class' -and $Task.task_class) { [string]$Task.task_class } else { '' }
     $isDocsTaskClass = $taskClass -in @('docs_content', 'design_exploratory')
+    $isSysadminTaskClass = $taskClass -eq 'sysadmin_script_review'
+
+    # Auto-detect sysadmin tasks: if evaluate-*.json exists and script contains sysadmin patterns
+    $judgeSpecPath = Join-Path $deliverablesDir "evaluate-$TaskId.json"
+    $hasJudgeSpec = Test-Path -LiteralPath $judgeSpecPath
+    $isSysadminAutoDetect = $false
+    if (-not $isDocsTaskClass -and $hasJudgeSpec -and (Test-Path -LiteralPath $primaryDeliverablePath)) {
+        try {
+            $scriptContent = Get-Content -LiteralPath $primaryDeliverablePath -Raw -ErrorAction SilentlyContinue
+            if ($scriptContent) {
+                # Look for sysadmin patterns: sudo, system paths, log management, service management
+                $hasSysadminPatterns = $scriptContent -match '(?i)(sudo|/var/log|/etc/|systemctl|service|crontab|ufw|firewall)'
+                $isSysadminAutoDetect = $hasSysadminPatterns
+            }
+        } catch {
+            # If we can't read the file, don't auto-detect
+        }
+    }
+
+    if ($isSysadminTaskClass -or $isSysadminAutoDetect) {
+        # Sysadmin task: always use sysadmin verification kind
+        $verificationKind = 'sysadmin_review'
+        $verificationArtifactPath = Join-Path $deliverablesDir "verify-$TaskId.ps1"
+
+        if (-not (Test-Path -LiteralPath $verificationArtifactPath)) {
+            $templatePath = '/home/cronjev/mission-control-tfsmrt/scripts/verify-sysadmin-template.ps1'
+            if (-not (Test-Path -LiteralPath $templatePath)) {
+                throw "Sysadmin verification wrapper template not found: $templatePath"
+            }
+            Copy-Item -LiteralPath $templatePath -Destination $verificationArtifactPath -Force
+        }
+
+        return [ordered]@{
+            verification_kind = $verificationKind
+            primary_deliverable_path = $primaryDeliverablePath
+            related_deliverable_paths = @($relatedDeliverables | ForEach-Object { $_.FullName })
+            verification_artifact_path = $verificationArtifactPath
+            judge_spec_path = if (Test-Path -LiteralPath $judgeSpecPath) { $judgeSpecPath } else { $null }
+        }
+    }
 
     if ($isDocsTaskClass -or (Test-MconVerificationTaskLooksLikeDocs -Task $Task)) {
         $verificationKind = 'documentation'
@@ -547,6 +587,14 @@ function Invoke-MconVerificationProcess {
             '-JudgeSpecPath', $VerificationPaths.judge_spec_path,
             '-EvidenceDir', $evidenceDir
         )
+    } elseif ($VerificationPaths.verification_kind -eq 'sysadmin_review') {
+        $command = @(
+            'pwsh', '-NoProfile', '-File', ('"' + $verificationScript + '"'),
+            '-TaskId', $TaskId,
+            '-ScriptPath', $VerificationPaths.primary_deliverable_path,
+            '-JudgeSpecPath', $VerificationPaths.judge_spec_path,
+            '-EvidenceDir', $evidenceDir
+        )
     } else {
         $command = @('pwsh', '-NoProfile', '-File', $verificationScript)
     }
@@ -584,7 +632,7 @@ function Invoke-MconVerificationProcess {
     }
 
     $passed = $false
-    if ($VerificationPaths.verification_kind -eq 'documentation' -and $parsedResult -and ($parsedResult.PSObject.Properties.Name -contains 'passed')) {
+    if (($VerificationPaths.verification_kind -eq 'documentation' -or $VerificationPaths.verification_kind -eq 'sysadmin_review') -and $parsedResult -and ($parsedResult.PSObject.Properties.Name -contains 'passed')) {
         $passed = [bool]$parsedResult.passed
     } else {
         $passed = ($exitCode -eq 0)
@@ -610,6 +658,10 @@ function Get-MconVerificationTaskClass {
 
     if ($VerificationPaths.verification_kind -eq 'documentation') {
         return 'docs_content'
+    }
+
+    if ($VerificationPaths.verification_kind -eq 'sysadmin_review') {
+        return 'sysadmin_script_review'
     }
 
     return 'code_deterministic'

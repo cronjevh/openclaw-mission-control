@@ -438,7 +438,7 @@ class TestSecurityHeaderDefaults:
         "_env_file": None,
         "auth_mode": "local",
         "local_auth_token": "x" * 50,
-        "base_url": "http://localhost:8000",
+        "base_url": "http://localhost:8002",
     }
 
     def test_config_has_nosniff_default(self) -> None:

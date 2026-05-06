@@ -59,14 +59,6 @@ Set `MC_UTILITY_JOB_SCRIPTS_JSON` to a JSON string:
 MC_UTILITY_JOB_SCRIPTS_JSON='{"daily_conversation_review":{"label":"Daily conversation review","description":"...","command":"/path/to/script.ps1"}}'
 ```
 
-### Default
-
-If neither variable is set, the MVP exposes a default `daily_conversation_review` script key pointing at:
-
-```text
-/home/cronjev/mission-control-tfsmrt/scripts/jobs/daily-conversation-review.ps1
-```
-
 ## Job Scope
 
 Jobs can be global, board-scoped, or board-agent-scoped.

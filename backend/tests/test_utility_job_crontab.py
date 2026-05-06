@@ -100,11 +100,11 @@ def test_script_options_file_precedence_over_env_json(
     assert opts[0]["key"] == "from_file"
 
 
-def test_script_options_default_when_nothing_set(
+def test_script_options_empty_when_nothing_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """With no env vars configured the allowlist is empty."""
     monkeypatch.delenv("MC_UTILITY_JOB_SCRIPTS_FILE", raising=False)
     monkeypatch.delenv("MC_UTILITY_JOB_SCRIPTS_JSON", raising=False)
 
-    opts = script_options()
-    assert any(o["key"] == "daily_conversation_review" for o in opts)
+    assert script_options() == []

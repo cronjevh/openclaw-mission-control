@@ -834,7 +834,7 @@ async def _wake_assigned_agent(session: AsyncSession, *, task: Task) -> None:
     gateway = await Gateway.objects.by_id(agent.gateway_id).first(session)
     if gateway is None or not gateway.url or not gateway.token:
         return
-    base_url = settings.base_url or "http://localhost:8000"
+    base_url = settings.base_url or "http://localhost:8002"
     group_id = task.board_group_id
     msg = (
         f"TASK ASSIGNED — ACT NOW\n"
@@ -898,7 +898,7 @@ async def _notify_group_agent_on_status_change(
         actor_name = actor.agent.name
     elif actor.user:
         actor_name = actor.user.name or "User"
-    base_url = settings.base_url or "http://localhost:8000"
+    base_url = settings.base_url or "http://localhost:8002"
     msg = (
         f"TASK STATUS CHANGED\n"
         f"Task: {task.title}\n"
@@ -1156,7 +1156,7 @@ async def create_group_task_comment(
                             actor.user.name if actor.user else
                             (actor.agent.name if actor.agent else "User")
                         )
-                        base_url = settings.base_url or "http://localhost:8000"
+                        base_url = settings.base_url or "http://localhost:8002"
                         msg = (
                             f"TASK COMMENT MENTION\n"
                             f"Task: {task.title}\n"

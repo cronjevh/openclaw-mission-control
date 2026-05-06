@@ -377,9 +377,9 @@ Statuses: inbox, in_progress, review, done, blocked
                     $dependsOn = $depList
                 }
                 if ([string]::IsNullOrWhiteSpace($taskClass)) {
-                    Write-MconError -Message '--task-class <TASK_CLASS> is required. Valid values: code_deterministic, design_exploratory, ops_integration, docs_content, component_test, workspace_config' -Code 'validation'
+                    Write-MconError -Message '--task-class <TASK_CLASS> is required. Valid values: code_deterministic, design_exploratory, ops_integration, docs_content, component_test, workspace_config, sysadmin_script_review' -Code 'validation'
                 }
-                $allowedTaskClasses = @('code_deterministic','design_exploratory','ops_integration','docs_content','component_test','workspace_config')
+                $allowedTaskClasses = @('code_deterministic','design_exploratory','ops_integration','docs_content','component_test','workspace_config','sysadmin_script_review')
                 if ($taskClass -notin $allowedTaskClasses) {
                     Write-MconError -Message "Invalid task_class '$taskClass'. Valid values: $($allowedTaskClasses -join ', ')" -Code 'validation'
                 }

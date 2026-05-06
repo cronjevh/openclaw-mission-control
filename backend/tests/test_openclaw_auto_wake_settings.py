@@ -8,7 +8,7 @@ def test_auto_wake_reprovision_kill_switch_defaults_off() -> None:
     settings = Settings(
         auth_mode=AuthMode.LOCAL,
         local_auth_token="x" * 50,
-        base_url="http://localhost:8000",
+        base_url="http://localhost:8002",
     )
 
     assert settings.openclaw_automatic_wake_reprovision_enabled is False

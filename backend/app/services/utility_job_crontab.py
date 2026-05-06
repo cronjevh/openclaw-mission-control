@@ -42,6 +42,11 @@ _DEFAULT_SCRIPT_OPTIONS: dict[str, dict[str, str | None]] = {
         "description": "Compile conversation context and create the daily review task.",
         "command": "/home/cronjev/mission-control-tfsmrt/scripts/jobs/daily-conversation-review.ps1",
     },
+    "sysadmin_orchestrator": {
+        "label": "Sysadmin orchestrator",
+        "description": "Run curated sudo scripts from the sysadmin directory tree (once/cadence/daily).",
+        "command": "/home/cronjev/mission-control-tfsmrt/scripts/jobs/sysadmin/orchestrator/run-sysadmin.sh",
+    },
 }
 
 

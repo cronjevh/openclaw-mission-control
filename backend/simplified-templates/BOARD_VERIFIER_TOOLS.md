@@ -11,25 +11,23 @@ Use `mcon` for Mission Control task inspection and verifier comments.
 
 ## Command Surface
 
-Use these commands:
+Use only these commands:
 
 ```bash
-mcon task show --task <TASK_ID>
-mcon task comment --task <TASK_ID> --message "<MARKDOWN>"
+mcon workflow rework --task <TASK_ID> --worker <ASSIGNED_AGENT_ID> --message <FEEDBACK>
 mcon verify run --task <TASK_ID>
+mcon task comment --task <TASK_ID> --message <FEEDBACK>
 ```
 
 Use `mcon help` only when command usage is unclear or validation fails.
 
 ## Expected Usage
 
-Inspect the assigned review task:
-
-```bash
-mcon task show --task <TASK_ID>
-```
+Inspect the assigned review task by reading taskData.json
 
 Post the verdict and handle the outcome:
+
+For PASS verdict, for example ( results and reason depends on the evaluation )
 
 ```bash
 mcon task comment --task <TASK_ID> --message "Verifier verdict: PASS
@@ -44,7 +42,7 @@ Reason: bundle shape and anti-cheat checks pass"
 mcon verify run --task <TASK_ID>
 ```
 
-For FAIL verdict, 
+For FAIL verdict, for example ( results and reason depends on the evaluation )
 
 ```bash
 mcon task comment --task <TASK_ID> --message "Verifier verdict: FAIL
@@ -56,7 +54,7 @@ Checks:
 - anti-cheat: fail
 Reason: script returns success without testing the real deliverable"
 
-mcon verify run --task <TASK_ID>
+mcon workflow rework --task <TASK_ID> --worker <ASSIGNED_AGENT_ID> --message <REASON>
 ```
 
 For documentation or planning tasks, treat:

@@ -95,6 +95,7 @@ export default function EditJobPage() {
     >
       {job ? (
         <UtilityJobForm
+          jobId={jobId}
           initialValues={{
             name: job.name,
             description: job.description ?? null,

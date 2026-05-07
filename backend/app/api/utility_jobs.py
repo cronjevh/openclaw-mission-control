@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from uuid import UUID
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlmodel import col, select
 
@@ -31,6 +32,7 @@ from app.services.utility_job_crontab import (
     script_options,
     validate_cron_expression,
     validate_script_key,
+    LOG_DIR,
 )
 
 if TYPE_CHECKING:
@@ -149,6 +151,34 @@ async def create_utility_job(
     )
     enqueue_utility_job_crontab(job.id)
     return UtilityJobRead.model_validate(job, from_attributes=True)
+
+
+@router.get("/{job_id}/logs", response_model=list[str])
+async def get_utility_job_logs(
+    job_id: UUID,
+    limit: int = Query(10, ge=1, le=100),
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = ORG_MEMBER_DEP,
+) -> list[str]:
+    """Get recent log entries for a utility job."""
+    job = await _require_org_job(session, job_id=job_id, ctx=ctx)
+    log_dir = Path(LOG_DIR)
+    prefix = f"job-{str(job.id)[:8]}."
+    log_files = []
+    if log_dir.exists():
+        for entry in log_dir.iterdir():
+            if entry.is_file() and entry.name.startswith(prefix) and entry.name.endswith(".log"):
+                log_files.append(entry)
+    if not log_files:
+        return []
+    log_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    latest_file = log_files[0]
+    try:
+        with latest_file.open("r", encoding="utf-8") as f:
+            lines = f.readlines()
+            return [line.rstrip("\n") for line in lines[-limit:]]
+    except Exception:
+        return []
 
 
 @router.get("/{job_id}", response_model=UtilityJobRead)

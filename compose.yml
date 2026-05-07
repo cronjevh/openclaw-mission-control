@@ -48,6 +48,7 @@ services:
       OPENCLAW_GATEWAY_DEVICE_IDENTITY_PATH: /app/identity/mission-control.json
       OPENCLAW_CONFIG_PATH: /app/openclaw/openclaw.json
       WORKSPACE_ROOT_REMAP: /home/cronjev/.openclaw=/app/openclaw
+      MC_UTILITY_JOB_LOG_DIR: /app/openclaw/logs/jobs
     volumes:
       - /home/cronjev/.openclaw/identity:/app/identity:rw
       - /home/cronjev/.openclaw:/app/openclaw:ro

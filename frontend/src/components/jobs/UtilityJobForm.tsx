@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 
 import type {
   AgentRead,
   BoardRead,
   UtilityJobScriptOption,
 } from "@/api/generated/model";
-import { ApiError } from "@/api/mutator";
+import { ApiError, customFetch } from "@/api/mutator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -42,6 +42,7 @@ type UtilityJobFormProps = {
   submittingLabel: string;
   onCancel: () => void;
   onSubmit: (values: UtilityJobFormValues) => Promise<void>;
+  jobId?: string;
 };
 
 const DEFAULT_VALUES: UtilityJobFormValues = {
@@ -74,6 +75,7 @@ export function UtilityJobForm({
   submittingLabel,
   onCancel,
   onSubmit,
+  jobId,
 }: UtilityJobFormProps) {
   const resolvedInitial = initialValues ?? DEFAULT_VALUES;
   const defaultScriptKey =
@@ -91,6 +93,39 @@ export function UtilityJobForm({
   const [scriptKey, setScriptKey] = useState(defaultScriptKey);
   const [argsText, setArgsText] = useState(stringifyArgs(resolvedInitial.args));
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const [logs, setLogs] = useState<string[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsError, setLogsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!jobId) {
+      setLogs([]);
+      setLogsError(null);
+      return;
+    }
+    const fetchLogs = async () => {
+      setLogsLoading(true);
+      setLogsError(null);
+      try {
+        const response: any = await customFetch(
+          `/api/v1/jobs/${jobId}/logs?limit=10`,
+          { method: "GET" }
+        );
+        if (response.status === 200 && response.data) {
+          setLogs(response.data as string[]);
+        } else {
+          setLogs([]);
+        }
+      } catch (e: any) {
+        setLogs([]);
+        setLogsError(e.message || 'Failed to fetch logs');
+      } finally {
+        setLogsLoading(false);
+      }
+    };
+    fetchLogs();
+  }, [jobId]);
 
   const boardAgents = useMemo(
     () =>
@@ -310,6 +345,29 @@ export function UtilityJobForm({
           disabled={isSubmitting}
         />
       </div>
+      {jobId && (
+        <div className="space-y-2">
+          <label className="text-xs font-semibold uppercase tracking-wider text-quiet">
+            Recent Logs
+          </label>
+          {logsError ? (
+            <div className="rounded-lg border border-[color:var(--danger-border)] bg-[color:var(--danger-soft)] p-3 text-sm text-danger">
+              {logsError}
+            </div>
+          ) : logsLoading ? (
+            <div className="text-sm text-quiet">Loading logs...</div>
+          ) : logs.length === 0 ? (
+            <div className="text-sm text-quiet">No logs available.</div>
+          ) : (
+            <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-3 text-sm font-mono max-h-40 overflow-y-auto">
+              {logs.map((line, idx) => (
+                <div key={idx}>{line}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
 
       {errorMessage ? (
         <div className="rounded-lg border border-[color:var(--danger-border)] bg-[color:var(--danger-soft)] p-3 text-sm text-danger">

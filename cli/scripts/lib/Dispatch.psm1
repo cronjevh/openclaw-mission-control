@@ -409,6 +409,100 @@ function Get-MconBoardVerifierAgents {
     )
 }
 
+function Invoke-MconTaskRequestBridge {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$WorkspacePath,
+        [Parameter(Mandatory)][string]$BoardId
+    )
+
+    $taskRequestsPath = Join-Path $WorkspacePath 'memory/task_requests.json'
+    if (-not (Test-Path -LiteralPath $taskRequestsPath)) {
+        return $false
+    }
+
+    $taskRequests = Get-Content -LiteralPath $taskRequestsPath -Raw | ConvertFrom-Json -Depth 20
+    if (-not $taskRequests.requests) {
+        return $false
+    }
+
+    $pendingRequests = @($taskRequests.requests | Where-Object { $_.status -eq 'pending' })
+    if ($pendingRequests.Count -eq 0) {
+        return $false
+    }
+
+    $requestTypes = $taskRequests.request_types
+    $createdAny = $false
+
+    foreach ($request in $pendingRequests) {
+        $reqType = $request.type
+        $typeDef = $requestTypes.PSObject.Properties.Name | Where-Object { $_ -eq $reqType } | ForEach-Object { $requestTypes.$_ }
+
+        if (-not $typeDef) {
+            $request.status = 'failed'
+            $request | Add-Member -NotePropertyName 'error_message' -NotePropertyValue "Unknown request type: $reqType" -Force
+            continue
+        }
+
+        # Validate required fields
+        $payload = $request.payload
+        $missingFields = @()
+        foreach ($field in $typeDef.required_fields) {
+            if (-not ($payload.PSObject.Properties.Name -contains $field) -or [string]::IsNullOrEmpty($payload.$field)) {
+                $missingFields += $field
+            }
+        }
+
+        if ($missingFields.Count -gt 0) {
+            $request.status = 'failed'
+            $request | Add-Member -NotePropertyName 'error_message' -NotePropertyValue "Missing required fields: $($missingFields -join ', ')" -Force
+            continue
+        }
+
+        # Build task title from template
+        $taskTitle = $typeDef.task_title_template
+        if ($taskTitle) {
+            foreach ($prop in $payload.PSObject.Properties) {
+                $taskTitle = $taskTitle -replace "\{$($prop.Name)\}", [string]$prop.Value
+            }
+        } else {
+            $taskTitle = "Task from request: $($request.id)"
+        }
+
+        # Determine task class
+        $taskClass = if ($typeDef.task_class) { $typeDef.task_class } else { 'ops_integration' }
+
+        # Create the board task using mcon
+        try {
+            $createOutput = & mcon task create --board $BoardId --title $taskTitle --task-class $taskClass 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                throw "mcon task create failed: $createOutput"
+            }
+
+            # Parse task ID from output (mcon returns JSON)
+            $createdTask = $createOutput | ConvertFrom-Json -ErrorAction SilentlyContinue
+            if ($createdTask -and $createdTask.id) {
+                $request.status = 'searching'
+                $request.board_task_id = $createdTask.id
+                $request.updated_at = (Get-Date).ToUniversalTime().ToString('o')
+                $createdAny = $true
+            } else {
+                throw "Could not parse task ID from mcon output"
+            }
+        } catch {
+            $request.status = 'failed'
+            $request | Add-Member -NotePropertyName 'error_message' -NotePropertyValue "Task creation failed: $_" -Force
+        }
+    }
+
+    if ($createdAny) {
+        # Write updated task_requests.json back
+        $taskRequests | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $taskRequestsPath -Encoding UTF8
+    }
+
+    return $createdAny
+}
+
 function Invoke-MconDispatch {
     [CmdletBinding()]
     param(
@@ -461,6 +555,13 @@ function Invoke-MconDispatch {
             $boardRoster = Read-MconAgentRoster -BoardId $boardId
             if (-not $boardRoster) {
                 Write-Warning "agent-roster.json not found for board $boardId; falling back to API. Run 'mcon admin gettokens' to cache the roster."
+            }
+
+            # Check for pending task requests and create board tasks
+            $leadWorkspacePath = Get-MconLeadWorkspacePath -BoardId $boardId
+            $requestsCreated = Invoke-MconTaskRequestBridge -WorkspacePath $leadWorkspacePath -BoardId $boardId
+            if ($requestsCreated) {
+                Start-Sleep -Seconds 3
             }
 
             $reviewUri = "$baseUrl/api/v1/agent/boards/$encodedBoardId/tasks?status=review"
@@ -625,4 +726,4 @@ function Invoke-MconDispatch {
     }
 }
 
-Export-ModuleMember -Function Invoke-MconDispatch, New-MconDispatchResult, Get-MconResponseItems, Write-MconDispatchState, Get-MconDispatchStatePath, Get-MconLeadWorkspacePath, Read-MconAgentRoster, Test-MconTaskDependencyBlocked
+Export-ModuleMember -Function Invoke-MconDispatch, Invoke-MconTaskRequestBridge, New-MconDispatchResult, Get-MconResponseItems, Write-MconDispatchState, Get-MconDispatchStatePath, Get-MconLeadWorkspacePath, Read-MconAgentRoster, Test-MconTaskDependencyBlocked
